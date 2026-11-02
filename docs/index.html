@@ -5,128 +5,175 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>loupe results</title>
-<meta name="description" content="Does text hidden on a web page reach an AI agent that reads it? Results from 5 pages.">
+<meta name="description" content="Does text hidden on a web page reach the AI agent that reads it? Results from 5 pages.">
 <style>
 :root {
-  color-scheme: light dark;
-  --surface: #ffffff; --panel: #f2f3f5; --ink: #191c21; --ink-2: #434951; --muted: #585f68;
-  --link: #1c4d8f; --rule: #d5d9de; --grid: #e4e7ea; --accent: #2a78d6; --block: #5b636d; --focus: #1c4d8f;
-  --serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, serif;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+  --paper: #f6f2e9; --sheet: #fffdf8; --ink: #1d1a15; --ink-2: #47423a; --muted: #5f594e;
+  --rule: #d8d0bf; --faint: #e9e3d6; --accent: #5a2fd1; --accent-ink: #4a23b8; --wash: #e6defb;
+  --missed: #6e675b; --unchecked: #ddd6c7; --focus: #5a2fd1;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --step-0: clamp(1rem, 0.96rem + 0.2vw, 1.125rem);
+  --step-1: clamp(1.2rem, 1.1rem + 0.5vw, 1.45rem);
+  --step-2: clamp(1.45rem, 1.2rem + 1.2vw, 2.05rem);
+  --step-3: clamp(2.1rem, 1.5rem + 3vw, 3.6rem);
+  --measure: 38rem;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface: #15171b; --panel: #1f2227; --ink: #e9ebee; --ink-2: #c1c6cd; --muted: #9da4ad;
-    --link: #9cc2f4; --rule: #363b42; --grid: #2a2e34; --accent: #3987e5; --block: #8a929c; --focus: #9cc2f4;
-  }
+:root:has(#theme:checked) {
+  color-scheme: dark;
+  --paper: #18161e; --sheet: #221f2a; --ink: #eeeaf3; --ink-2: #cdc7d8; --muted: #a9a2b6;
+  --rule: #3d3849; --faint: #2a2633; --accent: #b9a5ff; --accent-ink: #cbbcff; --wash: #3b2f68;
+  --missed: #8f88a0; --unchecked: #3a3545; --focus: #cbbcff;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--surface); color: var(--ink); font: 1.0625rem/1.62 var(--serif); }
-a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 0.16em; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: var(--step-0)/1.65 var(--serif);
+  font-variant-numeric: lining-nums proportional-nums; }
+@media (prefers-reduced-motion: no-preference) {
+  body { transition: background-color 160ms ease-out, color 160ms ease-out; }
+}
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
 a:hover { text-decoration-thickness: 2px; }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-code { font: 0.875em/1.4 var(--mono); overflow-wrap: anywhere; }
-.wrap { max-width: 64rem; margin: 0 auto; padding: 0 1rem; }
-.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.skip { position: absolute; left: 1rem; top: -3rem; padding: 0.4rem 0.8rem; background: var(--surface);
-  font: 0.9375rem/1.4 var(--sans); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+code { font: 0.86em/1.4 var(--mono); overflow-wrap: anywhere; }
+h1, h2, h3 { text-wrap: balance; }
+.vh, .theme-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  white-space: nowrap; margin: 0; }
+.page { max-width: 68rem; margin: 0 auto; padding: 0 1rem; }
+@media (min-width: 48rem) { .page { padding: 0 2rem; } }
+
+.skip { position: absolute; left: 1rem; top: -4rem; padding: 0.6rem 0.9rem; background: var(--sheet); color: var(--ink); }
 .skip:focus { top: 0.5rem; }
 
-.site-header { border-bottom: 1px solid var(--rule); font-family: var(--sans); }
-.site-header .wrap { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
-  gap: 0.25rem 1.5rem; padding-top: 0.9rem; padding-bottom: 0.9rem; }
-.wordmark { font-weight: 650; font-size: 1.0625rem; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }
-.site-header ul { display: flex; gap: 1.25rem; margin: 0; padding: 0; list-style: none; font-size: 0.9375rem; }
-.site-header nav a { color: var(--ink-2); text-decoration: none; }
-.site-header nav a:hover { color: var(--ink); text-decoration: underline; }
+.masthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem;
+  padding: 0.5rem 0; border-bottom: 1px solid var(--rule); }
+.wordmark { font-size: 1.25rem; font-weight: 700; font-style: italic; color: var(--ink); text-decoration: none;
+  letter-spacing: -0.01em; min-height: 44px; display: inline-flex; align-items: center; }
+.masthead-links { display: flex; align-items: center; gap: 0.25rem 1rem; }
+.masthead-links a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink-2); }
+.theme-toggle { min-height: 44px; display: inline-flex; align-items: center; gap: 0.5rem; padding: 0 0.85rem;
+  border: 1px solid var(--missed); border-radius: 999px; cursor: pointer; color: var(--ink); background: var(--sheet);
+  font-size: 0.9375rem; }
+.theme-toggle:hover { border-color: var(--ink); }
+:root:has(#theme:focus-visible) .theme-toggle { outline: 2px solid var(--focus); outline-offset: 3px; }
+.theme-toggle svg { width: 1.05rem; height: 1.05rem; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; }
+.theme-toggle .when-light, .theme-toggle .when-dark { align-items: center; gap: 0.45rem; }
+.theme-toggle .when-light { display: inline-flex; }
+.theme-toggle .when-dark { display: none; }
+:root:has(#theme:checked) .theme-toggle .when-light { display: none; }
+:root:has(#theme:checked) .theme-toggle .when-dark { display: inline-flex; }
 
-h1 { font: 600 clamp(1.8rem, 1.2rem + 2.4vw, 2.5rem)/1.12 var(--serif); letter-spacing: -0.015em;
-  max-width: 22em; margin: 2.5rem 0 0.9rem; text-wrap: balance; }
-h2 { font: 600 1.45rem/1.25 var(--serif); margin: 3.25rem 0 0.75rem; letter-spacing: -0.01em; }
-h3 { font: 600 1rem/1.35 var(--sans); margin: 0 0 0.4rem; }
-.lede { font-size: 1.1875rem; line-height: 1.55; color: var(--ink-2); max-width: 36em; margin: 0 0 1rem; }
-.byline { font: 0.9375rem/1.5 var(--sans); color: var(--muted); margin: 0; }
-.prose { max-width: 40em; margin: 0 0 1rem; }
+.intro { padding: clamp(2rem, 1rem + 5vw, 4.5rem) 0 clamp(1.5rem, 1rem + 2vw, 2.5rem); }
+h1 { font-size: var(--step-3); line-height: 1.06; letter-spacing: -0.022em; font-weight: 700;
+  max-width: 17em; margin: 0 0 1.25rem; }
+.lede { font-size: var(--step-1); line-height: 1.5; color: var(--ink-2); max-width: var(--measure); margin: 0 0 1rem; }
+.byline { margin: 0; color: var(--muted); font-style: italic; }
 
-.headline { margin-top: 2.5rem; max-width: 44em; border-left: 3px solid var(--accent); padding: 0.1rem 0 0.1rem 1.25rem; }
-.headline .big { font: 600 clamp(1.25rem, 1rem + 1vw, 1.6rem)/1.35 var(--serif); margin: 0 0 0.75rem; }
-.headline .sub { color: var(--ink-2); margin: 0; max-width: 40em; }
-
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; counter-reset: none; }
-@media (min-width: 48rem) { .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.25rem; } }
-.steps li { position: relative; border-top: 2px solid var(--ink); padding-top: 0.75rem; font-family: var(--sans); }
-@media (min-width: 48rem) {
-  .steps li:not(:last-child)::after { content: ""; position: absolute; top: -2px; right: -2.25rem; width: 2.25rem;
-    border-top: 2px dashed var(--rule); }
-}
-.steps p { margin: 0; color: var(--ink-2); font-size: 0.9375rem; line-height: 1.55; }
-.step-number { display: inline-block; font: 600 0.8125rem/1 var(--sans); color: var(--muted); margin-bottom: 0.35rem; }
-
-.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
-@media (min-width: 48rem) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.card { border: 1px solid var(--rule); border-radius: 8px; padding: 1rem 1.1rem; font-family: var(--sans); }
-.card h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; font-size: 1rem;
+.example { margin: 0 0 clamp(3rem, 2rem + 4vw, 5.5rem); }
+.sides { display: grid; gap: 1rem; }
+@media (min-width: 48rem) { .sides { grid-template-columns: 1fr 1fr; gap: 1.5rem; } }
+.side { margin: 0; }
+.side figcaption { font-size: var(--step-1); font-weight: 700; margin: 0 0 0.6rem; }
+.side.ai figcaption { color: var(--accent-ink); }
+.screen { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px;
+  padding: clamp(1rem, 0.8rem + 1vw, 1.5rem); min-height: 15rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.side.ai .screen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.line { display: block; height: 0.6rem; border-radius: 3px; background: var(--faint); margin: 0 0 0.55rem; }
+.line.l1 { width: 92%; } .line.l2 { width: 74%; } .line.l3 { width: 86%; } .line.l4 { width: 58%; }
+.hole { margin: 0; flex: 1; min-height: 4.5rem; display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--missed); border-radius: 6px; color: var(--muted); font-style: italic; font-size: 0.95rem; }
+.revealed { margin: 0; flex: 1; min-height: 4.5rem; display: flex; align-items: center; padding: 0.75rem 0.9rem;
+  border-radius: 6px; background: var(--wash); }
+.revealed mark { background: none; color: var(--ink); font: 500 clamp(0.95rem, 0.9rem + 0.3vw, 1.08rem)/1.5 var(--mono);
   overflow-wrap: anywhere; }
-.badge { font: 600 0.75rem/1.4 var(--sans); color: var(--ink); border: 1px solid var(--ink-2); border-radius: 4px;
-  padding: 0 0.4rem; }
-.stats { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; margin: 0.6rem 0 0.75rem; }
-.stats dt { font-size: 0.8125rem; color: var(--muted); }
-.stats dd { margin: 0; font: 600 1.6rem/1.2 var(--sans); font-variant-numeric: tabular-nums; }
-.note { margin: 0.6rem 0 0; font-size: 0.875rem; line-height: 1.5; color: var(--muted); }
+.example-source { max-width: var(--measure); margin: 1rem 0 0; color: var(--ink-2); }
 
-.bar { display: flex; height: 0.85rem; border: 1px solid var(--rule); border-radius: 3px; overflow: hidden;
-  background: var(--surface); }
+section { margin: 0 0 clamp(3rem, 2rem + 4vw, 5rem); }
+h2 { font-size: var(--step-2); line-height: 1.18; letter-spacing: -0.012em; font-weight: 700;
+  max-width: 24em; margin: 0 0 0.9rem; }
+h3 { font-size: var(--step-0); line-height: 1.35; font-weight: 700; margin: 0 0 0.35rem; }
+.measure { max-width: var(--measure); margin: 0 0 1.5rem; color: var(--ink-2); }
+
+.methods { list-style: none; margin: 0; padding: 0; max-width: 52rem; border-top: 2px solid var(--ink); }
+.method { display: grid; gap: 0.4rem 2rem; padding: 0.95rem 0; border-bottom: 1px solid var(--rule); }
+@media (min-width: 48rem) { .method { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: center; } }
+.method-name { display: block; font-weight: 700; }
+.method-meaning { display: block; color: var(--muted); font-size: 0.94rem; line-height: 1.5; }
+.method-result { display: grid; gap: 0.35rem; }
+.ratio { font-variant-numeric: lining-nums tabular-nums; }
+.ratio b { font-size: 1.2em; }
+.meter { display: block; height: 0.9rem; border-radius: 3px; border: 1.5px solid var(--ink-2); background: transparent;
+  overflow: hidden; }
+.meter .fill { display: block; height: 100%; background: var(--accent); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; list-style: none; margin: 0 0 1.1rem; padding: 0;
+  color: var(--ink-2); font-size: 0.95rem; }
+.legend li { display: inline-flex; align-items: center; gap: 0.5rem; }
+.swatch { display: inline-block; width: 0.95rem; height: 0.95rem; border-radius: 3px; }
+.swatch.reached, .seg.reached { background: var(--accent); }
+.swatch.missed, .seg.missed { background: var(--missed); }
+.swatch.unchecked, .seg.unchecked { background: var(--unchecked); }
+.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.9rem; }
+@media (min-width: 40rem) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 64rem) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 1rem 1.1rem 1.1rem; }
+.card.control { background: transparent; border-style: dashed; }
+.card h3 { overflow-wrap: anywhere; }
+.card h3 a { color: var(--ink); display: inline-flex; align-items: center; min-height: 44px; }
+.control-note, .card-note { margin: 0.35rem 0 0.6rem; color: var(--muted); font-size: 0.92rem; line-height: 1.5; }
+.card-note { margin: 0.6rem 0 0; }
+.card-stats { margin: 0.2rem 0 0.6rem; color: var(--ink-2); font-variant-numeric: lining-nums tabular-nums; }
+.card-stats b { color: var(--ink); font-size: 1.15em; }
+.strip { display: flex; height: 0.7rem; border-radius: 3px; overflow: hidden; background: var(--unchecked); }
 .seg { display: block; height: 100%; }
-.seg.in, .swatch.in { background: var(--accent); }
-.seg.out, .swatch.out { background: var(--block); }
-.seg.na, .swatch.na { background: var(--grid); }
-.key { display: flex; flex-wrap: wrap; gap: 0.2rem 1.1rem; margin: 0.45rem 0 0; padding: 0; list-style: none;
-  font: 0.8125rem/1.45 var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.key li { display: inline-flex; align-items: center; gap: 0.4rem; }
-.swatch { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; border: 1px solid var(--rule); }
+.card-counts { margin: 0.45rem 0 0; font-size: 0.92rem; color: var(--ink-2); font-variant-numeric: lining-nums tabular-nums; }
 
-.kinds { list-style: none; margin: 0; padding: 0; max-width: 44em; }
-.kind { padding: 0.9rem 0; border-bottom: 1px solid var(--grid); font-family: var(--sans); }
-.kind-head { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
-.kind-name { font-weight: 600; }
-.kind-total { font-size: 0.875rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.kind .meaning { margin: 0.1rem 0 0.5rem; font-size: 0.875rem; line-height: 1.5; color: var(--muted); }
+.process { max-width: var(--measure); margin: 0; padding-left: 1.4rem; }
+.process li { margin: 0 0 0.7rem; padding-left: 0.3rem; }
+.process li::marker { font-weight: 700; color: var(--accent-ink); }
 
-.glossary { margin: 0; max-width: 44em; }
-.glossary div { padding: 0.7rem 0; border-bottom: 1px solid var(--grid); }
-.glossary dt { font: 600 1rem/1.4 var(--sans); }
-.glossary dd { margin: 0.15rem 0 0; color: var(--ink-2); }
-
-.caveats { list-style: none; margin: 0; padding: 0; max-width: 44em; }
-.caveats > li { padding: 0.9rem 0; border-bottom: 1px solid var(--grid); }
+.caveats { list-style: none; margin: 0; padding: 0; max-width: 44rem; }
+.caveats > li { padding: 1rem 0; border-top: 1px solid var(--rule); }
 .caveats p { margin: 0; color: var(--ink-2); }
-.matches { list-style: none; margin: 0.75rem 0 0; padding: 0; font-family: var(--sans); font-size: 0.875rem; }
-.matches li { padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; background: var(--panel); border-radius: 6px; }
-.matches .where, .matches .phrase { display: block; color: var(--muted); font-size: 0.8125rem; }
-.matches q { display: block; color: var(--ink); overflow-wrap: anywhere; }
+.matches { list-style: none; margin: 0.9rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.matches li { padding: 0.6rem 0.8rem; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; }
+.page-text { display: block; font: 0.9rem/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.match-where { display: block; margin-top: 0.2rem; font-size: 0.88rem; color: var(--muted); font-style: italic; }
 
-.site-footer { border-top: 1px solid var(--rule); margin-top: 3.5rem; padding: 1.5rem 0 2.5rem;
-  font: 0.8125rem/1.6 var(--sans); color: var(--ink-2); }
-.site-footer p { margin: 0 0 0.4rem; overflow-wrap: anywhere; }
+.glossary { margin: 0; max-width: 44rem; display: grid; gap: 0; }
+.glossary div { padding: 0.85rem 0; border-top: 1px solid var(--rule); }
+@media (min-width: 48rem) { .glossary div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 1.5rem; } }
+.glossary dt { font-weight: 700; }
+.glossary dd { margin: 0; color: var(--ink-2); }
+
+.colophon { border-top: 1px solid var(--rule); padding: 1.5rem 0 2.5rem; color: var(--muted); font-size: 0.92rem; }
+.colophon p { margin: 0 0 0.4rem; max-width: var(--measure); }
 </style>
 </head>
 <body>
+<input type="checkbox" id="theme" class="theme-input">
 <a class="skip" href="#main">Skip to the results</a>
-<header class="site-header"><div class="wrap">
+<div class="page">
+<header class="masthead">
 <a class="wordmark" href="https://github.com/devfrankduah/loupe">loupe</a>
-<nav aria-label="Site"><ul><li><a href="https://github.com/devfrankduah/loupe">Code</a></li><li><a href="https://github.com/devfrankduah/loupe#readme">README</a></li></ul></nav>
-</div></header>
-<main id="main" class="wrap">
-<h1>Does text hidden on a web page reach an AI agent that reads it?</h1>
-<p class="lede">loupe fetches real web pages, finds the text a person looking at the page can't see, and checks whether that text is still there in the version an AI agent is given to read.</p>
-<p class="byline">Frank Duah, run on 2 November 2026, 5 pages</p>
-<section class="headline" aria-labelledby="headline"><h2 id="headline" class="vh">The finding</h2><p class="big">Text hidden with the <code>hidden</code> attribute or <code>display:none</code> mostly still reached the markdown an agent reads: <b>7 of 8</b>. HTML comments never did: <b>0 of 14</b>.</p><p class="sub">Markdown is the cleaned-up text version of a page that many agent tools hand to the model, Bright Data's own scraping tool among them. So the second number is good news, and the first means hiding text with markup does not keep it away from the model. The counts leave out text too short to compare fairly.</p></section><section aria-labelledby="how"><h2 id="how">How it works</h2><ol class="steps"><li><span class="step-number">1</span><h3>Fetch the page twice</h3><p>loupe asks Bright Data for the raw HTML and, separately, for the markdown version, the same two requests Bright Data's own agent tools make.</p></li><li><span class="step-number">2</span><h3>Find what a reader can't see</h3><p>It reads the HTML for comments, hidden elements, image and link descriptions, meta tags and noscript blocks, and notes any that sound like orders to an AI.</p></li><li><span class="step-number">3</span><h3>Look for it in the markdown</h3><p>For each piece of hidden text, it checks whether the same words, in the same order, appear in the markdown an agent would read.</p></li></ol></section><section aria-labelledby="pages"><h2 id="pages">Page by page</h2><p class="prose">Each bar splits that page's hidden findings by what happened to them in the markdown. "Not compared" means the text was too short to match fairly, or the markdown wasn't available.</p><ul class="cards"><li class="card"><h3><a href="https://example.com">example.com</a><span class="badge">Control</span></h3><p class="note">A reserved example page with nothing to hide, so anything found here is the scanner's background noise.</p><dl class="stats"><div><dt>Hidden findings</dt><dd>1</dd></div><div><dt>Sound like orders to an AI</dt><dd>0</dd></div></dl><div class="bar" aria-hidden="true"><span class="seg out" style="width:100.00%"></span></div><ul class="key"><li><span class="swatch in"></span>0 in the markdown</li><li><span class="swatch out"></span>1 not in the markdown</li><li><span class="swatch na"></span>0 not compared</li></ul><p class="note">The markdown fetch failed the first time and worked on one retry.</p></li><li class="card"><h3><a href="https://en.wikipedia.org/wiki/Prompt_injection">en.wikipedia.org/wiki/Prompt_injection</a></h3><dl class="stats"><div><dt>Hidden findings</dt><dd>273</dd></div><div><dt>Sound like orders to an AI</dt><dd>5</dd></div></dl><div class="bar" aria-hidden="true"><span class="seg in" style="width:59.71%"></span><span class="seg out" style="width:9.52%"></span><span class="seg na" style="width:30.77%"></span></div><ul class="key"><li><span class="swatch in"></span>163 in the markdown</li><li><span class="swatch out"></span>26 not in the markdown</li><li><span class="swatch na"></span>84 not compared</li></ul><p class="note">The markdown fetch failed the first time and worked on one retry. 34 findings longer than their saved quotes couldn't be compared on the retry.</p></li><li class="card"><h3><a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">genai.owasp.org/llmrisk/llm01-prompt-injection</a></h3><dl class="stats"><div><dt>Hidden findings</dt><dd>52</dd></div><div><dt>Sound like orders to an AI</dt><dd>0</dd></div></dl><div class="bar" aria-hidden="true"><span class="seg in" style="width:9.62%"></span><span class="seg out" style="width:50.00%"></span><span class="seg na" style="width:40.38%"></span></div><ul class="key"><li><span class="swatch in"></span>5 in the markdown</li><li><span class="swatch out"></span>26 not in the markdown</li><li><span class="swatch na"></span>21 not compared</li></ul></li><li class="card"><h3><a href="https://github.com/brightdata/brightdata-mcp">github.com/brightdata/brightdata-mcp</a></h3><dl class="stats"><div><dt>Hidden findings</dt><dd>302</dd></div><div><dt>Sound like orders to an AI</dt><dd>0</dd></div></dl><div class="bar" aria-hidden="true"><span class="seg in" style="width:19.54%"></span><span class="seg out" style="width:56.62%"></span><span class="seg na" style="width:23.84%"></span></div><ul class="key"><li><span class="swatch in"></span>59 in the markdown</li><li><span class="swatch out"></span>171 not in the markdown</li><li><span class="swatch na"></span>72 not compared</li></ul></li><li class="card"><h3><a href="https://frankduah.me">frankduah.me</a></h3><dl class="stats"><div><dt>Hidden findings</dt><dd>147</dd></div><div><dt>Sound like orders to an AI</dt><dd>5</dd></div></dl><div class="bar" aria-hidden="true"><span class="seg in" style="width:21.09%"></span><span class="seg out" style="width:40.82%"></span><span class="seg na" style="width:38.10%"></span></div><ul class="key"><li><span class="swatch in"></span>31 in the markdown</li><li><span class="swatch out"></span>60 not in the markdown</li><li><span class="swatch na"></span>56 not compared</li></ul></li></ul></section><section aria-labelledby="kinds"><h2 id="kinds">What happened to each kind of hidden text</h2><ul class="kinds"><li class="kind"><div class="kind-head"><span class="kind-name">Marked hidden</span><span class="kind-total">6 found</span></div><p class="meaning">The hidden attribute tells the browser not to draw the element at all.</p><div class="bar" aria-hidden="true"><span class="seg in" style="width:83.33%"></span><span class="seg out" style="width:16.67%"></span></div><ul class="key"><li><span class="swatch in"></span>5 in the markdown</li><li><span class="swatch out"></span>1 not in the markdown</li><li><span class="swatch na"></span>0 not compared</li></ul></li><li class="kind"><div class="kind-head"><span class="kind-name">Hidden by inline style</span><span class="kind-total">50 found</span></div><p class="meaning">Styling written on the element itself: display:none, invisible, zero size, zero opacity, or moved off-screen.</p><div class="bar" aria-hidden="true"><span class="seg in" style="width:54.00%"></span><span class="seg out" style="width:26.00%"></span><span class="seg na" style="width:20.00%"></span></div><ul class="key"><li><span class="swatch in"></span>27 in the markdown</li><li><span class="swatch out"></span>13 not in the markdown</li><li><span class="swatch na"></span>10 not compared</li></ul></li><li class="kind"><div class="kind-head"><span class="kind-name">HTML comments</span><span class="kind-total">34 found</span></div><p class="meaning">Notes left in the page source. Browsers never show them.</p><div class="bar" aria-hidden="true"><span class="seg out" style="width:41.18%"></span><span class="seg na" style="width:58.82%"></span></div><ul class="key"><li><span class="swatch in"></span>0 in the markdown</li><li><span class="swatch out"></span>14 not in the markdown</li><li><span class="swatch na"></span>20 not compared</li></ul></li><li class="kind"><div class="kind-head"><span class="kind-name">aria-hidden</span><span class="kind-total">41 found</span></div><p class="meaning">Hidden from screen readers only. Sighted readers usually still see it.</p><div class="bar" aria-hidden="true"><span class="seg in" style="width:26.83%"></span><span class="seg out" style="width:7.32%"></span><span class="seg na" style="width:65.85%"></span></div><ul class="key"><li><span class="swatch in"></span>11 in the markdown</li><li><span class="swatch out"></span>3 not in the markdown</li><li><span class="swatch na"></span>27 not compared</li></ul></li><li class="kind"><div class="kind-head"><span class="kind-name">alt, title and aria-label</span><span class="kind-total">533 found</span></div><p class="meaning">Descriptions attached to images, links and buttons. Shown on hover or read aloud, if at all.</p><div class="bar" aria-hidden="true"><span class="seg in" style="width:39.77%"></span><span class="seg out" style="width:35.27%"></span><span class="seg na" style="width:24.95%"></span></div><ul class="key"><li><span class="swatch in"></span>212 in the markdown</li><li><span class="swatch out"></span>188 not in the markdown</li><li><span class="swatch na"></span>133 not compared</li></ul></li><li class="kind"><div class="kind-head"><span class="kind-name">Meta tags</span><span class="kind-total">111 found</span></div><p class="meaning">Information about the page for search engines and link previews.</p><div class="bar" aria-hidden="true"><span class="seg in" style="width:2.70%"></span><span class="seg out" style="width:58.56%"></span><span class="seg na" style="width:38.74%"></span></div><ul class="key"><li><span class="swatch in"></span>3 in the markdown</li><li><span class="swatch out"></span>65 not in the markdown</li><li><span class="swatch na"></span>43 not compared</li></ul></li></ul></section><section aria-labelledby="caveats"><h2 id="caveats">What I'm not sure about</h2><ul class="caveats"><li><h3>Sounding like an order isn't the same as being one</h3><p>loupe flags text that contains phrases such as &ldquo;you are&rdquo; or &ldquo;assistant&rdquo;. That caught 10 pieces of text in this run. Here they are, so you can judge them yourself:</p><ul class="matches"><li><span class="where">en.wikipedia.org, title</span><q>You are encouraged to create an account and log in; however, it is not mandatory</q><span class="phrase">matched you are</span></li><li><span class="where">en.wikipedia.org, title</span><q>You are encouraged to create an account and log in; however, it is not mandatory</q><span class="phrase">matched you are</span></li><li><span class="where">en.wikipedia.org, title</span><q>Gemini (language model)</q><span class="phrase">matched language model</span></li><li><span class="where">en.wikipedia.org, title</span><q>Large language model</q><span class="phrase">matched language model</span></li><li><span class="where">en.wikipedia.org, title</span><q>Edit section: System prompt</q><span class="phrase">matched system prompt</span></li><li><span class="where">frankduah.me, opacity:0</span><q>06 / 08 Device-Aware RAG Assistant</q><span class="phrase">matched assistant</span></li><li><span class="where">frankduah.me, opacity:0</span><q>06 2026 / Author Device-Aware RAG Assistant Offline-first retrieval that pick...</q><span class="phrase">matched assistant</span></li><li><span class="where">frankduah.me, opacity:0</span><q>Runs the whole question and answer loop on the reader&#x27;s own device. Nothing i...</q><span class="phrase">matched assistant</span></li><li><span class="where">frankduah.me, aria-label</span><q>Device-Aware RAG Assistant links</q><span class="phrase">matched assistant</span></li><li><span class="where">frankduah.me, aria-label</span><q>AI-PR-Assistant links</q><span class="phrase">matched assistant</span></li></ul></li><li><h3>Some &ldquo;hidden&rdquo; text is only waiting to fade in</h3><p>48 of the 50 inline-style findings are <code>opacity:0</code>, 48 of them on frankduah.me. That's how scroll-in animations start: the page arrives invisible and JavaScript fades it in, so people do see it. loupe doesn't run JavaScript, so it can't tell the difference.</p></li><li><h3>The two versions come from two services</h3><p>Bright Data serves the HTML through Web Unlocker and the markdown through its Fetch API. If the two services received slightly different versions of a page, a difference could come from that and not from the markdown conversion.</p></li><li><h3>&ldquo;In the markdown&rdquo; means the words appear there</h3><p>It doesn't prove they got there from the hidden element. A link's description often repeats the link's visible text, so it would match either way.</p></li></ul></section><section aria-labelledby="glossary"><h2 id="glossary">Words used here</h2><dl class="glossary"><div><dt>HTML comment</dt><dd>A note in a page's source code, written between <code>&lt;!--</code> and <code>--&gt;</code>. Browsers skip it, but anything that reads the raw source sees it.</dd></div><div><dt>aria-hidden</dt><dd>A marker that tells screen readers to skip an element. It doesn't hide anything from people looking at the screen.</dd></div><div><dt>Markdown</dt><dd>A plain-text format with light symbols for headings, links and lists. Agent tools often turn a page into markdown before giving it to a model, because it's shorter than HTML.</dd></div><div><dt>Prompt injection</dt><dd>Text written to make an AI model follow instructions its user never gave, for example "ignore your previous instructions". Hiding that text on a web page is one way to deliver it.</dd></div></dl></section>
+<div class="masthead-links">
+<a href="https://github.com/devfrankduah/loupe">Code</a>
+<label for="theme" class="theme-toggle"><span class="when-light"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Dark mode</span><span class="when-dark"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>Light mode</span></label>
+</div>
+</header>
+<main id="main">
+<div class="intro">
+<h1>A web page can hide text from you and still hand it to the AI reading it.</h1>
+<p class="lede">loupe fetches real pages, finds the text a person looking at them can't see, and checks whether that text is still there in the version an AI agent is given to read.</p>
+<p class="byline">Frank Duah, measured on 2 November 2026 across 5 pages</p>
+</div>
+<section class="example" aria-labelledby="example-title"><h2 id="example-title" class="vh">One real example</h2><div class="sides"><figure class="side"><figcaption>What a person sees</figcaption><div class="screen"><div aria-hidden="true"><span class="line l1"></span><span class="line l2"></span></div><p class="hole">Nothing shows here.</p><div aria-hidden="true"><span class="line l3"></span><span class="line l4"></span></div></div></figure><figure class="side ai"><figcaption>What an AI reads</figcaption><div class="screen"><div aria-hidden="true"><span class="line l1"></span><span class="line l2"></span></div><p class="revealed"><mark>You can’t perform that action at this time.</mark></p><div aria-hidden="true"><span class="line l3"></span><span class="line l4"></span></div></div></figure></div><p class="example-source">A real line from github.com. It sits in an element marked <code>hidden</code>, so the browser never draws it, yet it was still in the markdown version of the page that an AI agent is given.</p></section><section class="result" aria-labelledby="result-title"><h2 id="result-title">Text marked hidden mostly reached the AI: 7 of 8. HTML comments never did: 0 of 14.</h2><p class="measure">Each row is one way a page can hide text. The bar is the share that was still there in the markdown, out of the findings long enough to compare fairly.</p><ul class="methods"><li class="method"><div class="method-text"><span class="method-name">Marked hidden, or set to display:none</span><span class="method-meaning">The page tells the browser not to draw this part at all.</span></div><div class="method-result"><span class="ratio"><b>7</b> of 8 reached the AI</span><span class="meter" aria-hidden="true"><span class="fill" style="width:87.50%"></span></span></div></li><li class="method"><div class="method-text"><span class="method-name">Faded to invisible</span><span class="method-meaning">Set to zero opacity. Often the first frame of an animation that fades in later.</span></div><div class="method-result"><span class="ratio"><b>25</b> of 38 reached the AI</span><span class="meter" aria-hidden="true"><span class="fill" style="width:65.79%"></span></span></div></li><li class="method"><div class="method-text"><span class="method-name">Hidden from screen readers</span><span class="method-meaning">aria-hidden. Sighted readers usually still see this text.</span></div><div class="method-result"><span class="ratio"><b>11</b> of 14 reached the AI</span><span class="meter" aria-hidden="true"><span class="fill" style="width:78.57%"></span></span></div></li><li class="method"><div class="method-text"><span class="method-name">Image and link descriptions</span><span class="method-meaning">alt, title and aria-label text, shown on hover or read aloud, if at all.</span></div><div class="method-result"><span class="ratio"><b>212</b> of 400 reached the AI</span><span class="meter" aria-hidden="true"><span class="fill" style="width:53.00%"></span></span></div></li><li class="method"><div class="method-text"><span class="method-name">Page information</span><span class="method-meaning">Meta tags written for search engines and link previews.</span></div><div class="method-result"><span class="ratio"><b>3</b> of 68 reached the AI</span><span class="meter" aria-hidden="true"><span class="fill" style="width:4.41%"></span></span></div></li><li class="method"><div class="method-text"><span class="method-name">HTML comments</span><span class="method-meaning">Notes left in the page source. Browsers never show them.</span></div><div class="method-result"><span class="ratio"><b>0</b> of 14 reached the AI</span><span class="meter" aria-hidden="true"><span class="fill" style="width:0.00%"></span></span></div></li></ul></section><section aria-labelledby="pages-title"><h2 id="pages-title">Page by page</h2><ul class="legend"><li><span class="swatch reached"></span>Reached the AI</li><li><span class="swatch missed"></span>Did not</li><li><span class="swatch unchecked"></span>Not compared (too short, or no markdown)</li></ul><ul class="cards"><li class="card control"><h3><a href="https://example.com">example.com</a></h3><p class="control-note">The control: a reserved example page with nothing to hide, so anything found here is background noise.</p><p class="card-stats"><b>1</b> hidden findings, <b>0</b> sound like an order to an AI</p><span class="strip" aria-hidden="true"><span class="seg missed" style="width:100.00%"></span></span><p class="card-counts">0 reached the AI, 1 did not, 0 not compared</p><p class="card-note">The markdown fetch failed once and worked on a single retry.</p></li><li class="card"><h3><a href="https://en.wikipedia.org/wiki/Prompt_injection">en.wikipedia.org/wiki/Prompt_injection</a></h3><p class="card-stats"><b>273</b> hidden findings, <b>5</b> sound like an order to an AI</p><span class="strip" aria-hidden="true"><span class="seg reached" style="width:59.71%"></span><span class="seg missed" style="width:9.52%"></span><span class="seg unchecked" style="width:30.77%"></span></span><p class="card-counts">163 reached the AI, 26 did not, 84 not compared</p><p class="card-note">The markdown fetch failed once and worked on a single retry. 34 longer findings couldn't be compared after it.</p></li><li class="card"><h3><a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">genai.owasp.org/llmrisk/llm01-prompt-injection</a></h3><p class="card-stats"><b>52</b> hidden findings, <b>0</b> sound like an order to an AI</p><span class="strip" aria-hidden="true"><span class="seg reached" style="width:9.62%"></span><span class="seg missed" style="width:50.00%"></span><span class="seg unchecked" style="width:40.38%"></span></span><p class="card-counts">5 reached the AI, 26 did not, 21 not compared</p></li><li class="card"><h3><a href="https://github.com/brightdata/brightdata-mcp">github.com/brightdata/brightdata-mcp</a></h3><p class="card-stats"><b>302</b> hidden findings, <b>0</b> sound like an order to an AI</p><span class="strip" aria-hidden="true"><span class="seg reached" style="width:19.54%"></span><span class="seg missed" style="width:56.62%"></span><span class="seg unchecked" style="width:23.84%"></span></span><p class="card-counts">59 reached the AI, 171 did not, 72 not compared</p></li><li class="card"><h3><a href="https://frankduah.me">frankduah.me</a></h3><p class="card-stats"><b>147</b> hidden findings, <b>5</b> sound like an order to an AI</p><span class="strip" aria-hidden="true"><span class="seg reached" style="width:21.09%"></span><span class="seg missed" style="width:40.82%"></span><span class="seg unchecked" style="width:38.10%"></span></span><p class="card-counts">31 reached the AI, 60 did not, 56 not compared</p></li></ul></section><section aria-labelledby="method-title"><h2 id="method-title">How loupe checks a page</h2><ol class="process"><li>It asks Bright Data for the page twice: once as raw HTML, once as the markdown an AI agent is usually given. These are the same two requests Bright Data's own agent tools make.</li><li>It reads the HTML for anything a person won't see: comments, hidden elements, image and link descriptions, meta tags and noscript blocks. It also notes text that sounds like an order to an AI.</li><li>For each hidden piece, it checks whether the same words, in the same order, are in the markdown.</li></ol></section><section aria-labelledby="caveats-title"><h2 id="caveats-title">What I'm not sure about</h2><ul class="caveats"><li><h3>Sounding like an order isn't the same as being one</h3><p>loupe flags hidden text containing phrases such as &ldquo;you are&rdquo; or &ldquo;assistant&rdquo;. That caught 10 pieces of text in this run. Here they are, so you can judge them:</p><ul class="matches"><li><q class="page-text">You are encouraged to create an account and log in; however, it is not mandatory</q><span class="match-where">en.wikipedia.org, matched &ldquo;you are&rdquo;</span></li><li><q class="page-text">You are encouraged to create an account and log in; however, it is not mandatory</q><span class="match-where">en.wikipedia.org, matched &ldquo;you are&rdquo;</span></li><li><q class="page-text">Gemini (language model)</q><span class="match-where">en.wikipedia.org, matched &ldquo;language model&rdquo;</span></li><li><q class="page-text">Large language model</q><span class="match-where">en.wikipedia.org, matched &ldquo;language model&rdquo;</span></li><li><q class="page-text">Edit section: System prompt</q><span class="match-where">en.wikipedia.org, matched &ldquo;system prompt&rdquo;</span></li><li><q class="page-text">06 / 08 Device-Aware RAG Assistant</q><span class="match-where">frankduah.me, matched &ldquo;assistant&rdquo;</span></li><li><q class="page-text">06 2026 / Author Device-Aware RAG Assistant Offline-first retrieval that pick...</q><span class="match-where">frankduah.me, matched &ldquo;assistant&rdquo;</span></li><li><q class="page-text">Runs the whole question and answer loop on the reader&#x27;s own device. Nothing i...</q><span class="match-where">frankduah.me, matched &ldquo;assistant&rdquo;</span></li><li><q class="page-text">Device-Aware RAG Assistant links</q><span class="match-where">frankduah.me, matched &ldquo;assistant&rdquo;</span></li><li><q class="page-text">AI-PR-Assistant links</q><span class="match-where">frankduah.me, matched &ldquo;assistant&rdquo;</span></li></ul></li><li><h3>Some &ldquo;hidden&rdquo; text is only waiting to fade in</h3><p>48 of the 50 findings hidden by inline style are set to zero opacity, 48 of them on frankduah.me. That's how scroll-in animations start: the text arrives invisible and JavaScript fades it in, so people do see it. loupe doesn't run JavaScript, so it can't tell the difference.</p></li><li><h3>The two versions come from two services</h3><p>Bright Data serves the HTML through Web Unlocker and the markdown through its Fetch API. If they received slightly different copies of a page, a difference could come from that and not from the markdown conversion.</p></li><li><h3>&ldquo;Reached the AI&rdquo; means the words appear in the markdown</h3><p>It doesn't prove they got there from the hidden element. A link's description often repeats the link's visible text, so it would match either way.</p></li></ul></section><section aria-labelledby="glossary-title"><h2 id="glossary-title">Words used here</h2><dl class="glossary"><div><dt>HTML comment</dt><dd>A note in a page's source code, written between <code>&lt;!--</code> and <code>--&gt;</code>. Browsers skip it, but anything reading the raw source sees it.</dd></div><div><dt>aria-hidden</dt><dd>A marker that tells screen readers to skip an element. It hides nothing from people looking at the screen.</dd></div><div><dt>Markdown</dt><dd>A plain-text format with light symbols for headings, links and lists. Agent tools often turn a page into markdown before giving it to a model, because it's much shorter than HTML.</dd></div><div><dt>Prompt injection</dt><dd>Text written to make an AI model follow instructions its user never gave, such as &ldquo;ignore your previous instructions&rdquo;. Hiding it on a web page is one way to deliver it.</dd></div></dl></section>
 </main>
-<footer class="site-footer"><div class="wrap">
-<p>Built by Frank Duah. The code, the tests and the raw results are at <a href="https://github.com/devfrankduah/loupe">github.com/devfrankduah/loupe</a>.</p>
-<p>Quoted page text comes from the results file, which keeps short quotes. The pages themselves aren't stored.</p>
-</div></footer>
+<footer class="colophon">
+<p>The code, the tests and the raw results are at <a href="https://github.com/devfrankduah/loupe">github.com/devfrankduah/loupe</a>. Quoted page text comes from the results file, which keeps short quotes; the pages themselves aren't stored.</p>
+</footer>
+</div>
 </body>
 </html>
