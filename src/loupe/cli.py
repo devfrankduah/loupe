@@ -1,4 +1,4 @@
-"""Command line entry point: loupe <url> [<url> ...]"""
+"""Command line entry points: loupe <url> [<url> ...] and loupe report <results.json> -o <page.html>"""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from loupe.fetch import (
 )
 from loupe.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
 from loupe.scan import scan_html
+from loupe.site import ReportFormatError, load_results, render_report_page, run_date_from_filename
 
 EXIT_OK = 0
 EXIT_FETCH_FAILED = 1
@@ -82,8 +83,44 @@ def scan_page(client: BrightDataClient, url: str, *, fetch_markdown: bool) -> Pa
     return page
 
 
+def _build_report_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="loupe report",
+        description="Turn a results JSON file into one self-contained HTML page.",
+    )
+    parser.add_argument("results", type=Path, help="JSON written by loupe --json")
+    parser.add_argument("-o", "--output", type=Path, required=True, metavar="PATH", help="HTML file to write")
+    return parser
+
+
+def report_main(argv: Sequence[str]) -> int:
+    arguments = _build_report_parser().parse_args(argv)
+    try:
+        pages = load_results(arguments.results.read_text(encoding="utf-8"))
+    except OSError as error:
+        print(f"loupe report: could not read {arguments.results}: {error.strerror}", file=sys.stderr)
+        return EXIT_USAGE
+    except ReportFormatError as error:
+        print(f"loupe report: {arguments.results}: {error}", file=sys.stderr)
+        return EXIT_USAGE
+
+    page_html = render_report_page(pages, run_date_from_filename(arguments.results))
+    try:
+        arguments.output.parent.mkdir(parents=True, exist_ok=True)
+        arguments.output.write_text(page_html, encoding="utf-8")
+    except OSError as error:
+        print(f"loupe report: could not write {arguments.output}: {error.strerror}", file=sys.stderr)
+        return EXIT_USAGE
+    print(f"wrote {arguments.output}")
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    arguments = _build_parser().parse_args(argv)
+    raw_arguments = list(sys.argv[1:] if argv is None else argv)
+    # A page URL always starts with a scheme, so a bare "report" can only be the subcommand.
+    if raw_arguments[:1] == ["report"]:
+        return report_main(raw_arguments[1:])
+    arguments = _build_parser().parse_args(raw_arguments)
 
     try:
         token = read_token_from_environment()

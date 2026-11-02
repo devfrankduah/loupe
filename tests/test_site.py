@@ -1,0 +1,163 @@
+from __future__ import annotations
+
+import datetime
+import json
+from html.parser import HTMLParser
+from pathlib import Path
+
+import pytest
+
+from loupe import cli
+from loupe.site import ReportFormatError, load_results, render_report_page, run_date_from_filename
+
+HOSTILE_TEXT = '<script>alert("x")</script><img src=x onerror="alert(1)">'
+
+
+def _finding(kind: str, detail: str, text: str, in_markdown: bool | None, phrases: list[str] | None = None) -> dict[str, object]:
+    return {
+        "kind": kind,
+        "detail": detail,
+        "tag": "div",
+        "text": text,
+        "text_characters": len(text),
+        "instruction_phrases": phrases or [],
+        "in_markdown": in_markdown,
+    }
+
+
+def _page(url: str, findings: list[dict[str, object]], **extra: object) -> dict[str, object]:
+    page: dict[str, object] = {"url": url, "html_error": None, "markdown_error": None, "findings": findings}
+    page.update(extra)
+    return page
+
+
+def _results(*pages: dict[str, object]) -> str:
+    return json.dumps({"loupe_version": "0.1.0", "pages": list(pages)})
+
+
+class _ElementCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[str] = []
+        self.attribute_names: list[str] = []
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.append(tag)
+        for name, value in attrs:
+            self.attribute_names.append(name)
+            if name == "href" and value is not None:
+                self.hrefs.append(value)
+
+
+def _parse(page_html: str) -> _ElementCollector:
+    collector = _ElementCollector()
+    collector.feed(page_html)
+    return collector
+
+
+def test_text_from_fetched_pages_is_inert_in_the_output() -> None:
+    hostile_page = _page(
+        'https://evil.test/"><script>alert(2)</script>',
+        [
+            _finding("comment", HOSTILE_TEXT, HOSTILE_TEXT, False, ["you are"]),
+            _finding("inline-style", "display:none", HOSTILE_TEXT, True, ["assistant"]),
+        ],
+        markdown_error=HOSTILE_TEXT,
+    )
+    page_html = render_report_page(load_results(_results(hostile_page)))
+    parsed = _parse(page_html)
+
+    assert "script" not in parsed.tags
+    assert "img" not in parsed.tags
+    assert not [name for name in parsed.attribute_names if name.startswith("on")]
+    assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in page_html
+
+
+def test_only_http_urls_become_links() -> None:
+    page_html = render_report_page(load_results(_results(_page("javascript:alert(1)", []))))
+    assert not [href for href in _parse(page_html).hrefs if href.startswith("javascript:")]
+
+
+def test_page_makes_no_external_requests() -> None:
+    page_html = render_report_page(load_results(_results(_page("https://a.test/", []))))
+    parsed = _parse(page_html)
+    assert not {"script", "img", "link", "iframe"} & set(parsed.tags)
+    assert "src" not in parsed.attribute_names
+    assert "default-src 'none'" in page_html
+
+
+def test_headline_counts_hidden_elements_and_comments() -> None:
+    long_text = "a hidden sentence long enough to compare"
+    results = _results(
+        _page(
+            "https://a.test/",
+            [
+                _finding("hidden-attribute", "hidden", long_text, True),
+                _finding("inline-style", "display:none, opacity:0", long_text, True),
+                _finding("inline-style", "opacity:0", long_text, True),
+                _finding("inline-style", "display:none", long_text, False),
+                _finding("comment", "<!-- -->", long_text, False),
+                _finding("comment", "<!-- -->", "short", None),
+            ],
+        )
+    )
+    page_html = render_report_page(load_results(results))
+    assert "mostly still reached the markdown an agent reads: <b>2 of 3</b>" in page_html
+    assert "HTML comments never did: <b>0 of 1</b>" in page_html
+
+
+def test_example_domains_are_marked_as_the_control() -> None:
+    results = _results(_page("https://example.com", []), _page("https://a.test/", []))
+    assert render_report_page(load_results(results)).count('class="badge">Control<') == 1
+
+
+def test_retry_and_fetch_errors_are_explained_on_the_card() -> None:
+    results = _results(
+        _page("https://a.test/", [], markdown_retry={"first_error": "x", "retry_error": None,
+                                                     "not_compared_because_text_was_cut": 34}),
+        _page("https://b.test/", [], html_error="HTTP 500"),
+    )
+    page_html = render_report_page(load_results(results))
+    assert "worked on one retry. 34 findings" in page_html
+    assert "The HTML could not be fetched: HTTP 500" in page_html
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "not json",
+        "[]",
+        '{"pages": []}',
+        '{"pages": [{"url": "https://a.test/"}]}',
+        _results(_page("https://a.test/", [_finding("made-up", "x", "y", None)])),
+        _results(_page("https://a.test/", [_finding("comment", "x", "y", None)], markdown_retry="yes")),
+        _results(_page("https://a.test/", [], markdown_retry={"not_compared_because_text_was_cut": -1})),
+        _results(_page("https://a.test/", [], markdown_retry={"not_compared_because_text_was_cut": "3"})),
+    ],
+)
+def test_malformed_results_are_rejected(document: str) -> None:
+    with pytest.raises(ReportFormatError):
+        load_results(document)
+
+
+def test_run_date_comes_from_an_iso_filename() -> None:
+    assert run_date_from_filename(Path("results/2026-11-02.json")) == datetime.date(2026, 11, 2)
+    assert run_date_from_filename(Path("results/latest.json")) is None
+
+
+def test_report_command_writes_the_page(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    results_path = tmp_path / "2026-11-02.json"
+    results_path.write_text(_results(_page("https://example.com", [])), encoding="utf-8")
+    output_path = tmp_path / "docs" / "index.html"
+
+    assert cli.main(["report", str(results_path), "-o", str(output_path)]) == cli.EXIT_OK
+    assert "run on 2 November 2026, 1 page" in output_path.read_text(encoding="utf-8")
+
+
+def test_report_command_rejects_a_bad_results_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    results_path = tmp_path / "bad.json"
+    results_path.write_text("{}", encoding="utf-8")
+    assert cli.main(["report", str(results_path), "-o", str(tmp_path / "out.html")]) == cli.EXIT_USAGE
+    assert "missing 'pages'" in capsys.readouterr().err
+    assert not (tmp_path / "out.html").exists()
