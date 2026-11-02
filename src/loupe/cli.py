@@ -17,12 +17,22 @@ from loupe.fetch import (
     MissingTokenError,
     read_token_from_environment,
 )
-from loupe.report import PageReport, check_findings, page_to_dict, render_text
+from loupe.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
 from loupe.scan import scan_html
 
 EXIT_OK = 0
 EXIT_FETCH_FAILED = 1
 EXIT_USAGE = 2
+
+
+def _non_negative_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole number: {value!r}") from None
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be 0 or more")
+    return number
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,6 +49,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--skip-markdown", action="store_true", help="scan the HTML only and skip the markdown comparison"
+    )
+    parser.add_argument(
+        "--quote-chars",
+        type=_non_negative_int,
+        default=DEFAULT_QUOTE_CHARACTERS,
+        metavar="N",
+        help=f"cut quoted hidden text to N characters, 0 for no limit (default: {DEFAULT_QUOTE_CHARACTERS})",
     )
     parser.add_argument("--version", action="version", version=f"loupe {__version__}")
     return parser
@@ -82,11 +99,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     for url in arguments.urls:
         page = scan_page(client, url, fetch_markdown=not arguments.skip_markdown)
         pages.append(page)
-        print(render_text(page), flush=True)
+        print(render_text(page, arguments.quote_chars), flush=True)
         print()
 
     if arguments.json is not None:
-        report = {"loupe_version": __version__, "pages": [page_to_dict(page) for page in pages]}
+        report = {"loupe_version": __version__, "pages": [page_to_dict(page, arguments.quote_chars) for page in pages]}
         try:
             arguments.json.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         except OSError as error:

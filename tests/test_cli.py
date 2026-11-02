@@ -77,3 +77,24 @@ def test_skip_markdown_never_requests_markdown(
 ) -> None:
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
     assert cli.main(["https://example.com/cake", "--skip-markdown"]) == cli.EXIT_OK
+
+
+def test_quoted_text_is_cut_to_the_requested_length(
+    monkeypatch: pytest.MonkeyPatch, planted_html: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _install_fake_client(monkeypatch, FakeClient(planted_html, None))
+    output_path = tmp_path / "report.json"
+
+    cli.main(["https://example.com/cake", "--skip-markdown", "--quote-chars", "20", "--json", str(output_path)])
+
+    findings = json.loads(output_path.read_text(encoding="utf-8"))["pages"][0]["findings"]
+    assert all(len(finding["text"]) <= 20 for finding in findings)
+    assert any(finding["text_characters"] > 20 for finding in findings)
+    assert "PLANTED" not in capsys.readouterr().out
+
+
+def test_negative_quote_limit_is_a_usage_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_client(monkeypatch, FakeClient("<p>x</p>", None))
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["https://example.com/", "--quote-chars", "-1"])
+    assert caught.value.code == 2

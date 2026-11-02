@@ -9,7 +9,7 @@ from typing import Final
 from loupe.scan import Finding, Kind
 from loupe.survival import MarkdownIndex
 
-PREVIEW_CHARACTERS: Final[int] = 160
+DEFAULT_QUOTE_CHARACTERS: Final[int] = 160
 
 
 @dataclass(frozen=True)
@@ -51,10 +51,15 @@ def check_findings(findings: list[Finding], markdown: str | None) -> list[Checke
     return [CheckedFinding(finding, index.contains(finding.text)) for finding in findings]
 
 
-def _preview(text: str) -> str:
-    if len(text) <= PREVIEW_CHARACTERS:
+def quote(text: str, limit: int) -> str:
+    """Cut text to at most limit characters, marking the cut. A limit of 0 keeps it whole."""
+    if limit < 0:
+        raise ValueError("quote limit must not be negative")
+    if limit == 0 or len(text) <= limit:
         return text
-    return text[: PREVIEW_CHARACTERS - 3].rstrip() + "..."
+    if limit <= 3:
+        return text[:limit]
+    return text[: limit - 3].rstrip() + "..."
 
 
 def _survival_label(in_markdown: bool | None) -> str:
@@ -65,7 +70,7 @@ def _survival_label(in_markdown: bool | None) -> str:
     return "not compared"
 
 
-def page_to_dict(page: PageReport) -> dict[str, object]:
+def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> dict[str, object]:
     return {
         "url": page.url,
         "html_characters": page.html_characters,
@@ -80,7 +85,8 @@ def page_to_dict(page: PageReport) -> dict[str, object]:
                 "kind": item.finding.kind.value,
                 "detail": item.finding.detail,
                 "tag": item.finding.tag,
-                "text": item.finding.text,
+                "text": quote(item.finding.text, quote_limit),
+                "text_characters": len(item.finding.text),
                 "instruction_phrases": list(item.finding.instruction_phrases),
                 "in_markdown": item.in_markdown,
             }
@@ -89,7 +95,7 @@ def page_to_dict(page: PageReport) -> dict[str, object]:
     }
 
 
-def render_text(page: PageReport) -> str:
+def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> str:
     lines = [page.url]
     if page.html_error is not None:
         lines.append(f"  error: {page.html_error}")
@@ -117,5 +123,5 @@ def render_text(page: PageReport) -> str:
             f"    [{finding.kind.value}: {finding.detail}] <{finding.tag}> "
             f"matched {phrases}; {_survival_label(item.in_markdown)}"
         )
-        lines.append(f"      {_preview(finding.text)}")
+        lines.append(f"      {quote(finding.text, quote_limit)}")
     return "\n".join(lines)
