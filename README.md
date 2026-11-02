@@ -91,9 +91,11 @@ The markdown for example.com and Wikipedia failed on the first pass with `HTTP 4
 
 ## Report
 
-[docs/index.html](docs/index.html) is the same results written for someone who doesn't read HTML: the headline finding, how loupe works, a card per page, what happened to each kind of hidden text, and what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-02.json`. Download it and open it in a browser; GitHub shows the source rather than the page.
+[docs/index.html](docs/index.html) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-02.json`, with a light and a dark mode. Download it and open it in a browser; GitHub shows the source rather than the page.
 
-![The top of the report page](docs/screenshot.png)
+![The report page on a desktop, light mode](docs/screenshot-desktop.png)
+
+<img src="docs/screenshot-phone.png" alt="The report page on a phone" width="300">
 
 ## Does hidden text reach an agent that reads markdown?
 
