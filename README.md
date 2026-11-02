@@ -34,6 +34,12 @@ Options:
 
 The exit code is 0 when every fetch worked, 1 when any fetch failed, and 2 for usage errors such as a missing token.
 
+To turn a saved run into a web page:
+
+```
+loupe report results/2026-11-02.json -o docs/index.html
+```
+
 Tests run offline against local fixtures and don't need a token:
 
 ```
@@ -82,6 +88,12 @@ The control produced one finding, the `viewport` meta tag, and nothing instructi
 None of the 10 instruction-like findings is an attack. On Wikipedia they're link `title` attributes: "You are encouraged to create an account and log in" (twice), "Gemini (language model)", "Large language model" and "Edit section: System prompt". On my own site all five match "assistant" in the name of one of my projects, the Device-Aware RAG Assistant.
 
 The markdown for example.com and Wikipedia failed on the first pass with `HTTP 400: Customer is not active`. I had created the `mcp_unlocker` zone moments before, and the account seemed to need a moment to activate. I retried those two markdown fetches once each and both worked, so the run made 12 requests. I hadn't kept the full text of the findings from the first pass, only the 80-character quotes, so on the retry I compared only findings of 80 characters or less (where the quote is the whole text). The 34 longer Wikipedia findings are counted as not compared.
+
+## Report
+
+[docs/index.html](docs/index.html) is the same results written for someone who doesn't read HTML: the headline finding, how loupe works, a card per page, what happened to each kind of hidden text, and what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-02.json`. Download it and open it in a browser; GitHub shows the source rather than the page.
+
+![The top of the report page](docs/screenshot.png)
 
 ## Does hidden text reach an agent that reads markdown?
 
