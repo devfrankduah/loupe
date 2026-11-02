@@ -323,9 +323,29 @@ def _safe_href(url: str) -> str | None:
     return _escape(url) if urlsplit(url).scheme in ("http", "https") else None
 
 
+# Long enough for "/wiki/Prompt_injection"; longer paths lose their middle.
+CARD_PATH_CHARACTERS: Final[int] = 24
+
+
+def shorten_middle(text: str, limit: int) -> str:
+    """Keep the start and end of text, joined by an ellipsis, so it fits in limit characters."""
+    if limit < 3:
+        raise ValueError("limit must leave room for both ends")
+    if len(text) <= limit:
+        return text
+    keep = limit - 1
+    head = keep // 2
+    tail = keep - head
+    return f"{text[:head]}\u2026{text[-tail:]}"
+
+
 def _page_label(page: PageRecord) -> str:
+    """The card heading: the domain in full, then the path cut down in the middle."""
+    host = f'<span class="card-host">{_escape(page.host)}</span>'
     path = urlsplit(page.url).path.rstrip("/")
-    return f"{page.host}{path}" if path else page.host
+    if not path:
+        return host
+    return f'{host}<span class="card-path">{_escape(shorten_middle(path, CARD_PATH_CHARACTERS))}</span>'
 
 
 def _percent(part: int, whole: int) -> str:
@@ -426,9 +446,10 @@ def _strip(counts: Tally) -> str:
 
 
 def _page_card(page: PageRecord) -> str:
-    label = _escape(_page_label(page))
+    label = _page_label(page)
     href = _safe_href(page.url)
-    title = f'<a href="{href}">{label}</a>' if href else label
+    full_url = _escape(page.url)
+    title = f'<a href="{href}" title="{full_url}">{label}</a>' if href else f'<span title="{full_url}">{label}</span>'
     parts = [f'<li class="card{" control" if page.is_control else ""}"><h3>{title}</h3>']
     if page.is_control:
         parts.append(
@@ -684,8 +705,10 @@ h3 { font-size: var(--step-0); line-height: 1.35; font-weight: 700; margin: 0 0 
 @media (min-width: 64rem) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 1rem 1.1rem 1.1rem; }
 .card.control { background: transparent; border-style: dashed; }
-.card h3 { overflow-wrap: anywhere; }
-.card h3 a { color: var(--ink); display: inline-flex; align-items: center; min-height: 44px; }
+.card h3 a { color: var(--ink); display: inline-flex; flex-direction: column; justify-content: center;
+  min-height: 44px; max-width: 100%; }
+.card-host, .card-path { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-path { font-weight: 400; color: var(--ink-2); font-size: 0.94rem; }
 .control-note, .card-note { margin: 0.35rem 0 0.6rem; color: var(--muted); font-size: 0.92rem; line-height: 1.5; }
 .card-note { margin: 0.6rem 0 0; }
 .card-stats { margin: 0.2rem 0 0.6rem; color: var(--ink-2); font-variant-numeric: lining-nums tabular-nums; }

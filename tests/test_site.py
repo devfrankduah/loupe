@@ -16,6 +16,7 @@ from loupe.site import (
     load_results,
     render_report_page,
     run_date_from_filename,
+    shorten_middle,
 )
 
 HOSTILE_TEXT = '<script>alert("x")</script><img src=x onerror="alert(1)">'
@@ -236,3 +237,33 @@ def test_theme_toggle_works_without_javascript() -> None:
     assert ":root:has(#theme:checked)" in page_html
     assert ".theme-toggle .when-dark { display: none; }" in page_html
     assert "script" not in parsed.tags
+
+
+@pytest.mark.parametrize(
+    ("text", "limit", "expected"),
+    [
+        ("/wiki/Prompt_injection", 24, "/wiki/Prompt_injection"),
+        ("/llmrisk/llm01-prompt-injection", 24, "/llmrisk/ll…pt-injection"),
+        ("abcdefghij", 5, "ab…ij"),
+    ],
+)
+def test_shorten_middle(text: str, limit: int, expected: str) -> None:
+    result = shorten_middle(text, limit)
+    assert result == expected
+    assert len(result) <= limit
+
+
+def test_shorten_middle_rejects_a_limit_too_small_for_both_ends() -> None:
+    with pytest.raises(ValueError):
+        shorten_middle("abcdef", 2)
+
+
+def test_card_heading_shortens_the_path_keeps_the_full_url_and_stays_escaped() -> None:
+    url = "https://genai.owasp.org/llmrisk/llm01-prompt-injection/<script>alert(1)</script>"
+    page_html = render_report_page(load_results(_results(_page(url, []))))
+    card = page_html[page_html.index('<li class="card">') :]
+
+    assert '<span class="card-host">genai.owasp.org</span>' in card
+    assert "…" in card[: card.index("</h3>")]
+    assert 'title="https://genai.owasp.org/llmrisk/llm01-prompt-injection/&lt;script&gt;' in card
+    assert "script" not in _parse(page_html).tags
