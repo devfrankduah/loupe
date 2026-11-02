@@ -8,7 +8,15 @@ from pathlib import Path
 import pytest
 
 from loupe import cli
-from loupe.site import ReportFormatError, load_results, render_report_page, run_date_from_filename
+from loupe.site import (
+    HIDING_METHODS,
+    ReportFormatError,
+    choose_example,
+    group_by_method,
+    load_results,
+    render_report_page,
+    run_date_from_filename,
+)
 
 HOSTILE_TEXT = '<script>alert("x")</script><img src=x onerror="alert(1)">'
 
@@ -103,13 +111,12 @@ def test_headline_counts_hidden_elements_and_comments() -> None:
         )
     )
     page_html = render_report_page(load_results(results))
-    assert "mostly still reached the markdown an agent reads: <b>2 of 3</b>" in page_html
-    assert "HTML comments never did: <b>0 of 1</b>" in page_html
+    assert "Text marked hidden mostly reached the AI: 2 of 3. HTML comments never did: 0 of 1." in page_html
 
 
 def test_example_domains_are_marked_as_the_control() -> None:
     results = _results(_page("https://example.com", []), _page("https://a.test/", []))
-    assert render_report_page(load_results(results)).count('class="badge">Control<') == 1
+    assert render_report_page(load_results(results)).count('<li class="card control">') == 1
 
 
 def test_retry_and_fetch_errors_are_explained_on_the_card() -> None:
@@ -119,7 +126,7 @@ def test_retry_and_fetch_errors_are_explained_on_the_card() -> None:
         _page("https://b.test/", [], html_error="HTTP 500"),
     )
     page_html = render_report_page(load_results(results))
-    assert "worked on one retry. 34 findings" in page_html
+    assert "worked on a single retry. 34 longer findings" in page_html
     assert "The HTML could not be fetched: HTTP 500" in page_html
 
 
@@ -152,7 +159,7 @@ def test_report_command_writes_the_page(tmp_path: Path, capsys: pytest.CaptureFi
     output_path = tmp_path / "docs" / "index.html"
 
     assert cli.main(["report", str(results_path), "-o", str(output_path)]) == cli.EXIT_OK
-    assert "run on 2 November 2026, 1 page" in output_path.read_text(encoding="utf-8")
+    assert "measured on 2 November 2026 across one page" in output_path.read_text(encoding="utf-8")
 
 
 def test_report_command_rejects_a_bad_results_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -161,3 +168,71 @@ def test_report_command_rejects_a_bad_results_file(tmp_path: Path, capsys: pytes
     assert cli.main(["report", str(results_path), "-o", str(tmp_path / "out.html")]) == cli.EXIT_USAGE
     assert "missing 'pages'" in capsys.readouterr().err
     assert not (tmp_path / "out.html").exists()
+
+
+def _example_html(page_html: str) -> str:
+    start = page_html.index('<section class="example"')
+    return page_html[start : page_html.index("</section>", start)]
+
+
+def test_example_panel_shows_hostile_text_inert() -> None:
+    results = _results(_page("https://evil.test/", [_finding("hidden-attribute", "hidden", HOSTILE_TEXT, True)]))
+    panel = _example_html(render_report_page(load_results(results)))
+    parsed = _parse(panel)
+
+    assert "What a person sees" in panel and "What an AI reads" in panel
+    assert "&lt;script&gt;" in panel
+    assert not {"script", "img"} & set(parsed.tags)
+    assert not [name for name in parsed.attribute_names if name.startswith("on")]
+
+
+def test_example_prefers_a_complete_quote_over_a_longer_cut_one() -> None:
+    cut = _finding("inline-style", "display:none", "x" * 80, True)
+    cut["text_characters"] = 500
+    complete = _finding("hidden-attribute", "hidden", "You can't perform that action at this time.", True)
+    dropped = _finding("hidden-attribute", "hidden", "a complete sentence that never reached the markdown", False)
+    faded = _finding("inline-style", "opacity:0", "a faded sentence that did reach the markdown", True)
+    pages = load_results(_results(_page("https://a.test/", [cut, dropped, faded]), _page("https://b.test/", [complete])))
+
+    chosen = choose_example(pages)
+    assert chosen is not None
+    page, finding = chosen
+    assert (page.host, finding.text) == ("b.test", "You can't perform that action at this time.")
+
+
+def test_without_a_surviving_hidden_element_the_panel_says_so() -> None:
+    results = _results(_page("https://a.test/", [_finding("comment", "<!-- -->", "a comment long enough", False)]))
+    assert "No text hidden with the hidden attribute or display:none reached the markdown" in render_report_page(
+        load_results(results)
+    )
+
+
+def test_every_finding_is_counted_under_exactly_one_hiding_method() -> None:
+    text = "long enough to be compared"
+    findings = [
+        _finding("hidden-attribute", "hidden", text, True),
+        _finding("inline-style", "display:none, opacity:0", text, True),
+        _finding("inline-style", "opacity:0", text, False),
+        _finding("inline-style", "font-size:0", text, False),
+        _finding("aria-hidden", 'aria-hidden="true"', text, None),
+        _finding("label-attribute", "alt", text, True),
+        _finding("meta", "name=description", text, False),
+        _finding("comment", "<!-- -->", text, False),
+        _finding("noscript", "<noscript>", text, True),
+    ]
+    page = load_results(_results(_page("https://a.test/", findings)))[0]
+    groups = group_by_method(list(page.findings))
+
+    assert sum(len(members) for _, members in groups) == len(findings)
+    assert [len(members) for _, members in groups] == [2, 1, 1, 1, 1, 1, 1, 1]
+    assert len(groups) == len(HIDING_METHODS)
+
+
+def test_theme_toggle_works_without_javascript() -> None:
+    page_html = render_report_page(load_results(_results(_page("https://a.test/", []))))
+    parsed = _parse(page_html)
+    assert '<input type="checkbox" id="theme"' in page_html
+    assert '<label for="theme"' in page_html
+    assert ":root:has(#theme:checked)" in page_html
+    assert ".theme-toggle .when-dark { display: none; }" in page_html
+    assert "script" not in parsed.tags

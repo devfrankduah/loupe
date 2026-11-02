@@ -12,6 +12,7 @@ import datetime
 import html
 import json
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -26,38 +27,6 @@ REPOSITORY_URL: Final[str] = "https://github.com/devfrankduah/loupe"
 CONTROL_HOSTS: Final[frozenset[str]] = frozenset({"example.com", "example.org", "example.net"})
 
 
-_KIND_LABELS: Final[dict[Kind, tuple[str, str]]] = {
-    Kind.HIDDEN_ATTRIBUTE: (
-        "Marked hidden",
-        "The hidden attribute tells the browser not to draw the element at all.",
-    ),
-    Kind.INLINE_STYLE: (
-        "Hidden by inline style",
-        "Styling written on the element itself: display:none, invisible, zero size, zero opacity, or moved off-screen.",
-    ),
-    Kind.COMMENT: (
-        "HTML comments",
-        "Notes left in the page source. Browsers never show them.",
-    ),
-    Kind.ARIA_HIDDEN: (
-        "aria-hidden",
-        "Hidden from screen readers only. Sighted readers usually still see it.",
-    ),
-    Kind.NOSCRIPT: (
-        "noscript blocks",
-        "Shown only to visitors who have JavaScript turned off.",
-    ),
-    Kind.LABEL_ATTRIBUTE: (
-        "alt, title and aria-label",
-        "Descriptions attached to images, links and buttons. Shown on hover or read aloud, if at all.",
-    ),
-    Kind.META: (
-        "Meta tags",
-        "Information about the page for search engines and link previews.",
-    ),
-}
-
-
 class ReportFormatError(ValueError):
     """The results file isn't in the shape loupe writes."""
 
@@ -69,6 +38,12 @@ class FindingRecord:
     text: str
     instruction_phrases: tuple[str, ...]
     in_markdown: bool | None
+    # The length before the results file cut the quote; equal to len(text) when nothing was cut.
+    full_length: int
+
+    @property
+    def is_complete(self) -> bool:
+        return self.full_length <= len(self.text)
 
 
 @dataclass(frozen=True)
@@ -158,12 +133,17 @@ def _load_finding(value: object, where: str) -> FindingRecord:
     in_markdown = record.get("in_markdown")
     if in_markdown is not None and not isinstance(in_markdown, bool):
         raise ReportFormatError(f"{where}.in_markdown should be true, false or null")
+    text = _string(record, "text", where)
+    full_length = record.get("text_characters", len(text))
+    if not isinstance(full_length, int) or isinstance(full_length, bool) or full_length < 0:
+        raise ReportFormatError(f"{where}.text_characters should be a whole number")
     return FindingRecord(
         kind=kind,
         detail=_string(record, "detail", where),
-        text=_string(record, "text", where),
+        text=text,
         instruction_phrases=tuple(str(phrase) for phrase in phrases),
         in_markdown=in_markdown,
+        full_length=full_length,
     )
 
 
@@ -239,6 +219,99 @@ def _how_often(part: int, whole: int) -> str:
     return "mostly" if part * 2 > whole else "sometimes"
 
 
+# Grouping by how the text was hidden
+
+
+@dataclass(frozen=True)
+class HidingMethod:
+    name: str
+    meaning: str
+    matches: Callable[[FindingRecord], bool]
+
+
+def _is_faded(finding: FindingRecord) -> bool:
+    return _has_reason(finding, "opacity:0") and not _has_reason(finding, "display:none")
+
+
+def _is_element_hidden(finding: FindingRecord) -> bool:
+    return finding.kind is Kind.HIDDEN_ATTRIBUTE or _has_reason(finding, "display:none")
+
+
+# Order matters: each finding is counted under the first method it matches.
+HIDING_METHODS: Final[tuple[HidingMethod, ...]] = (
+    HidingMethod(
+        "Marked hidden, or set to display:none",
+        "The page tells the browser not to draw this part at all.",
+        _is_element_hidden,
+    ),
+    HidingMethod(
+        "Faded to invisible",
+        "Set to zero opacity. Often the first frame of an animation that fades in later.",
+        _is_faded,
+    ),
+    HidingMethod(
+        "Other hiding styles",
+        "Zero-size text, visibility:hidden, or pushed far off the screen.",
+        lambda finding: finding.kind is Kind.INLINE_STYLE,
+    ),
+    HidingMethod(
+        "Hidden from screen readers",
+        "aria-hidden. Sighted readers usually still see this text.",
+        lambda finding: finding.kind is Kind.ARIA_HIDDEN,
+    ),
+    HidingMethod(
+        "Image and link descriptions",
+        "alt, title and aria-label text, shown on hover or read aloud, if at all.",
+        lambda finding: finding.kind is Kind.LABEL_ATTRIBUTE,
+    ),
+    HidingMethod(
+        "Page information",
+        "Meta tags written for search engines and link previews.",
+        lambda finding: finding.kind is Kind.META,
+    ),
+    HidingMethod(
+        "HTML comments",
+        "Notes left in the page source. Browsers never show them.",
+        lambda finding: finding.kind is Kind.COMMENT,
+    ),
+    HidingMethod(
+        "noscript blocks",
+        "Shown only to visitors with JavaScript turned off.",
+        lambda finding: finding.kind is Kind.NOSCRIPT,
+    ),
+)
+
+
+def group_by_method(findings: list[FindingRecord]) -> list[tuple[HidingMethod, list[FindingRecord]]]:
+    groups: dict[str, list[FindingRecord]] = {method.name: [] for method in HIDING_METHODS}
+    for finding in findings:
+        for method in HIDING_METHODS:
+            if method.matches(finding):
+                groups[method.name].append(finding)
+                break
+    return [(method, groups[method.name]) for method in HIDING_METHODS if groups[method.name]]
+
+
+def choose_example(pages: tuple[PageRecord, ...]) -> tuple[PageRecord, FindingRecord] | None:
+    """Pick the clearest real case of element-hidden text that reached the markdown.
+
+    A complete quote beats a cut one, an instruction-like one beats a plain
+    one, and a longer one beats a shorter one. Ties keep page order.
+    """
+    candidates = [
+        (page, finding)
+        for page in pages
+        for finding in page.findings
+        if finding.in_markdown is True and _is_element_hidden(finding)
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda pair: (pair[1].is_complete, bool(pair[1].instruction_phrases), len(pair[1].text)),
+    )
+
+
 # Rendering
 
 
@@ -251,8 +324,7 @@ def _safe_href(url: str) -> str | None:
 
 
 def _page_label(page: PageRecord) -> str:
-    parts = urlsplit(page.url)
-    path = parts.path.rstrip("/")
+    path = urlsplit(page.url).path.rstrip("/")
     return f"{page.host}{path}" if path else page.host
 
 
@@ -260,117 +332,131 @@ def _percent(part: int, whole: int) -> str:
     return f"{100 * part / whole:.2f}%" if whole else "0%"
 
 
-def _bar(counts: Tally) -> str:
-    # The bar repeats the numbers printed next to it, so assistive tech skips it.
-    segments = [
-        ("in", counts.survived),
-        ("out", counts.dropped),
-        ("na", counts.not_compared),
-    ]
+def _how_hidden(finding: FindingRecord) -> str:
+    if finding.kind is Kind.HIDDEN_ATTRIBUTE:
+        return "sits in an element marked <code>hidden</code>"
+    return "sits in an element styled <code>display:none</code>"
+
+
+def _example_panel(pages: tuple[PageRecord, ...]) -> str:
+    chosen = choose_example(pages)
+    if chosen is None:
+        return (
+            '<section class="example" aria-labelledby="example-title">'
+            '<h2 id="example-title">One real example</h2>'
+            "<p>No text hidden with the hidden attribute or display:none reached the markdown in this run.</p>"
+            "</section>"
+        )
+    page, finding = chosen
+    quote = _escape(finding.text)
+    cut_note = "" if finding.is_complete else " The quote is cut short, as it is in the saved results."
+    skeleton_top = '<span class="line l1"></span><span class="line l2"></span>'
+    skeleton_bottom = '<span class="line l3"></span><span class="line l4"></span>'
+    return (
+        '<section class="example" aria-labelledby="example-title">'
+        '<h2 id="example-title" class="vh">One real example</h2>'
+        '<div class="sides">'
+        '<figure class="side">'
+        "<figcaption>What a person sees</figcaption>"
+        '<div class="screen">'
+        f'<div aria-hidden="true">{skeleton_top}</div>'
+        '<p class="hole">Nothing shows here.</p>'
+        f'<div aria-hidden="true">{skeleton_bottom}</div>'
+        "</div></figure>"
+        '<figure class="side ai">'
+        "<figcaption>What an AI reads</figcaption>"
+        '<div class="screen">'
+        f'<div aria-hidden="true">{skeleton_top}</div>'
+        f'<p class="revealed"><mark>{quote}</mark></p>'
+        f'<div aria-hidden="true">{skeleton_bottom}</div>'
+        "</div></figure>"
+        "</div>"
+        f'<p class="example-source">A real line from {_escape(page.host)}. It {_how_hidden(finding)}, so the browser '
+        "never draws it, yet it was still in the markdown version of the page that an AI agent is given."
+        f"{cut_note}</p>"
+        "</section>"
+    )
+
+
+def _method_row(method: HidingMethod, findings: list[FindingRecord]) -> str:
+    counts = tally(findings)
+    if counts.compared:
+        result = (
+            f'<span class="ratio"><b>{counts.survived}</b> of {counts.compared} reached the AI</span>'
+            f'<span class="meter" aria-hidden="true"><span class="fill" '
+            f'style="width:{_percent(counts.survived, counts.compared)}"></span></span>'
+        )
+    else:
+        result = '<span class="ratio">Too short to compare</span>'
+    return (
+        '<li class="method">'
+        f'<div class="method-text"><span class="method-name">{method.name}</span>'
+        f'<span class="method-meaning">{method.meaning}</span></div>'
+        f'<div class="method-result">{result}</div>'
+        "</li>"
+    )
+
+
+def _result_section(pages: tuple[PageRecord, ...]) -> str:
+    findings = _all_findings(pages)
+    groups = group_by_method(findings)
+    hidden = tally([finding for finding in findings if _is_element_hidden(finding)])
+    comments = tally([finding for finding in findings if finding.kind is Kind.COMMENT])
+    rows = "".join(_method_row(method, of_method) for method, of_method in groups)
+    return (
+        '<section class="result" aria-labelledby="result-title">'
+        f'<h2 id="result-title">Text marked hidden {_how_often(hidden.survived, hidden.compared)} reached the AI: '
+        f"{hidden.survived} of {hidden.compared}. HTML comments {_how_often(comments.survived, comments.compared)} "
+        f"did: {comments.survived} of {comments.compared}.</h2>"
+        '<p class="measure">Each row is one way a page can hide text. The bar is the share that was still there '
+        "in the markdown, out of the findings long enough to compare fairly.</p>"
+        f'<ul class="methods">{rows}</ul>'
+        "</section>"
+    )
+
+
+def _strip(counts: Tally) -> str:
+    segments = (("reached", counts.survived), ("missed", counts.dropped), ("unchecked", counts.not_compared))
     spans = "".join(
         f'<span class="seg {name}" style="width:{_percent(value, counts.total)}"></span>'
         for name, value in segments
         if value
     )
-    return f'<div class="bar" aria-hidden="true">{spans}</div>'
-
-
-def _counts_line(counts: Tally) -> str:
-    return (
-        '<ul class="key">'
-        f'<li><span class="swatch in"></span>{counts.survived} in the markdown</li>'
-        f'<li><span class="swatch out"></span>{counts.dropped} not in the markdown</li>'
-        f'<li><span class="swatch na"></span>{counts.not_compared} not compared</li>'
-        "</ul>"
-    )
-
-
-def _headline(pages: tuple[PageRecord, ...]) -> str:
-    findings = _all_findings(pages)
-    hiding = tally(_element_hiding(findings))
-    comments = tally([finding for finding in findings if finding.kind is Kind.COMMENT])
-    return (
-        '<section class="headline" aria-labelledby="headline">'
-        '<h2 id="headline" class="vh">The finding</h2>'
-        f'<p class="big">Text hidden with the <code>hidden</code> attribute or <code>display:none</code> '
-        f"{_how_often(hiding.survived, hiding.compared)} still reached the markdown an agent reads: "
-        f"<b>{hiding.survived} of {hiding.compared}</b>. "
-        f"HTML comments {_how_often(comments.survived, comments.compared)} did: "
-        f"<b>{comments.survived} of {comments.compared}</b>.</p>"
-        '<p class="sub">Markdown is the cleaned-up text version of a page that many agent tools hand to the model, '
-        "Bright Data's own scraping tool among them. So the second number is good news, and the first means "
-        "hiding text with markup does not keep it away from the model. The counts leave out text too short to "
-        "compare fairly.</p>"
-        "</section>"
-    )
-
-
-def _how_it_works() -> str:
-    steps = (
-        (
-            "Fetch the page twice",
-            "loupe asks Bright Data for the raw HTML and, separately, for the markdown version, "
-            "the same two requests Bright Data's own agent tools make.",
-        ),
-        (
-            "Find what a reader can't see",
-            "It reads the HTML for comments, hidden elements, image and link descriptions, meta tags "
-            "and noscript blocks, and notes any that sound like orders to an AI.",
-        ),
-        (
-            "Look for it in the markdown",
-            "For each piece of hidden text, it checks whether the same words, in the same order, "
-            "appear in the markdown an agent would read.",
-        ),
-    )
-    items = "".join(
-        f'<li><span class="step-number">{number}</span><h3>{title}</h3><p>{body}</p></li>'
-        for number, (title, body) in enumerate(steps, start=1)
-    )
-    return (
-        '<section aria-labelledby="how">'
-        '<h2 id="how">How it works</h2>'
-        f'<ol class="steps">{items}</ol>'
-        "</section>"
-    )
+    return f'<span class="strip" aria-hidden="true">{spans}</span>'
 
 
 def _page_card(page: PageRecord) -> str:
     label = _escape(_page_label(page))
     href = _safe_href(page.url)
     title = f'<a href="{href}">{label}</a>' if href else label
-    badge = '<span class="badge">Control</span>' if page.is_control else ""
-    parts = [f'<li class="card"><h3>{title}{badge}</h3>']
-
+    parts = [f'<li class="card{" control" if page.is_control else ""}"><h3>{title}</h3>']
     if page.is_control:
         parts.append(
-            '<p class="note">A reserved example page with nothing to hide, '
-            "so anything found here is the scanner's background noise.</p>"
+            '<p class="control-note">The control: a reserved example page with nothing to hide, '
+            "so anything found here is background noise.</p>"
         )
     if page.html_error is not None:
-        parts.append(f'<p class="note">The HTML could not be fetched: {_escape(page.html_error)}</p></li>')
+        parts.append(f'<p class="card-note">The HTML could not be fetched: {_escape(page.html_error)}</p></li>')
         return "".join(parts)
 
     counts = tally(page.findings)
+    orders = len(page.instruction_like)
     parts.append(
-        '<dl class="stats">'
-        f"<div><dt>Hidden findings</dt><dd>{len(page.findings)}</dd></div>"
-        f"<div><dt>Sound like orders to an AI</dt><dd>{len(page.instruction_like)}</dd></div>"
-        "</dl>"
+        f'<p class="card-stats"><b>{len(page.findings)}</b> hidden findings, '
+        f'<b>{orders}</b> {"sounds" if orders == 1 else "sound"} like an order to an AI</p>'
     )
-    parts.append(_bar(counts))
-    parts.append(_counts_line(counts))
-
+    parts.append(_strip(counts))
+    parts.append(
+        f'<p class="card-counts">{counts.survived} reached the AI, {counts.dropped} did not, '
+        f"{counts.not_compared} not compared</p>"
+    )
     if page.markdown_error is not None:
-        parts.append(f'<p class="note">The markdown could not be fetched: {_escape(page.markdown_error)}</p>')
+        parts.append(f'<p class="card-note">The markdown could not be fetched: {_escape(page.markdown_error)}</p>')
     elif page.markdown_retried:
-        note = "The markdown fetch failed the first time and worked on one retry."
+        note = "The markdown fetch failed once and worked on a single retry."
         if page.retry_not_compared:
-            note += (
-                f" {page.retry_not_compared} findings longer than their saved quotes "
-                "couldn't be compared on the retry."
-            )
-        parts.append(f'<p class="note">{note}</p>')
+            note += f" {page.retry_not_compared} longer findings couldn't be compared after it."
+        parts.append(f'<p class="card-note">{note}</p>')
     parts.append("</li>")
     return "".join(parts)
 
@@ -378,35 +464,76 @@ def _page_card(page: PageRecord) -> str:
 def _pages_section(pages: tuple[PageRecord, ...]) -> str:
     cards = "".join(_page_card(page) for page in pages)
     return (
-        '<section aria-labelledby="pages">'
-        '<h2 id="pages">Page by page</h2>'
-        '<p class="prose">Each bar splits that page\'s hidden findings by what happened to them in the markdown. '
-        '"Not compared" means the text was too short to match fairly, or the markdown wasn\'t available.</p>'
+        '<section aria-labelledby="pages-title">'
+        '<h2 id="pages-title">Page by page</h2>'
+        '<ul class="legend">'
+        '<li><span class="swatch reached"></span>Reached the AI</li>'
+        '<li><span class="swatch missed"></span>Did not</li>'
+        '<li><span class="swatch unchecked"></span>Not compared (too short, or no markdown)</li>'
+        "</ul>"
         f'<ul class="cards">{cards}</ul>'
         "</section>"
     )
 
 
-def _kinds_section(pages: tuple[PageRecord, ...]) -> str:
-    findings = _all_findings(pages)
-    rows = []
-    for kind, (name, meaning) in _KIND_LABELS.items():
-        of_kind = [finding for finding in findings if finding.kind is kind]
-        if not of_kind:
-            continue
-        counts = tally(of_kind)
-        rows.append(
-            '<li class="kind">'
-            f'<div class="kind-head"><span class="kind-name">{name}</span>'
-            f'<span class="kind-total">{counts.total} found</span></div>'
-            f'<p class="meaning">{meaning}</p>'
-            f"{_bar(counts)}{_counts_line(counts)}"
-            "</li>"
-        )
+def _method_section() -> str:
     return (
-        '<section aria-labelledby="kinds">'
-        '<h2 id="kinds">What happened to each kind of hidden text</h2>'
-        f'<ul class="kinds">{"".join(rows)}</ul>'
+        '<section aria-labelledby="method-title">'
+        '<h2 id="method-title">How loupe checks a page</h2>'
+        '<ol class="process">'
+        "<li>It asks Bright Data for the page twice: once as raw HTML, once as the markdown an AI agent is "
+        "usually given. These are the same two requests Bright Data's own agent tools make.</li>"
+        "<li>It reads the HTML for anything a person won't see: comments, hidden elements, image and link "
+        "descriptions, meta tags and noscript blocks. It also notes text that sounds like an order to an AI.</li>"
+        "<li>For each hidden piece, it checks whether the same words, in the same order, are in the markdown.</li>"
+        "</ol>"
+        "</section>"
+    )
+
+
+def _caveats(pages: tuple[PageRecord, ...]) -> str:
+    findings = _all_findings(pages)
+    matches = [(page, finding) for page in pages for finding in page.instruction_like]
+    inline = [finding for finding in findings if finding.kind is Kind.INLINE_STYLE]
+    faded_by_page = Counter(page.host for page in pages for finding in page.findings if _is_faded(finding))
+    faded_total = sum(faded_by_page.values())
+
+    match_items = "".join(
+        f'<li><q class="page-text">{_escape(finding.text)}</q>'
+        f'<span class="match-where">{_escape(page.host)}, matched '
+        f"&ldquo;{_escape(', '.join(finding.instruction_phrases))}&rdquo;</span></li>"
+        for page, finding in matches
+    )
+    items = [
+        "<li><h3>Sounding like an order isn't the same as being one</h3>"
+        "<p>loupe flags hidden text containing phrases such as &ldquo;you are&rdquo; or &ldquo;assistant&rdquo;. "
+        f"That caught {len(matches)} pieces of text in this run. Here they are, so you can judge them:</p>"
+        f'<ul class="matches">{match_items}</ul></li>'
+    ]
+    if faded_total:
+        busiest_host, busiest_count = faded_by_page.most_common(1)[0]
+        items.append(
+            "<li><h3>Some &ldquo;hidden&rdquo; text is only waiting to fade in</h3>"
+            f"<p>{faded_total} of the {len(inline)} findings hidden by inline style are set to zero opacity, "
+            f"{busiest_count} of them on {_escape(busiest_host)}. That's how scroll-in animations start: the text "
+            "arrives invisible and JavaScript fades it in, so people do see it. loupe doesn't run JavaScript, so it "
+            "can't tell the difference.</p></li>"
+        )
+    items.append(
+        "<li><h3>The two versions come from two services</h3>"
+        "<p>Bright Data serves the HTML through Web Unlocker and the markdown through its Fetch API. If they "
+        "received slightly different copies of a page, a difference could come from that and not from the "
+        "markdown conversion.</p></li>"
+    )
+    items.append(
+        "<li><h3>&ldquo;Reached the AI&rdquo; means the words appear in the markdown</h3>"
+        "<p>It doesn't prove they got there from the hidden element. A link's description often repeats the "
+        "link's visible text, so it would match either way.</p></li>"
+    )
+    return (
+        '<section aria-labelledby="caveats-title">'
+        "<h2 id=\"caveats-title\">What I'm not sure about</h2>"
+        f'<ul class="caveats">{"".join(items)}</ul>'
         "</section>"
     )
 
@@ -416,200 +543,201 @@ def _glossary() -> str:
         (
             "HTML comment",
             "A note in a page's source code, written between <code>&lt;!--</code> and <code>--&gt;</code>. "
-            "Browsers skip it, but anything that reads the raw source sees it.",
+            "Browsers skip it, but anything reading the raw source sees it.",
         ),
         (
             "aria-hidden",
-            "A marker that tells screen readers to skip an element. It doesn't hide anything from people "
-            "looking at the screen.",
+            "A marker that tells screen readers to skip an element. It hides nothing from people looking "
+            "at the screen.",
         ),
         (
             "Markdown",
             "A plain-text format with light symbols for headings, links and lists. Agent tools often turn a "
-            "page into markdown before giving it to a model, because it's shorter than HTML.",
+            "page into markdown before giving it to a model, because it's much shorter than HTML.",
         ),
         (
             "Prompt injection",
-            "Text written to make an AI model follow instructions its user never gave, for example "
-            '"ignore your previous instructions". Hiding that text on a web page is one way to deliver it.',
+            "Text written to make an AI model follow instructions its user never gave, such as "
+            "&ldquo;ignore your previous instructions&rdquo;. Hiding it on a web page is one way to deliver it.",
         ),
     )
     entries = "".join(f"<div><dt>{term}</dt><dd>{meaning}</dd></div>" for term, meaning in terms)
     return (
-        '<section aria-labelledby="glossary">'
-        '<h2 id="glossary">Words used here</h2>'
+        '<section aria-labelledby="glossary-title">'
+        '<h2 id="glossary-title">Words used here</h2>'
         f'<dl class="glossary">{entries}</dl>'
-        "</section>"
-    )
-
-
-def _caveats(pages: tuple[PageRecord, ...]) -> str:
-    findings = _all_findings(pages)
-    matches = [(page, finding) for page in pages for finding in page.instruction_like]
-    inline = [finding for finding in findings if finding.kind is Kind.INLINE_STYLE]
-    opacity_by_page = Counter(
-        page.host for page in pages for finding in page.findings if _has_reason(finding, "opacity:0")
-    )
-    opacity_total = sum(opacity_by_page.values())
-
-    match_items = "".join(
-        f'<li><span class="where">{_escape(page.host)}, {_escape(finding.detail)}</span>'
-        f"<q>{_escape(finding.text)}</q>"
-        f'<span class="phrase">matched {_escape(", ".join(finding.instruction_phrases))}</span></li>'
-        for page, finding in matches
-    )
-    items = [
-        "<li><h3>Sounding like an order isn't the same as being one</h3>"
-        f"<p>loupe flags text that contains phrases such as &ldquo;you are&rdquo; or &ldquo;assistant&rdquo;. "
-        f"That caught {len(matches)} pieces of text in this run. Here they are, so you can judge them yourself:</p>"
-        f'<ul class="matches">{match_items}</ul></li>'
-    ]
-    if opacity_total:
-        busiest_host, busiest_count = opacity_by_page.most_common(1)[0]
-        items.append(
-            "<li><h3>Some &ldquo;hidden&rdquo; text is only waiting to fade in</h3>"
-            f"<p>{opacity_total} of the {len(inline)} inline-style findings are <code>opacity:0</code>, "
-            f"{busiest_count} of them on {_escape(busiest_host)}. That's how scroll-in animations start: the page "
-            "arrives invisible and JavaScript fades it in, so people do see it. loupe doesn't run JavaScript, "
-            "so it can't tell the difference.</p></li>"
-        )
-    items.append(
-        "<li><h3>The two versions come from two services</h3>"
-        "<p>Bright Data serves the HTML through Web Unlocker and the markdown through its Fetch API. If the two "
-        "services received slightly different versions of a page, a difference could come from that and not "
-        "from the markdown conversion.</p></li>"
-    )
-    items.append(
-        "<li><h3>&ldquo;In the markdown&rdquo; means the words appear there</h3>"
-        "<p>It doesn't prove they got there from the hidden element. A link's description often repeats the "
-        "link's visible text, so it would match either way.</p></li>"
-    )
-    return (
-        '<section aria-labelledby="caveats">'
-        "<h2 id=\"caveats\">What I'm not sure about</h2>"
-        f'<ul class="caveats">{"".join(items)}</ul>'
         "</section>"
     )
 
 
 _STYLE: Final[str] = """
 :root {
-  color-scheme: light dark;
-  --surface: #ffffff; --panel: #f2f3f5; --ink: #191c21; --ink-2: #434951; --muted: #585f68;
-  --link: #1c4d8f; --rule: #d5d9de; --grid: #e4e7ea; --accent: #2a78d6; --block: #5b636d; --focus: #1c4d8f;
-  --serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, serif;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+  --paper: #f6f2e9; --sheet: #fffdf8; --ink: #1d1a15; --ink-2: #47423a; --muted: #5f594e;
+  --rule: #d8d0bf; --faint: #e9e3d6; --accent: #5a2fd1; --accent-ink: #4a23b8; --wash: #e6defb;
+  --missed: #6e675b; --unchecked: #ddd6c7; --focus: #5a2fd1;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --step-0: clamp(1rem, 0.96rem + 0.2vw, 1.125rem);
+  --step-1: clamp(1.2rem, 1.1rem + 0.5vw, 1.45rem);
+  --step-2: clamp(1.45rem, 1.2rem + 1.2vw, 2.05rem);
+  --step-3: clamp(2.1rem, 1.5rem + 3vw, 3.6rem);
+  --measure: 38rem;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface: #15171b; --panel: #1f2227; --ink: #e9ebee; --ink-2: #c1c6cd; --muted: #9da4ad;
-    --link: #9cc2f4; --rule: #363b42; --grid: #2a2e34; --accent: #3987e5; --block: #8a929c; --focus: #9cc2f4;
-  }
+:root:has(#theme:checked) {
+  color-scheme: dark;
+  --paper: #18161e; --sheet: #221f2a; --ink: #eeeaf3; --ink-2: #cdc7d8; --muted: #a9a2b6;
+  --rule: #3d3849; --faint: #2a2633; --accent: #b9a5ff; --accent-ink: #cbbcff; --wash: #3b2f68;
+  --missed: #8f88a0; --unchecked: #3a3545; --focus: #cbbcff;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--surface); color: var(--ink); font: 1.0625rem/1.62 var(--serif); }
-a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 0.16em; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: var(--step-0)/1.65 var(--serif);
+  font-variant-numeric: lining-nums proportional-nums; }
+@media (prefers-reduced-motion: no-preference) {
+  body { transition: background-color 160ms ease-out, color 160ms ease-out; }
+}
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
 a:hover { text-decoration-thickness: 2px; }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-code { font: 0.875em/1.4 var(--mono); overflow-wrap: anywhere; }
-.wrap { max-width: 64rem; margin: 0 auto; padding: 0 1rem; }
-.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.skip { position: absolute; left: 1rem; top: -3rem; padding: 0.4rem 0.8rem; background: var(--surface);
-  font: 0.9375rem/1.4 var(--sans); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+code { font: 0.86em/1.4 var(--mono); overflow-wrap: anywhere; }
+h1, h2, h3 { text-wrap: balance; }
+.vh, .theme-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  white-space: nowrap; margin: 0; }
+.page { max-width: 68rem; margin: 0 auto; padding: 0 1rem; }
+@media (min-width: 48rem) { .page { padding: 0 2rem; } }
+
+.skip { position: absolute; left: 1rem; top: -4rem; padding: 0.6rem 0.9rem; background: var(--sheet); color: var(--ink); }
 .skip:focus { top: 0.5rem; }
 
-.site-header { border-bottom: 1px solid var(--rule); font-family: var(--sans); }
-.site-header .wrap { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
-  gap: 0.25rem 1.5rem; padding-top: 0.9rem; padding-bottom: 0.9rem; }
-.wordmark { font-weight: 650; font-size: 1.0625rem; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }
-.site-header ul { display: flex; gap: 1.25rem; margin: 0; padding: 0; list-style: none; font-size: 0.9375rem; }
-.site-header nav a { color: var(--ink-2); text-decoration: none; }
-.site-header nav a:hover { color: var(--ink); text-decoration: underline; }
+.masthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem;
+  padding: 0.5rem 0; border-bottom: 1px solid var(--rule); }
+.wordmark { font-size: 1.25rem; font-weight: 700; font-style: italic; color: var(--ink); text-decoration: none;
+  letter-spacing: -0.01em; min-height: 44px; display: inline-flex; align-items: center; }
+.masthead-links { display: flex; align-items: center; gap: 0.25rem 1rem; }
+.masthead-links a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink-2); }
+.theme-toggle { min-height: 44px; display: inline-flex; align-items: center; gap: 0.5rem; padding: 0 0.85rem;
+  border: 1px solid var(--missed); border-radius: 999px; cursor: pointer; color: var(--ink); background: var(--sheet);
+  font-size: 0.9375rem; }
+.theme-toggle:hover { border-color: var(--ink); }
+:root:has(#theme:focus-visible) .theme-toggle { outline: 2px solid var(--focus); outline-offset: 3px; }
+.theme-toggle svg { width: 1.05rem; height: 1.05rem; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; }
+.theme-toggle .when-light, .theme-toggle .when-dark { align-items: center; gap: 0.45rem; }
+.theme-toggle .when-light { display: inline-flex; }
+.theme-toggle .when-dark { display: none; }
+:root:has(#theme:checked) .theme-toggle .when-light { display: none; }
+:root:has(#theme:checked) .theme-toggle .when-dark { display: inline-flex; }
 
-h1 { font: 600 clamp(1.8rem, 1.2rem + 2.4vw, 2.5rem)/1.12 var(--serif); letter-spacing: -0.015em;
-  max-width: 22em; margin: 2.5rem 0 0.9rem; text-wrap: balance; }
-h2 { font: 600 1.45rem/1.25 var(--serif); margin: 3.25rem 0 0.75rem; letter-spacing: -0.01em; }
-h3 { font: 600 1rem/1.35 var(--sans); margin: 0 0 0.4rem; }
-.lede { font-size: 1.1875rem; line-height: 1.55; color: var(--ink-2); max-width: 36em; margin: 0 0 1rem; }
-.byline { font: 0.9375rem/1.5 var(--sans); color: var(--muted); margin: 0; }
-.prose { max-width: 40em; margin: 0 0 1rem; }
+.intro { padding: clamp(2rem, 1rem + 5vw, 4.5rem) 0 clamp(1.5rem, 1rem + 2vw, 2.5rem); }
+h1 { font-size: var(--step-3); line-height: 1.06; letter-spacing: -0.022em; font-weight: 700;
+  max-width: 17em; margin: 0 0 1.25rem; }
+.lede { font-size: var(--step-1); line-height: 1.5; color: var(--ink-2); max-width: var(--measure); margin: 0 0 1rem; }
+.byline { margin: 0; color: var(--muted); font-style: italic; }
 
-.headline { margin-top: 2.5rem; max-width: 44em; border-left: 3px solid var(--accent); padding: 0.1rem 0 0.1rem 1.25rem; }
-.headline .big { font: 600 clamp(1.25rem, 1rem + 1vw, 1.6rem)/1.35 var(--serif); margin: 0 0 0.75rem; }
-.headline .sub { color: var(--ink-2); margin: 0; max-width: 40em; }
-
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; counter-reset: none; }
-@media (min-width: 48rem) { .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.25rem; } }
-.steps li { position: relative; border-top: 2px solid var(--ink); padding-top: 0.75rem; font-family: var(--sans); }
-@media (min-width: 48rem) {
-  .steps li:not(:last-child)::after { content: ""; position: absolute; top: -2px; right: -2.25rem; width: 2.25rem;
-    border-top: 2px dashed var(--rule); }
-}
-.steps p { margin: 0; color: var(--ink-2); font-size: 0.9375rem; line-height: 1.55; }
-.step-number { display: inline-block; font: 600 0.8125rem/1 var(--sans); color: var(--muted); margin-bottom: 0.35rem; }
-
-.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
-@media (min-width: 48rem) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.card { border: 1px solid var(--rule); border-radius: 8px; padding: 1rem 1.1rem; font-family: var(--sans); }
-.card h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; font-size: 1rem;
+.example { margin: 0 0 clamp(3rem, 2rem + 4vw, 5.5rem); }
+.sides { display: grid; gap: 1rem; }
+@media (min-width: 48rem) { .sides { grid-template-columns: 1fr 1fr; gap: 1.5rem; } }
+.side { margin: 0; }
+.side figcaption { font-size: var(--step-1); font-weight: 700; margin: 0 0 0.6rem; }
+.side.ai figcaption { color: var(--accent-ink); }
+.screen { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px;
+  padding: clamp(1rem, 0.8rem + 1vw, 1.5rem); min-height: 15rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.side.ai .screen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.line { display: block; height: 0.6rem; border-radius: 3px; background: var(--faint); margin: 0 0 0.55rem; }
+.line.l1 { width: 92%; } .line.l2 { width: 74%; } .line.l3 { width: 86%; } .line.l4 { width: 58%; }
+.hole { margin: 0; flex: 1; min-height: 4.5rem; display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--missed); border-radius: 6px; color: var(--muted); font-style: italic; font-size: 0.95rem; }
+.revealed { margin: 0; flex: 1; min-height: 4.5rem; display: flex; align-items: center; padding: 0.75rem 0.9rem;
+  border-radius: 6px; background: var(--wash); }
+.revealed mark { background: none; color: var(--ink); font: 500 clamp(0.95rem, 0.9rem + 0.3vw, 1.08rem)/1.5 var(--mono);
   overflow-wrap: anywhere; }
-.badge { font: 600 0.75rem/1.4 var(--sans); color: var(--ink); border: 1px solid var(--ink-2); border-radius: 4px;
-  padding: 0 0.4rem; }
-.stats { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; margin: 0.6rem 0 0.75rem; }
-.stats dt { font-size: 0.8125rem; color: var(--muted); }
-.stats dd { margin: 0; font: 600 1.6rem/1.2 var(--sans); font-variant-numeric: tabular-nums; }
-.note { margin: 0.6rem 0 0; font-size: 0.875rem; line-height: 1.5; color: var(--muted); }
+.example-source { max-width: var(--measure); margin: 1rem 0 0; color: var(--ink-2); }
 
-.bar { display: flex; height: 0.85rem; border: 1px solid var(--rule); border-radius: 3px; overflow: hidden;
-  background: var(--surface); }
+section { margin: 0 0 clamp(3rem, 2rem + 4vw, 5rem); }
+h2 { font-size: var(--step-2); line-height: 1.18; letter-spacing: -0.012em; font-weight: 700;
+  max-width: 24em; margin: 0 0 0.9rem; }
+h3 { font-size: var(--step-0); line-height: 1.35; font-weight: 700; margin: 0 0 0.35rem; }
+.measure { max-width: var(--measure); margin: 0 0 1.5rem; color: var(--ink-2); }
+
+.methods { list-style: none; margin: 0; padding: 0; max-width: 52rem; border-top: 2px solid var(--ink); }
+.method { display: grid; gap: 0.4rem 2rem; padding: 0.95rem 0; border-bottom: 1px solid var(--rule); }
+@media (min-width: 48rem) { .method { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: center; } }
+.method-name { display: block; font-weight: 700; }
+.method-meaning { display: block; color: var(--muted); font-size: 0.94rem; line-height: 1.5; }
+.method-result { display: grid; gap: 0.35rem; }
+.ratio { font-variant-numeric: lining-nums tabular-nums; }
+.ratio b { font-size: 1.2em; }
+.meter { display: block; height: 0.9rem; border-radius: 3px; border: 1.5px solid var(--ink-2); background: transparent;
+  overflow: hidden; }
+.meter .fill { display: block; height: 100%; background: var(--accent); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; list-style: none; margin: 0 0 1.1rem; padding: 0;
+  color: var(--ink-2); font-size: 0.95rem; }
+.legend li { display: inline-flex; align-items: center; gap: 0.5rem; }
+.swatch { display: inline-block; width: 0.95rem; height: 0.95rem; border-radius: 3px; }
+.swatch.reached, .seg.reached { background: var(--accent); }
+.swatch.missed, .seg.missed { background: var(--missed); }
+.swatch.unchecked, .seg.unchecked { background: var(--unchecked); }
+.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.9rem; }
+@media (min-width: 40rem) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 64rem) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 1rem 1.1rem 1.1rem; }
+.card.control { background: transparent; border-style: dashed; }
+.card h3 { overflow-wrap: anywhere; }
+.card h3 a { color: var(--ink); display: inline-flex; align-items: center; min-height: 44px; }
+.control-note, .card-note { margin: 0.35rem 0 0.6rem; color: var(--muted); font-size: 0.92rem; line-height: 1.5; }
+.card-note { margin: 0.6rem 0 0; }
+.card-stats { margin: 0.2rem 0 0.6rem; color: var(--ink-2); font-variant-numeric: lining-nums tabular-nums; }
+.card-stats b { color: var(--ink); font-size: 1.15em; }
+.strip { display: flex; height: 0.7rem; border-radius: 3px; overflow: hidden; background: var(--unchecked); }
 .seg { display: block; height: 100%; }
-.seg.in, .swatch.in { background: var(--accent); }
-.seg.out, .swatch.out { background: var(--block); }
-.seg.na, .swatch.na { background: var(--grid); }
-.key { display: flex; flex-wrap: wrap; gap: 0.2rem 1.1rem; margin: 0.45rem 0 0; padding: 0; list-style: none;
-  font: 0.8125rem/1.45 var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.key li { display: inline-flex; align-items: center; gap: 0.4rem; }
-.swatch { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; border: 1px solid var(--rule); }
+.card-counts { margin: 0.45rem 0 0; font-size: 0.92rem; color: var(--ink-2); font-variant-numeric: lining-nums tabular-nums; }
 
-.kinds { list-style: none; margin: 0; padding: 0; max-width: 44em; }
-.kind { padding: 0.9rem 0; border-bottom: 1px solid var(--grid); font-family: var(--sans); }
-.kind-head { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
-.kind-name { font-weight: 600; }
-.kind-total { font-size: 0.875rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.kind .meaning { margin: 0.1rem 0 0.5rem; font-size: 0.875rem; line-height: 1.5; color: var(--muted); }
+.process { max-width: var(--measure); margin: 0; padding-left: 1.4rem; }
+.process li { margin: 0 0 0.7rem; padding-left: 0.3rem; }
+.process li::marker { font-weight: 700; color: var(--accent-ink); }
 
-.glossary { margin: 0; max-width: 44em; }
-.glossary div { padding: 0.7rem 0; border-bottom: 1px solid var(--grid); }
-.glossary dt { font: 600 1rem/1.4 var(--sans); }
-.glossary dd { margin: 0.15rem 0 0; color: var(--ink-2); }
-
-.caveats { list-style: none; margin: 0; padding: 0; max-width: 44em; }
-.caveats > li { padding: 0.9rem 0; border-bottom: 1px solid var(--grid); }
+.caveats { list-style: none; margin: 0; padding: 0; max-width: 44rem; }
+.caveats > li { padding: 1rem 0; border-top: 1px solid var(--rule); }
 .caveats p { margin: 0; color: var(--ink-2); }
-.matches { list-style: none; margin: 0.75rem 0 0; padding: 0; font-family: var(--sans); font-size: 0.875rem; }
-.matches li { padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; background: var(--panel); border-radius: 6px; }
-.matches .where, .matches .phrase { display: block; color: var(--muted); font-size: 0.8125rem; }
-.matches q { display: block; color: var(--ink); overflow-wrap: anywhere; }
+.matches { list-style: none; margin: 0.9rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.matches li { padding: 0.6rem 0.8rem; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; }
+.page-text { display: block; font: 0.9rem/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.match-where { display: block; margin-top: 0.2rem; font-size: 0.88rem; color: var(--muted); font-style: italic; }
 
-.site-footer { border-top: 1px solid var(--rule); margin-top: 3.5rem; padding: 1.5rem 0 2.5rem;
-  font: 0.8125rem/1.6 var(--sans); color: var(--ink-2); }
-.site-footer p { margin: 0 0 0.4rem; overflow-wrap: anywhere; }
+.glossary { margin: 0; max-width: 44rem; display: grid; gap: 0; }
+.glossary div { padding: 0.85rem 0; border-top: 1px solid var(--rule); }
+@media (min-width: 48rem) { .glossary div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 1.5rem; } }
+.glossary dt { font-weight: 700; }
+.glossary dd { margin: 0; color: var(--ink-2); }
+
+.colophon { border-top: 1px solid var(--rule); padding: 1.5rem 0 2.5rem; color: var(--muted); font-size: 0.92rem; }
+.colophon p { margin: 0 0 0.4rem; max-width: var(--measure); }
 """
+
+_MOON: Final[str] = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>'
+)
+_SUN: Final[str] = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/>'
+    '<path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'
+    "</svg>"
+)
 
 
 def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | None = None) -> str:
     if not pages:
         raise ReportFormatError("there are no pages to report")
-    date_text = f", run on {run_date.day} {run_date:%B %Y}" if run_date else ""
-    page_count = f"{len(pages)} page" if len(pages) == 1 else f"{len(pages)} pages"
+    date_text = f" on {run_date.day} {run_date:%B %Y}" if run_date else ""
+    page_count = "one page" if len(pages) == 1 else f"{len(pages)} pages"
     body = "".join(
         (
-            _headline(pages),
-            _how_it_works(),
+            _example_panel(pages),
+            _result_section(pages),
             _pages_section(pages),
-            _kinds_section(pages),
+            _method_section(),
             _caveats(pages),
             _glossary(),
         )
@@ -621,25 +749,32 @@ def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>loupe results</title>
-<meta name="description" content="Does text hidden on a web page reach an AI agent that reads it? Results from {page_count}.">
+<meta name="description" content="Does text hidden on a web page reach the AI agent that reads it? Results from {page_count}.">
 <style>{_STYLE}</style>
 </head>
 <body>
+<input type="checkbox" id="theme" class="theme-input">
 <a class="skip" href="#main">Skip to the results</a>
-<header class="site-header"><div class="wrap">
+<div class="page">
+<header class="masthead">
 <a class="wordmark" href="{REPOSITORY_URL}">loupe</a>
-<nav aria-label="Site"><ul><li><a href="{REPOSITORY_URL}">Code</a></li><li><a href="{REPOSITORY_URL}#readme">README</a></li></ul></nav>
-</div></header>
-<main id="main" class="wrap">
-<h1>Does text hidden on a web page reach an AI agent that reads it?</h1>
-<p class="lede">loupe fetches real web pages, finds the text a person looking at the page can't see, and checks whether that text is still there in the version an AI agent is given to read.</p>
-<p class="byline">Frank Duah{date_text}, {page_count}</p>
+<div class="masthead-links">
+<a href="{REPOSITORY_URL}">Code</a>
+<label for="theme" class="theme-toggle"><span class="when-light">{_MOON}Dark mode</span><span class="when-dark">{_SUN}Light mode</span></label>
+</div>
+</header>
+<main id="main">
+<div class="intro">
+<h1>A web page can hide text from you and still hand it to the AI reading it.</h1>
+<p class="lede">loupe fetches real pages, finds the text a person looking at them can't see, and checks whether that text is still there in the version an AI agent is given to read.</p>
+<p class="byline">Frank Duah, measured{date_text} across {page_count}</p>
+</div>
 {body}
 </main>
-<footer class="site-footer"><div class="wrap">
-<p>Built by Frank Duah. The code, the tests and the raw results are at <a href="{REPOSITORY_URL}">github.com/devfrankduah/loupe</a>.</p>
-<p>Quoted page text comes from the results file, which keeps short quotes. The pages themselves aren't stored.</p>
-</div></footer>
+<footer class="colophon">
+<p>The code, the tests and the raw results are at <a href="{REPOSITORY_URL}">github.com/devfrankduah/loupe</a>. Quoted page text comes from the results file, which keeps short quotes; the pages themselves aren't stored.</p>
+</footer>
+</div>
 </body>
 </html>
 """
