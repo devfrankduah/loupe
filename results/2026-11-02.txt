@@ -1,0 +1,53 @@
+https://example.com
+  html: 577 chars, markdown: 156 chars
+  findings: 1 (meta 1)
+  in markdown: 0, not in markdown: 1, not compared: 0
+  instruction-like: 0
+  markdown retried once after: Markdown request for https://example.com failed: HTTP 400: Customer is not active
+
+https://en.wikipedia.org/wiki/Prompt_injection
+  html: 185059 chars, markdown: 42537 chars
+  findings: 273 (comment 7, inline-style 1, aria-hidden 11, label-attribute 243, meta 11)
+  in markdown: 163, not in markdown: 26, not compared: 84
+  instruction-like: 5
+    [label-attribute: title] <a> matched you are; in markdown
+      You are encouraged to create an account and log in; however, it is not mandatory
+    [label-attribute: title] <a> matched you are; in markdown
+      You are encouraged to create an account and log in; however, it is not mandatory
+    [label-attribute: title] <a> matched language model; in markdown
+      Gemini (language model)
+    [label-attribute: title] <a> matched language model; in markdown
+      Large language model
+    [label-attribute: title] <a> matched system prompt; in markdown
+      Edit section: System prompt
+  markdown retried once after: Markdown request for https://en.wikipedia.org/wiki/Prompt_injection failed: HTTP 400: Customer is not active
+  34 findings over 80 characters not compared on retry (full text was not kept)
+
+https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+  html: 364093 chars, markdown: 20242 chars
+  findings: 52 (comment 15, hidden-attribute 2, inline-style 1, label-attribute 12, meta 22)
+  in markdown: 5, not in markdown: 26, not compared: 21
+  instruction-like: 0
+
+https://github.com/brightdata/brightdata-mcp
+  html: 483166 chars, markdown: 61598 chars
+  findings: 302 (comment 4, hidden-attribute 2, aria-hidden 10, label-attribute 227, meta 59)
+  in markdown: 59, not in markdown: 171, not compared: 72
+  instruction-like: 0
+
+https://frankduah.me
+  html: 277940 chars, markdown: 15575 chars
+  findings: 147 (comment 8, hidden-attribute 2, inline-style 48, aria-hidden 20, label-attribute 51, meta 18)
+  in markdown: 31, not in markdown: 60, not compared: 56
+  instruction-like: 5
+    [inline-style: opacity:0] <li> matched assistant; not in markdown
+      06 / 08 Device-Aware RAG Assistant
+    [inline-style: opacity:0] <header> matched assistant; in markdown
+      06 2026 / Author Device-Aware RAG Assistant Offline-first retrieval that pick...
+    [inline-style: opacity:0] <div> matched assistant; in markdown
+      Runs the whole question and answer loop on the reader's own device. Nothing i...
+    [label-attribute: aria-label] <nav> matched assistant; not in markdown
+      Device-Aware RAG Assistant links
+    [label-attribute: aria-label] <nav> matched assistant; not in markdown
+      AI-PR-Assistant links
+
