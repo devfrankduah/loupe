@@ -5,7 +5,7 @@ https://example.com
   instruction-like: 0
 
 https://en.wikipedia.org/wiki/Prompt_injection
-  html: 185973 chars, markdown: 42636 chars
+  html: 185974 chars, markdown: 42636 chars
   findings: 275 (comment 7, inline-style 1, aria-hidden 11, label-attribute 245, meta 11)
   in markdown: 166, not in markdown: 59, not compared: 50
   instruction-like: 5
@@ -27,24 +27,14 @@ https://genai.owasp.org/llmrisk/llm01-prompt-injection/
   instruction-like: 0
 
 https://github.com/brightdata/brightdata-mcp
-  html: 466681 chars, markdown: 61290 chars
+  html: 466692 chars, markdown: 61290 chars
   findings: 310 (comment 4, hidden-attribute 2, aria-hidden 10, label-attribute 235, meta 59)
   in markdown: 61, not in markdown: 170, not compared: 79
   instruction-like: 0
 
 https://frankduah.me
-  html: 302817 chars, markdown: 15689 chars
+  html: 302911 chars, markdown: 15652 chars
   findings: 148 (comment 8, hidden-attribute 2, inline-style 48, aria-hidden 20, label-attribute 52, meta 18)
   in markdown: 31, not in markdown: 61, not compared: 56
-  instruction-like: 5
-    [inline-style: opacity:0] <li> matched assistant; not in markdown
-      06 / 08 Device-Aware RAG Assistant
-    [inline-style: opacity:0] <header> matched assistant; in markdown
-      06 2026 / Author Device-Aware RAG Assistant Offline-first retrieval that pick...
-    [inline-style: opacity:0] <div> matched assistant; in markdown
-      Runs the whole question and answer loop on the reader's own device. Nothing i...
-    [label-attribute: aria-label] <nav> matched assistant; not in markdown
-      Device-Aware RAG Assistant links
-    [label-attribute: aria-label] <nav> matched assistant; not in markdown
-      AI-PR-Assistant links
+  instruction-like: 0
 

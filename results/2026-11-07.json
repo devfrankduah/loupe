@@ -34,7 +34,7 @@
     {
       "url": "https://en.wikipedia.org/wiki/Prompt_injection",
       "scan_mode": "static",
-      "html_characters": 185973,
+      "html_characters": 185974,
       "markdown_characters": 42636,
       "html_error": null,
       "markdown_error": null,
@@ -3352,7 +3352,7 @@
           "kind": "comment",
           "detail": "<!-- -->",
           "tag": "comment",
-          "text": "generated 223 seconds ago generated in 4.041 seconds served from batcache in...",
+          "text": "generated 290 seconds ago generated in 2.971 seconds served from batcache in...",
           "text_characters": 112,
           "instruction_phrases": [],
           "in_markdown": false
@@ -3362,7 +3362,7 @@
     {
       "url": "https://github.com/brightdata/brightdata-mcp",
       "scan_mode": "static",
-      "html_characters": 466681,
+      "html_characters": 466692,
       "markdown_characters": 61290,
       "html_error": null,
       "markdown_error": null,
@@ -3606,7 +3606,7 @@
           "kind": "meta",
           "detail": "name=twitter:image",
           "tag": "meta",
-          "text": "https://opengraph.githubassets.com/fa0817915ac13a045a9be4fbaa2386a3f62bbfcf05...",
+          "text": "https://opengraph.githubassets.com/22e816fdaf1083ddc8389e2505a2d7f78b273f39d6...",
           "text_characters": 125,
           "instruction_phrases": [],
           "in_markdown": false
@@ -3656,7 +3656,7 @@
           "kind": "meta",
           "detail": "property=og:image",
           "tag": "meta",
-          "text": "https://opengraph.githubassets.com/fa0817915ac13a045a9be4fbaa2386a3f62bbfcf05...",
+          "text": "https://opengraph.githubassets.com/22e816fdaf1083ddc8389e2505a2d7f78b273f39d6...",
           "text_characters": 125,
           "instruction_phrases": [],
           "in_markdown": false
@@ -6486,8 +6486,8 @@
     {
       "url": "https://frankduah.me",
       "scan_mode": "static",
-      "html_characters": 302817,
-      "markdown_characters": 15689,
+      "html_characters": 302911,
+      "markdown_characters": 15652,
       "html_error": null,
       "markdown_error": null,
       "counts_by_kind": {
@@ -6498,7 +6498,7 @@
         "label-attribute": 52,
         "meta": 18
       },
-      "instruction_like_count": 5,
+      "instruction_like_count": 0,
       "survival": {
         "survived": 31,
         "dropped": 61,
@@ -7313,9 +7313,7 @@
           "tag": "li",
           "text": "06 / 08 Device-Aware RAG Assistant",
           "text_characters": 34,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": false
         },
         {
@@ -7545,9 +7543,7 @@
           "tag": "header",
           "text": "06 2026 / Author Device-Aware RAG Assistant Offline-first retrieval that pick...",
           "text_characters": 100,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": true
         },
         {
@@ -7557,9 +7553,7 @@
           "tag": "div",
           "text": "Runs the whole question and answer loop on the reader's own device. Nothing i...",
           "text_characters": 927,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": true
         },
         {
@@ -7569,9 +7563,7 @@
           "tag": "nav",
           "text": "Device-Aware RAG Assistant links",
           "text_characters": 32,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": false
         },
         {
@@ -7681,9 +7673,7 @@
           "tag": "nav",
           "text": "AI-PR-Assistant links",
           "text_characters": 21,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": false
         },
         {
@@ -7941,8 +7931,8 @@
           "kind": "hidden-attribute",
           "detail": "hidden",
           "tag": "div",
-          "text": "07 / Today November 6, 2026 Agentic AI Today, I taught myself tool use and fu...",
-          "text_characters": 1155,
+          "text": "07 / Today November 7, 2026 Agentic AI Today, I taught myself multi-agent sys...",
+          "text_characters": 1137,
           "instruction_phrases": [],
           "in_markdown": true
         },
@@ -7961,7 +7951,7 @@
           "kind": "hidden-attribute",
           "detail": "hidden",
           "tag": "div",
-          "text": "08 / Pulse View on GitHub 12342 contributions · 10977 in private repos curren...",
+          "text": "08 / Pulse View on GitHub 12353 contributions · 10988 in private repos curren...",
           "text_characters": 381,
           "instruction_phrases": [],
           "in_markdown": false
@@ -7981,7 +7971,7 @@
           "kind": "label-attribute",
           "detail": "aria-label",
           "tag": "div",
-          "text": "Contributions per day from Oct 9 to Nov 7: 3,334 in all, the most on Oct 23 w...",
+          "text": "Contributions per day from Oct 9 to Nov 7: 3,345 in all, the most on Oct 23 w...",
           "text_characters": 121,
           "instruction_phrases": [],
           "in_markdown": false

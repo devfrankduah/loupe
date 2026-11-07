@@ -125,25 +125,25 @@ The markdown for example.com and Wikipedia failed on the first pass with `HTTP 4
 
 ## Results, 7 November 2026: markup against a browser
 
-On 7 November 2026 I ran the same five pages twice, back to back. The first run was markup only, as before. The second used `--render` through the Bright Data Browser API, with images, media and fonts blocked. Both fetched the markdown the same way as on 2 November. The output is in `results/2026-11-07.json` and `results/2026-11-07-rendered.json`, with `.txt` summaries beside them, and quoted text is cut to 80 characters.
+On 7 November 2026 I ran the same five pages twice, back to back. The first run was markup only, as before. The second used `--render` through the Bright Data Browser API, with images, media and fonts blocked. Both fetched the markdown the same way as on 2 November. The output is in `results/2026-11-07.json` and `results/2026-11-07-rendered.json`, with `.txt` summaries beside them, and quoted text is cut to 80 characters. These replace an earlier run the same day, which I made before three fixes: the trace now also matches the final page, centring skips what no scroll position reveals, and "assistant" is no longer an instruction phrase.
 
 | Page | Hidden, markup only | Never shown in a browser | Shown only after scrolling | Instruction-like, markup / browser | Measured transfer |
 |---|---|---|---|---|---|
-| example.com | 0 | 0 | 0 | 0 / 0 | 1,390 bytes |
-| en.wikipedia.org/wiki/Prompt_injection | 1 | 106 | 0 | 5 / 5 | 368,996 bytes |
-| genai.owasp.org/llmrisk/llm01-prompt-injection/ | 3 | 14 | 0 | 0 / 0 | 1,280,903 bytes |
-| github.com/brightdata/brightdata-mcp | 2 | 160 | 0 | 0 / 1 | 1,355,162 bytes |
-| frankduah.me | 50 | 13 | 9 | 5 / 2 | 413,076 bytes |
+| example.com | 0 | 0 | 0 | 0 / 0 | 1,393 bytes |
+| en.wikipedia.org/wiki/Prompt_injection | 1 | 107 | 0 | 5 / 5 | 372,033 bytes |
+| genai.owasp.org/llmrisk/llm01-prompt-injection/ | 3 | 14 | 1 | 0 / 0 | 1,517,598 bytes |
+| github.com/brightdata/brightdata-mcp | 2 | 160 | 0 | 0 / 0 | 376,868 bytes |
+| frankduah.me | 50 | 13 | 9 | 0 / 0 | 349,925 bytes |
 
-"Hidden, markup only" counts the `hidden` attribute and inline-style findings. "Never shown in a browser" counts rendered-hidden findings, each the outermost element of a run of hidden text. The browser run measured 3,419,527 bytes in total and refused 100 image, media and font requests.
+"Hidden, markup only" counts the `hidden` attribute and inline-style findings. "Never shown in a browser" counts rendered-hidden findings, each the outermost element of a run of hidden text. The browser run measured 2,617,817 bytes in total and refused 96 image, media and font requests.
 
-The browser finds far more on Wikipedia and GitHub, because most of their hidden text is hidden by stylesheets the markup scan can't read. On Wikipedia, 99 of the 106 findings are `display:none`. GitHub's reasons are more mixed: `display:none`, text too small to see, sections collapsed inside a closed `<details>`, and clipped text.
+The browser finds far more on Wikipedia and GitHub, because most of their hidden text is hidden by stylesheets the markup scan can't read. On Wikipedia, 99 of the 107 findings are `display:none`. GitHub's reasons are more mixed: `display:none`, text too small to see, sections collapsed inside a closed `<details>`, and clipped text.
 
-frankduah.me goes the other way. The markup scan flagged 48 elements for inline `opacity:0`. In the browser, 22 showed as the page loaded, 19 showed after scrolling, 6 never showed, and 1 wasn't found in the live page. The one not found is a clock that rewrites its own text. The 6 are words of the animated headline, and I think the trace is wrong about them. A local Chromium run of the same page found all six visible at load, and both runs found the same 13 hidden findings. My guess is that the remote browser checked before the animation ran, and the site then replaced those words with new elements the trace doesn't follow.
+frankduah.me goes the other way. The markup scan flagged 48 elements for inline `opacity:0`. In the browser, 23 showed as the page loaded, 18 showed after scrolling, 6 never showed, and 1 wasn't found in the live page. The one not found is a clock that rewrites its own text. The 6 are words of the animated headline, and I think the trace is wrong about them. Local Chromium sees all six as the page loads, and both browsers found the same hidden and revealed text on this page. I haven't found the cause. It isn't a node swapped after load (the trace now checks the final page too), blocked fonts or reduced motion, since local runs with each of those still see the words.
 
-The one instruction-like match the browser adds is on GitHub: a table in the README, collapsed inside a closed `<details>`, whose text includes `ask_brightdata_assistant`. It isn't an attack.
+All the instruction-like matches left are Wikipedia link titles, such as "You are encouraged to create an account" and "Large language model". None of them is an attack.
 
-Rendering the same five pages in local Chromium gave the same hidden findings on four of them. Wikipedia differed by one, a "Save" button hidden only in the local run.
+Rendering the same five pages in local Chromium found the same hidden and revealed text on all five. The only difference is the frankduah.me headline above.
 
 ## Report
 

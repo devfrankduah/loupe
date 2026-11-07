@@ -19,12 +19,12 @@
       },
       "rendering": {
         "browser": "remote-cdp",
-        "browser_version": "156.0.8078.12",
+        "browser_version": "157.0.8103.15",
         "viewport": [
           1280,
           800
         ],
-        "transfer_bytes": 1390,
+        "transfer_bytes": 1393,
         "blocked_requests": 0,
         "final_url": "https://example.com/",
         "text_elements": 7,
@@ -57,40 +57,38 @@
     {
       "url": "https://en.wikipedia.org/wiki/Prompt_injection",
       "scan_mode": "rendered",
-      "html_characters": 185060,
+      "html_characters": 185918,
       "markdown_characters": 42636,
       "html_error": null,
       "markdown_error": null,
       "counts_by_kind": {
         "comment": 7,
         "aria-hidden": 11,
-        "label-attribute": 243,
+        "label-attribute": 245,
         "meta": 11,
-        "rendered-hidden": 106
+        "rendered-hidden": 107
       },
       "instruction_like_count": 5,
       "survival": {
-        "survived": 173,
+        "survived": 175,
         "dropped": 72,
-        "not_compared": 133
+        "not_compared": 134
       },
       "rendering": {
         "browser": "remote-cdp",
-        "browser_version": "157.0.8103.15",
+        "browser_version": "154.0.8037.17",
         "viewport": [
           1280,
           800
         ],
-        "transfer_bytes": 368996,
-        "blocked_requests": 25,
+        "transfer_bytes": 372033,
+        "blocked_requests": 26,
         "final_url": "https://en.wikipedia.org/wiki/Prompt_injection",
-        "text_elements": 655,
+        "text_elements": 657,
         "scroll_steps": 8,
         "reached_bottom": true,
-        "centre_checks": 40,
-        "notes": [
-          "centred 40 still-hidden elements in the viewport and stopped with 3 left, so any of those revealed only at one scroll position counts as hidden"
-        ],
+        "centre_checks": 13,
+        "notes": [],
         "revealed_on_scroll": [],
         "static_comparison_counts": {
           "visible at load": 0,
@@ -114,7 +112,7 @@
           "kind": "meta",
           "detail": "name=generator",
           "tag": "meta",
-          "text": "MediaWiki 1.48.0-wmf.1",
+          "text": "MediaWiki 1.48.0-wmf.3",
           "text_characters": 22,
           "instruction_phrases": [],
           "in_markdown": false
@@ -956,6 +954,16 @@
         {
           "mode": "static",
           "kind": "label-attribute",
+          "detail": "title",
+          "tag": "a",
+          "text": "Add this page to your saved items",
+          "text_characters": 33,
+          "instruction_phrases": [],
+          "in_markdown": true
+        },
+        {
+          "mode": "static",
+          "kind": "label-attribute",
           "detail": "aria-label",
           "tag": "nav",
           "text": "Page tools",
@@ -1020,6 +1028,16 @@
           "tag": "a",
           "text": "Past revisions of this page [h]",
           "text_characters": 31,
+          "instruction_phrases": [],
+          "in_markdown": true
+        },
+        {
+          "mode": "static",
+          "kind": "label-attribute",
+          "detail": "title",
+          "tag": "a",
+          "text": "Add this page to your saved items",
+          "text_characters": 33,
           "instruction_phrases": [],
           "in_markdown": true
         },
@@ -3132,10 +3150,20 @@
         {
           "mode": "rendered",
           "kind": "rendered-hidden",
+          "detail": "clipped",
+          "tag": "li",
+          "text": "Save",
+          "text_characters": 4,
+          "instruction_phrases": [],
+          "in_markdown": null
+        },
+        {
+          "mode": "rendered",
+          "kind": "rendered-hidden",
           "detail": "clipped, visibility:hidden, opacity:0, display:none",
           "tag": "nav",
-          "text": "Tools Tools move to sidebar hide Actions Read Edit View history General What...",
-          "text_characters": 308,
+          "text": "Tools Tools move to sidebar hide Actions Read Edit View history Save General...",
+          "text_characters": 313,
           "instruction_phrases": [],
           "in_markdown": false
         },
@@ -3927,19 +3955,21 @@
           1280,
           800
         ],
-        "transfer_bytes": 1280903,
+        "transfer_bytes": 1517598,
         "blocked_requests": 34,
         "final_url": "https://genai.owasp.org/llmrisk/llm01-prompt-injection/",
         "text_elements": 229,
         "scroll_steps": 7,
         "reached_bottom": true,
-        "centre_checks": 40,
-        "notes": [
-          "the load event hadn't fired after 15 s",
-          "the network was still busy after 10 s, so the first check ran with requests open",
-          "centred 40 still-hidden elements in the viewport and stopped with 1 left, so any of those revealed only at one scroll position counts as hidden"
+        "centre_checks": 5,
+        "notes": [],
+        "revealed_on_scroll": [
+          {
+            "tag": "div",
+            "text": "Select and listen",
+            "text_characters": 17
+          }
         ],
-        "revealed_on_scroll": [],
         "static_comparison_counts": {
           "visible at load": 0,
           "revealed on scroll": 0,
@@ -4442,7 +4472,7 @@
           "kind": "comment",
           "detail": "<!-- -->",
           "tag": "comment",
-          "text": "generated 279 seconds ago generated in 3.169 seconds served from batcache in...",
+          "text": "generated 72 seconds ago generated in 3.410 seconds served from batcache in 0...",
           "text_characters": 112,
           "instruction_phrases": [],
           "in_markdown": false
@@ -4603,7 +4633,7 @@
         "meta": 59,
         "rendered-hidden": 160
       },
-      "instruction_like_count": 1,
+      "instruction_like_count": 0,
       "survival": {
         "survived": 138,
         "dropped": 176,
@@ -4616,16 +4646,14 @@
           1280,
           800
         ],
-        "transfer_bytes": 1355162,
-        "blocked_requests": 37,
+        "transfer_bytes": 376868,
+        "blocked_requests": 32,
         "final_url": "https://github.com/brightdata/brightdata-mcp",
         "text_elements": 1201,
         "scroll_steps": 17,
         "reached_bottom": true,
-        "centre_checks": 40,
-        "notes": [
-          "centred 40 still-hidden elements in the viewport and stopped with 352 left, so any of those revealed only at one scroll position counts as hidden"
-        ],
+        "centre_checks": 62,
+        "notes": [],
         "revealed_on_scroll": [],
         "static_comparison_counts": {
           "visible at load": 0,
@@ -4861,7 +4889,7 @@
           "kind": "meta",
           "detail": "name=twitter:image",
           "tag": "meta",
-          "text": "https://opengraph.githubassets.com/fa0817915ac13a045a9be4fbaa2386a3f62bbfcf05...",
+          "text": "https://opengraph.githubassets.com/22e816fdaf1083ddc8389e2505a2d7f78b273f39d6...",
           "text_characters": 125,
           "instruction_phrases": [],
           "in_markdown": false
@@ -4911,7 +4939,7 @@
           "kind": "meta",
           "detail": "property=og:image",
           "tag": "meta",
-          "text": "https://opengraph.githubassets.com/fa0817915ac13a045a9be4fbaa2386a3f62bbfcf05...",
+          "text": "https://opengraph.githubassets.com/22e816fdaf1083ddc8389e2505a2d7f78b273f39d6...",
           "text_characters": 125,
           "instruction_phrases": [],
           "in_markdown": false
@@ -9093,9 +9121,7 @@
           "tag": "markdown-accessiblity-table",
           "text": "Tool Description Group ask_brightdata_assistant Ask Sophie, Bright Data's sup...",
           "text_characters": 234,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": true
         },
         {
@@ -9323,8 +9349,8 @@
     {
       "url": "https://frankduah.me",
       "scan_mode": "rendered",
-      "html_characters": 302817,
-      "markdown_characters": 15689,
+      "html_characters": 302911,
+      "markdown_characters": 15652,
       "html_error": null,
       "markdown_error": null,
       "counts_by_kind": {
@@ -9334,7 +9360,7 @@
         "meta": 18,
         "rendered-hidden": 13
       },
-      "instruction_like_count": 2,
+      "instruction_like_count": 0,
       "survival": {
         "survived": 7,
         "dropped": 51,
@@ -9342,21 +9368,19 @@
       },
       "rendering": {
         "browser": "remote-cdp",
-        "browser_version": "156.0.8078.12",
+        "browser_version": "157.0.8103.15",
         "viewport": [
           1280,
           800
         ],
-        "transfer_bytes": 413076,
+        "transfer_bytes": 349925,
         "blocked_requests": 4,
         "final_url": "https://www.frankduah.me/",
-        "text_elements": 492,
+        "text_elements": 489,
         "scroll_steps": 25,
         "reached_bottom": true,
-        "centre_checks": 40,
-        "notes": [
-          "centred 40 still-hidden elements in the viewport and stopped with 4 left, so any of those revealed only at one scroll position counts as hidden"
-        ],
+        "centre_checks": 5,
+        "notes": [],
         "revealed_on_scroll": [
           {
             "tag": "div",
@@ -9400,13 +9424,13 @@
           },
           {
             "tag": "div",
-            "text": "November 6, 2026 Agentic AI Today, I taught myself tool use and function call...",
-            "text_characters": 1144
+            "text": "November 7, 2026 Agentic AI Today, I taught myself multi-agent systems - when...",
+            "text_characters": 1126
           }
         ],
         "static_comparison_counts": {
-          "visible at load": 22,
-          "revealed on scroll": 19,
+          "visible at load": 23,
+          "revealed on scroll": 18,
           "still hidden": 6,
           "not matched": 1
         },
@@ -9430,7 +9454,7 @@
             "detail": "opacity:0",
             "text": "I",
             "text_characters": 1,
-            "landed": "revealed on scroll"
+            "landed": "visible at load"
           },
           {
             "tag": "span",
@@ -10427,9 +10451,7 @@
           "tag": "nav",
           "text": "Device-Aware RAG Assistant links",
           "text_characters": 32,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": false
         },
         {
@@ -10499,9 +10521,7 @@
           "tag": "nav",
           "text": "AI-PR-Assistant links",
           "text_characters": 21,
-          "instruction_phrases": [
-            "assistant"
-          ],
+          "instruction_phrases": [],
           "in_markdown": false
         },
         {
@@ -10719,7 +10739,7 @@
           "kind": "label-attribute",
           "detail": "aria-label",
           "tag": "div",
-          "text": "Contributions per day from Oct 9 to Nov 7: 3,334 in all, the most on Oct 23 w...",
+          "text": "Contributions per day from Oct 9 to Nov 7: 3,345 in all, the most on Oct 23 w...",
           "text_characters": 121,
           "instruction_phrases": [],
           "in_markdown": false

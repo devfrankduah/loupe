@@ -1,21 +1,20 @@
 https://example.com
   html: 577 chars, markdown: 156 chars
-  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 7 text elements, 1 scroll steps, reached the bottom, 0 centred
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 157.0.8103.15): 7 text elements, 1 scroll steps, reached the bottom, 0 centred
   revealed on scroll: 0 (not counted as hidden)
-  transfer: 1,390 bytes, 0 requests blocked
+  transfer: 1,393 bytes, 0 requests blocked
   findings: 1 (meta 1)
   in markdown: 0, not in markdown: 1, not compared: 0
   instruction-like: 0
 
 https://en.wikipedia.org/wiki/Prompt_injection
-  html: 185060 chars, markdown: 42636 chars
-  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 157.0.8103.15): 655 text elements, 8 scroll steps, reached the bottom, 40 centred
+  html: 185918 chars, markdown: 42636 chars
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 154.0.8037.17): 657 text elements, 8 scroll steps, reached the bottom, 13 centred
   revealed on scroll: 0 (not counted as hidden)
-  transfer: 368,996 bytes, 25 requests blocked
+  transfer: 372,033 bytes, 26 requests blocked
   static inline-style candidates: 1 (visible at load 0, revealed on scroll 0, still hidden 1, not matched 0)
-  note: centred 40 still-hidden elements in the viewport and stopped with 3 left, so any of those revealed only at one scroll position counts as hidden
-  findings: 378 (comment 7, aria-hidden 11, label-attribute 243, meta 11, rendered-hidden 106)
-  in markdown: 173, not in markdown: 72, not compared: 133
+  findings: 381 (comment 7, aria-hidden 11, label-attribute 245, meta 11, rendered-hidden 107)
+  in markdown: 175, not in markdown: 72, not compared: 134
   instruction-like: 5
     [label-attribute: title] <a> matched you are; in markdown
       You are encouraged to create an account and log in; however, it is not mandatory
@@ -30,41 +29,30 @@ https://en.wikipedia.org/wiki/Prompt_injection
 
 https://genai.owasp.org/llmrisk/llm01-prompt-injection/
   html: 364077 chars, markdown: 20242 chars
-  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 229 text elements, 7 scroll steps, reached the bottom, 40 centred
-  revealed on scroll: 0 (not counted as hidden)
-  transfer: 1,280,903 bytes, 34 requests blocked
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 229 text elements, 7 scroll steps, reached the bottom, 5 centred
+  revealed on scroll: 1 (not counted as hidden)
+  transfer: 1,517,598 bytes, 34 requests blocked
   static inline-style candidates: 1 (visible at load 0, revealed on scroll 0, still hidden 1, not matched 0)
-  note: the load event hadn't fired after 15 s
-  note: the network was still busy after 10 s, so the first check ran with requests open
-  note: centred 40 still-hidden elements in the viewport and stopped with 1 left, so any of those revealed only at one scroll position counts as hidden
   findings: 63 (comment 15, label-attribute 12, meta 22, rendered-hidden 14)
   in markdown: 12, not in markdown: 30, not compared: 21
   instruction-like: 0
 
 https://github.com/brightdata/brightdata-mcp
   html: 466684 chars, markdown: 61290 chars
-  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 1201 text elements, 17 scroll steps, reached the bottom, 40 centred
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 1201 text elements, 17 scroll steps, reached the bottom, 62 centred
   revealed on scroll: 0 (not counted as hidden)
-  transfer: 1,355,162 bytes, 37 requests blocked
-  note: centred 40 still-hidden elements in the viewport and stopped with 352 left, so any of those revealed only at one scroll position counts as hidden
+  transfer: 376,868 bytes, 32 requests blocked
   findings: 468 (comment 4, aria-hidden 10, label-attribute 235, meta 59, rendered-hidden 160)
   in markdown: 138, not in markdown: 176, not compared: 154
-  instruction-like: 1
-    [rendered-hidden: inside a closed <details>] <markdown-accessiblity-table> matched assistant; in markdown
-      Tool Description Group ask_brightdata_assistant Ask Sophie, Bright Data's sup...
+  instruction-like: 0
 
 https://frankduah.me
-  html: 302817 chars, markdown: 15689 chars
-  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 492 text elements, 25 scroll steps, reached the bottom, 40 centred
+  html: 302911 chars, markdown: 15652 chars
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 157.0.8103.15): 489 text elements, 25 scroll steps, reached the bottom, 5 centred
   revealed on scroll: 9 (not counted as hidden)
-  transfer: 413,076 bytes, 4 requests blocked
-  static inline-style candidates: 48 (visible at load 22, revealed on scroll 19, still hidden 6, not matched 1)
-  note: centred 40 still-hidden elements in the viewport and stopped with 4 left, so any of those revealed only at one scroll position counts as hidden
+  transfer: 349,925 bytes, 4 requests blocked
+  static inline-style candidates: 48 (visible at load 23, revealed on scroll 18, still hidden 6, not matched 1)
   findings: 111 (comment 8, aria-hidden 20, label-attribute 52, meta 18, rendered-hidden 13)
   in markdown: 7, not in markdown: 51, not compared: 53
-  instruction-like: 2
-    [label-attribute: aria-label] <nav> matched assistant; not in markdown
-      Device-Aware RAG Assistant links
-    [label-attribute: aria-label] <nav> matched assistant; not in markdown
-      AI-PR-Assistant links
+  instruction-like: 0
 
