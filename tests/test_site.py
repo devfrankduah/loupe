@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from loupe import cli
+from loupe.render import Landing
+from loupe.scan import ScanMode
 from loupe.site import (
     HIDING_METHODS,
     ReportFormatError,
@@ -151,6 +153,8 @@ def test_malformed_results_are_rejected(document: str) -> None:
 
 def test_run_date_comes_from_an_iso_filename() -> None:
     assert run_date_from_filename(Path("results/2026-11-02.json")) == datetime.date(2026, 11, 2)
+    assert run_date_from_filename(Path("results/2026-11-07-rendered.json")) == datetime.date(2026, 11, 7)
+    assert run_date_from_filename(Path("results/2026-11-071.json")) is None
     assert run_date_from_filename(Path("results/latest.json")) is None
 
 
@@ -269,17 +273,153 @@ def test_card_heading_shortens_the_path_keeps_the_full_url_and_stays_escaped() -
     assert "script" not in _parse(page_html).tags
 
 
+def _rendering(**changes: object) -> dict[str, object]:
+    rendering: dict[str, object] = {
+        "browser": "local-chromium",
+        "scroll_steps": 4,
+        "reached_bottom": True,
+        "notes": [],
+        "revealed_on_scroll": [{"tag": "p", "text": "Bake for 45 minutes.", "text_characters": 20}],
+        "static_comparison": [
+            {"tag": "p", "detail": "opacity:0", "text": "Bake for 45 minutes.", "landed": "revealed on scroll"},
+            {"tag": "span", "detail": "opacity:0", "text": "Lemon drizzle cake", "landed": "visible at load"},
+            {"tag": "p", "detail": "display:none", "text": "An older method.", "landed": "still hidden"},
+        ],
+    }
+    rendering.update(changes)
+    return rendering
+
+
+def _rendered_finding(text: str, detail: str = "display:none") -> dict[str, object]:
+    return {**_finding("rendered-hidden", detail, text, None), "mode": "rendered"}
+
+
+def _rendered_page(url: str, findings: list[dict[str, object]], **extra: object) -> dict[str, object]:
+    extra.setdefault("rendering", _rendering())
+    return _page(url, findings, scan_mode="rendered", **extra)
+
+
+MARKUP_PAGE = _page(
+    "https://cake.test/recipe",
+    [
+        _finding("inline-style", "opacity:0", "Bake for 45 minutes.", None),
+        _finding("hidden-attribute", "hidden", "An older method.", None, ["you are"]),
+        _finding("comment", "<!-- -->", "a note in the source", None),
+    ],
+)
+RENDERED_PAGE = _rendered_page(
+    "https://cake.test/recipe/",
+    [_rendered_finding("An older method."), {**_finding("comment", "<!-- -->", "a note in the source", None), "mode": "static"}],
+)
+
+
 @pytest.mark.parametrize(
     "document",
     [
-        _results(_page("https://a.test/", [], scan_mode="rendered")),
         _results(_page("https://a.test/", [{**_finding("comment", "<!-- -->", "a note", None), "mode": "rendered"}])),
         _results(_page("https://a.test/", [_finding("rendered-hidden", "opacity:0", "faded text", None)])),
+        _results(_page("https://a.test/", [_rendered_finding("faded text")])),
+        _results(_page("https://a.test/", [], scan_mode="rendered")),
+        _results(_rendered_page("https://a.test/", [], rendering=_rendering(reached_bottom="yes"))),
+        _results(
+            _rendered_page(
+                "https://a.test/",
+                [],
+                rendering=_rendering(static_comparison=[{"tag": "p", "detail": "x", "text": "y", "landed": "gone"}]),
+            )
+        ),
     ],
 )
-def test_rendered_results_are_refused_with_a_reason(document: str) -> None:
-    with pytest.raises(ReportFormatError, match="rendered scan"):
+def test_inconsistent_rendered_results_are_rejected(document: str) -> None:
+    with pytest.raises(ReportFormatError):
         load_results(document)
+
+
+def test_rendered_results_load_with_their_rendering() -> None:
+    (page,) = load_results(_results(RENDERED_PAGE))
+    assert page.mode is ScanMode.RENDERED
+    assert page.rendering is not None
+    assert (page.rendering.scroll_steps, page.rendering.revealed_on_scroll) == (4, 1)
+    assert [item.landed for item in page.rendering.comparison] == [
+        Landing.REVEALED_ON_SCROLL,
+        Landing.VISIBLE_AT_LOAD,
+        Landing.STILL_HIDDEN,
+    ]
+    assert [finding.mode for finding in page.findings] == [ScanMode.RENDERED, ScanMode.STATIC]
+
+
+def test_a_failed_render_needs_no_rendering_details() -> None:
+    (page,) = load_results(_results(_page("https://a.test/", [], scan_mode="rendered", html_error="HTTP 500")))
+    assert page.rendering is None
+
+
+def _rendered_section(page_html: str) -> str:
+    start = page_html.index('<section aria-labelledby="rendered-title">')
+    return page_html[start : page_html.index("</section>", start)]
+
+
+def test_markup_only_and_rendered_runs_appear_side_by_side() -> None:
+    page_html = render_report_page(load_results(_results(MARKUP_PAGE, RENDERED_PAGE)))
+    section = _rendered_section(page_html)
+
+    assert section.count('<li class="pair">') == 1
+    assert "<dt>Hidden by a style or the hidden attribute</dt><dd>2</dd>" in section
+    assert "<dt>Never shown</dt><dd>1</dd>" in section
+    assert "<dt>Shown only after scrolling</dt><dd>1</dd>" in section
+    assert "Where the 3 inline-style guesses landed" in section
+    for count, label in ((1, "showed as the page loaded"), (1, "showed after scrolling"), (1, "never showed")):
+        assert f"<b>{count}</b> {label}" in section
+    assert "<b>0</b> not found in the live page" in section
+    assert section.count('<q class="page-text">') == 3
+    # The trailing slash doesn't make the recipe two pages.
+    assert "measured across one page" in page_html
+    assert "the rendered scan above traces each of them" in page_html
+
+
+def test_rendered_results_alone_render_without_the_markup_sections() -> None:
+    page_html = render_report_page(load_results(_results(RENDERED_PAGE)))
+    assert '<section class="example"' not in page_html
+    assert 'id="result-title"' not in page_html
+    assert "No markup-only scan of this page here." in _rendered_section(page_html)
+    assert "<dt>Rendered scan</dt>" in page_html
+
+
+def test_markup_only_results_carry_no_rendered_section_or_styles() -> None:
+    page_html = render_report_page(load_results(_results(MARKUP_PAGE)))
+    assert 'id="rendered-title"' not in page_html
+    assert "--later" not in page_html
+    assert "<dt>Rendered scan</dt>" not in page_html
+
+
+def test_text_in_rendered_results_is_inert() -> None:
+    hostile = _rendered_page(
+        'https://evil.test/"><script>alert(3)</script>',
+        [_rendered_finding(HOSTILE_TEXT, detail=HOSTILE_TEXT)],
+        rendering=_rendering(
+            notes=[HOSTILE_TEXT],
+            static_comparison=[{"tag": HOSTILE_TEXT, "detail": HOSTILE_TEXT, "text": HOSTILE_TEXT, "landed": "still hidden"}],
+        ),
+    )
+    failed = _page("https://broken.test/", [], scan_mode="rendered", html_error=HOSTILE_TEXT)
+    page_html = render_report_page(load_results(_results(hostile, failed)))
+    parsed = _parse(page_html)
+
+    assert "script" not in parsed.tags and "img" not in parsed.tags
+    assert not [name for name in parsed.attribute_names if name.startswith("on")]
+    assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in _rendered_section(page_html)
+
+
+def test_report_command_reads_several_results_files(tmp_path: Path) -> None:
+    static_path = tmp_path / "2026-11-07.json"
+    rendered_path = tmp_path / "2026-11-07-rendered.json"
+    static_path.write_text(_results(MARKUP_PAGE), encoding="utf-8")
+    rendered_path.write_text(_results(RENDERED_PAGE), encoding="utf-8")
+    output_path = tmp_path / "page.html"
+
+    assert cli.main(["report", str(static_path), str(rendered_path), "-o", str(output_path)]) == cli.EXIT_OK
+    page_html = output_path.read_text(encoding="utf-8")
+    assert 'id="rendered-title"' in page_html and 'id="result-title"' in page_html
+    assert "measured on 7 November 2026 across one page" in page_html
 
 
 @pytest.mark.parametrize(

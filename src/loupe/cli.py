@@ -1,4 +1,4 @@
-"""Command line entry points: loupe <url> [<url> ...] [--render] and loupe report <results.json> -o <page.html>"""
+"""Command line entry points: loupe <url> [<url> ...] [--render] and loupe report <results.json>... -o <page.html>"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from loupe.render import (
 )
 from loupe.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
 from loupe.scan import ScanMode, scan_html
-from loupe.site import ReportFormatError, load_results, render_report_page, run_date_from_filename
+from loupe.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
 
 EXIT_OK = 0
 EXIT_FETCH_FAILED = 1
@@ -124,25 +124,31 @@ def scan_rendered_page(renderer: PageRenderer, markdown_client: BrightDataClient
 def _build_report_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="loupe report",
-        description="Turn a results JSON file into one self-contained HTML page.",
+        description=(
+            "Turn results JSON files into one self-contained HTML page. Give a markup-only run and a "
+            "--render run of the same pages to see them side by side."
+        ),
     )
-    parser.add_argument("results", type=Path, help="JSON written by loupe --json")
+    parser.add_argument("results", type=Path, nargs="+", help="JSON written by loupe --json")
     parser.add_argument("-o", "--output", type=Path, required=True, metavar="PATH", help="HTML file to write")
     return parser
 
 
 def report_main(argv: Sequence[str]) -> int:
     arguments = _build_report_parser().parse_args(argv)
-    try:
-        pages = load_results(arguments.results.read_text(encoding="utf-8"))
-    except OSError as error:
-        print(f"loupe report: could not read {arguments.results}: {error.strerror}", file=sys.stderr)
-        return EXIT_USAGE
-    except ReportFormatError as error:
-        print(f"loupe report: {arguments.results}: {error}", file=sys.stderr)
-        return EXIT_USAGE
+    pages: list[PageRecord] = []
+    for results_path in arguments.results:
+        try:
+            pages.extend(load_results(results_path.read_text(encoding="utf-8")))
+        except OSError as error:
+            print(f"loupe report: could not read {results_path}: {error.strerror}", file=sys.stderr)
+            return EXIT_USAGE
+        except ReportFormatError as error:
+            print(f"loupe report: {results_path}: {error}", file=sys.stderr)
+            return EXIT_USAGE
 
-    page_html = render_report_page(pages, run_date_from_filename(arguments.results))
+    run_dates = [date for date in map(run_date_from_filename, arguments.results) if date is not None]
+    page_html = render_report_page(tuple(pages), max(run_dates, default=None))
     try:
         arguments.output.parent.mkdir(parents=True, exist_ok=True)
         arguments.output.write_text(page_html, encoding="utf-8")

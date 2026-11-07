@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Final
 from urllib.parse import urlsplit
 
-from loupe.scan import Kind
+from loupe.render import Landing
+from loupe.scan import Kind, ScanMode
 
 REPOSITORY_URL: Final[str] = "https://github.com/devfrankduah/loupe"
 
@@ -31,16 +32,14 @@ class ReportFormatError(ValueError):
     """The results file isn't in the shape loupe writes."""
 
 
-RENDERED_NOT_COVERED: Final[str] = "comes from a rendered scan (loupe --render), which the report page doesn't cover"
-
-
-def _require_static_mode(record: dict[str, object], name: str, where: str) -> None:
+def _scan_mode(record: dict[str, object], name: str, where: str) -> ScanMode:
     # Files written before scan modes existed have no mode field and are static.
-    mode = record.get(name, "static")
-    if mode == "rendered":
-        raise ReportFormatError(f"{where} {RENDERED_NOT_COVERED}")
-    if mode != "static":
-        raise ReportFormatError(f"{where}.{name} should be \"static\" or \"rendered\"")
+    value = record.get(name, ScanMode.STATIC.value)
+    if value == ScanMode.STATIC.value:
+        return ScanMode.STATIC
+    if value == ScanMode.RENDERED.value:
+        return ScanMode.RENDERED
+    raise ReportFormatError(f"{where}.{name} should be \"static\" or \"rendered\"")
 
 
 @dataclass(frozen=True)
@@ -52,10 +51,30 @@ class FindingRecord:
     in_markdown: bool | None
     # The length before the results file cut the quote; equal to len(text) when nothing was cut.
     full_length: int
+    mode: ScanMode = ScanMode.STATIC
 
     @property
     def is_complete(self) -> bool:
         return self.full_length <= len(self.text)
+
+
+@dataclass(frozen=True)
+class ComparisonRecord:
+    """One element the markup-only scan flagged by its style attribute, and where it landed in a browser."""
+
+    tag: str
+    detail: str
+    text: str
+    landed: Landing
+
+
+@dataclass(frozen=True)
+class RenderingRecord:
+    scroll_steps: int
+    reached_bottom: bool
+    revealed_on_scroll: int
+    notes: tuple[str, ...]
+    comparison: tuple[ComparisonRecord, ...]
 
 
 @dataclass(frozen=True)
@@ -67,6 +86,9 @@ class PageRecord:
     markdown_retried: bool
     retry_not_compared: int
     findings: tuple[FindingRecord, ...]
+    mode: ScanMode = ScanMode.STATIC
+    # Set for rendered pages that loaded.
+    rendering: RenderingRecord | None = None
 
     @property
     def host(self) -> str:
@@ -132,16 +154,64 @@ def _list(value: object, where: str) -> list[object]:
     return value
 
 
-def _load_finding(value: object, where: str) -> FindingRecord:
+def _whole_number(record: dict[str, object], name: str, where: str) -> int:
+    value = _field(record, name, where)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ReportFormatError(f"{where}.{name} should be a whole number")
+    return value
+
+
+def _strings(value: object, where: str) -> tuple[str, ...]:
+    items = _list(value, where)
+    if not all(isinstance(item, str) for item in items):
+        raise ReportFormatError(f"{where} should hold strings")
+    return tuple(str(item) for item in items)
+
+
+def _load_comparison(value: object, where: str) -> ComparisonRecord:
+    record = _object(value, where)
+    landed = _string(record, "landed", where)
+    try:
+        landing = Landing(landed)
+    except ValueError:
+        raise ReportFormatError(f"{where}.landed {landed!r} is not a known outcome") from None
+    return ComparisonRecord(
+        tag=_string(record, "tag", where),
+        detail=_string(record, "detail", where),
+        text=_string(record, "text", where),
+        landed=landing,
+    )
+
+
+def _load_rendering(value: object, where: str) -> RenderingRecord:
+    record = _object(value, where)
+    reached_bottom = _field(record, "reached_bottom", where)
+    if not isinstance(reached_bottom, bool):
+        raise ReportFormatError(f"{where}.reached_bottom should be true or false")
+    comparison = _list(record.get("static_comparison", []), f"{where}.static_comparison")
+    return RenderingRecord(
+        scroll_steps=_whole_number(record, "scroll_steps", where),
+        reached_bottom=reached_bottom,
+        revealed_on_scroll=len(_list(_field(record, "revealed_on_scroll", where), f"{where}.revealed_on_scroll")),
+        notes=_strings(record.get("notes", []), f"{where}.notes"),
+        comparison=tuple(
+            _load_comparison(item, f"{where}.static_comparison[{index}]") for index, item in enumerate(comparison)
+        ),
+    )
+
+
+def _load_finding(value: object, where: str, page_mode: ScanMode) -> FindingRecord:
     record = _object(value, where)
     kind_value = _string(record, "kind", where)
     try:
         kind = Kind(kind_value)
     except ValueError:
         raise ReportFormatError(f"{where}.kind {kind_value!r} is not a known kind") from None
-    _require_static_mode(record, "mode", where)
-    if kind is Kind.RENDERED_HIDDEN:
-        raise ReportFormatError(f"{where} {RENDERED_NOT_COVERED}")
+    mode = _scan_mode(record, "mode", where)
+    if (kind is Kind.RENDERED_HIDDEN) != (mode is ScanMode.RENDERED):
+        raise ReportFormatError(f"{where} pairs kind {kind_value!r} with mode {mode.value!r}")
+    if mode is ScanMode.RENDERED and page_mode is not ScanMode.RENDERED:
+        raise ReportFormatError(f"{where} is a rendered finding on a page from a static scan")
     phrases = _list(_field(record, "instruction_phrases", where), f"{where}.instruction_phrases")
     if not all(isinstance(phrase, str) for phrase in phrases):
         raise ReportFormatError(f"{where}.instruction_phrases should hold strings")
@@ -159,12 +229,17 @@ def _load_finding(value: object, where: str) -> FindingRecord:
         instruction_phrases=tuple(str(phrase) for phrase in phrases),
         in_markdown=in_markdown,
         full_length=full_length,
+        mode=mode,
     )
 
 
 def _load_page(value: object, where: str) -> PageRecord:
     record = _object(value, where)
-    _require_static_mode(record, "scan_mode", where)
+    mode = _scan_mode(record, "scan_mode", where)
+    html_error = _optional_string(record, "html_error", where)
+    rendering: RenderingRecord | None = None
+    if mode is ScanMode.RENDERED and html_error is None:
+        rendering = _load_rendering(_field(record, "rendering", where), f"{where}.rendering")
     findings = _list(_field(record, "findings", where), f"{where}.findings")
     retry_value = record.get("markdown_retry")
     retry = _object(retry_value, f"{where}.markdown_retry") if retry_value is not None else {}
@@ -173,12 +248,16 @@ def _load_page(value: object, where: str) -> PageRecord:
         raise ReportFormatError(f"{where}.markdown_retry count should be a whole number")
     return PageRecord(
         url=_string(record, "url", where),
-        html_error=_optional_string(record, "html_error", where),
+        html_error=html_error,
         markdown_error=_optional_string(record, "markdown_error", where),
         markdown_retry_error=_optional_string(retry, "retry_error", f"{where}.markdown_retry"),
         markdown_retried=retry_value is not None,
         retry_not_compared=not_compared,
-        findings=tuple(_load_finding(item, f"{where}.findings[{index}]") for index, item in enumerate(findings)),
+        findings=tuple(
+            _load_finding(item, f"{where}.findings[{index}]", mode) for index, item in enumerate(findings)
+        ),
+        mode=mode,
+        rendering=rendering,
     )
 
 
@@ -194,8 +273,12 @@ def load_results(text: str) -> tuple[PageRecord, ...]:
 
 
 def run_date_from_filename(path: Path) -> datetime.date | None:
+    """The date a results file is named for: 2026-11-02.json, or 2026-11-02-rendered.json."""
+    stem = path.stem
+    if len(stem) > 10 and stem[10] not in "-_":
+        return None
     try:
-        return datetime.date.fromisoformat(path.stem)
+        return datetime.date.fromisoformat(stem[:10])
     except ValueError:
         return None
 
@@ -461,11 +544,15 @@ def _strip(counts: Tally) -> str:
     return f'<span class="strip" aria-hidden="true">{spans}</span>'
 
 
-def _page_card(page: PageRecord) -> str:
+def _card_title(page: PageRecord) -> str:
     label = _page_label(page)
     href = _safe_href(page.url)
     full_url = _escape(page.url)
-    title = f'<a href="{href}" title="{full_url}">{label}</a>' if href else f'<span title="{full_url}">{label}</span>'
+    return f'<a href="{href}" title="{full_url}">{label}</a>' if href else f'<span title="{full_url}">{label}</span>'
+
+
+def _page_card(page: PageRecord) -> str:
+    title = _card_title(page)
     parts = [f'<li class="card{" control" if page.is_control else ""}"><h3>{title}</h3>']
     if page.is_control:
         parts.append(
@@ -513,7 +600,13 @@ def _pages_section(pages: tuple[PageRecord, ...]) -> str:
     )
 
 
-def _method_section() -> str:
+def _method_section(with_rendering: bool = False) -> str:
+    rendering_step = (
+        "<li>For a rendered scan it also loads the page in Chromium, scrolls from top to bottom, brings anything "
+        "still hidden to the middle of the screen, and records which text a reader could actually see.</li>"
+        if with_rendering
+        else ""
+    )
     return (
         '<section aria-labelledby="method-title">'
         '<h2 id="method-title">How loupe checks a page</h2>'
@@ -523,12 +616,125 @@ def _method_section() -> str:
         "<li>It reads the HTML for anything a person won't see: comments, hidden elements, image and link "
         "descriptions, meta tags and noscript blocks. It also notes text that sounds like an order to an AI.</li>"
         "<li>For each hidden piece, it checks whether the same words, in the same order, are in the markdown.</li>"
+        f"{rendering_step}"
         "</ol>"
         "</section>"
     )
 
 
-def _caveats(pages: tuple[PageRecord, ...]) -> str:
+# Markup-only and rendered, side by side
+
+_LANDING_LABELS: Final[tuple[tuple[Landing, str, str], ...]] = (
+    (Landing.VISIBLE_AT_LOAD, "shown", "showed as the page loaded"),
+    (Landing.REVEALED_ON_SCROLL, "later", "showed after scrolling"),
+    (Landing.STILL_HIDDEN, "never", "never showed"),
+    (Landing.NOT_MATCHED, "unmatched", "not found in the live page"),
+)
+
+
+def _url_key(url: str) -> str:
+    return url.rstrip("/")
+
+
+def _stat(value: int, meaning: str) -> str:
+    return f"<div><dt>{meaning}</dt><dd>{value}</dd></div>"
+
+
+def _markup_side(page: PageRecord | None) -> str:
+    heading = "<h4>Markup only</h4>"
+    if page is None:
+        return f'<div class="pair-side">{heading}<p class="card-note">No markup-only scan of this page here.</p></div>'
+    if page.html_error is not None:
+        return (
+            f'<div class="pair-side">{heading}'
+            f'<p class="card-note">The HTML could not be fetched: {_escape(page.html_error)}</p></div>'
+        )
+    styled = sum(finding.kind in (Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE) for finding in page.findings)
+    stats = _stat(styled, "Hidden by a style or the hidden attribute") + _stat(
+        len(page.instruction_like), "Sound like an order to an AI"
+    )
+    return f'<div class="pair-side">{heading}<dl class="pair-stats">{stats}</dl></div>'
+
+
+def _rendered_side(page: PageRecord) -> str:
+    heading = "<h4>In a browser</h4>"
+    if page.rendering is None:
+        reason = _escape(page.html_error or "no rendering details were saved")
+        return (
+            f'<div class="pair-side browser">{heading}'
+            f'<p class="card-note">The page could not be rendered: {reason}</p></div>'
+        )
+    never_shown = sum(finding.kind is Kind.RENDERED_HIDDEN for finding in page.findings)
+    stats = (
+        _stat(never_shown, "Never shown")
+        + _stat(page.rendering.revealed_on_scroll, "Shown only after scrolling")
+        + _stat(len(page.instruction_like), "Sound like an order to an AI")
+    )
+    return f'<div class="pair-side browser">{heading}<dl class="pair-stats">{stats}</dl></div>'
+
+
+def _trace(comparison: tuple[ComparisonRecord, ...]) -> str:
+    if not comparison:
+        return '<p class="card-note">The markup had no inline-style guesses to trace.</p>'
+    counts = Counter(item.landed for item in comparison)
+    total = len(comparison)
+    spans = "".join(
+        f'<span class="seg {css}" style="width:{_percent(counts[landing], total)}"></span>'
+        for landing, css, _ in _LANDING_LABELS
+        if counts[landing]
+    )
+    rows = "".join(
+        f'<li><span class="swatch {css}"></span><b>{counts[landing]}</b> {label}</li>'
+        for landing, css, label in _LANDING_LABELS
+    )
+    labels = {landing: label for landing, _, label in _LANDING_LABELS}
+    items = "".join(
+        f'<li><q class="page-text">{_escape(item.text)}</q>'
+        f'<span class="match-where">&lt;{_escape(item.tag)}&gt; {_escape(item.detail)}: '
+        f"{labels[item.landed]}</span></li>"
+        for item in comparison
+    )
+    guesses = "guess" if total == 1 else "guesses"
+    return (
+        f"<h4>Where the {total} inline-style {guesses} landed</h4>"
+        f'<span class="strip" aria-hidden="true">{spans}</span>'
+        f'<ul class="trace">{rows}</ul>'
+        '<details class="trace-detail"><summary>Every element, one line each</summary>'
+        f'<ul class="matches">{items}</ul></details>'
+    )
+
+
+def _pair_card(markup: PageRecord | None, rendered: PageRecord) -> str:
+    parts = [
+        f'<li class="pair"><h3>{_card_title(rendered)}</h3>',
+        f'<div class="pair-sides">{_markup_side(markup)}{_rendered_side(rendered)}</div>',
+    ]
+    if rendered.rendering is not None:
+        parts.append(_trace(rendered.rendering.comparison))
+        # Notes are written to follow "note:" in the terminal, so they start in lower case.
+        notes = (note[:1].upper() + note[1:] for note in rendered.rendering.notes)
+        parts.extend(f'<p class="card-note">{_escape(note)}</p>' for note in notes)
+    parts.append("</li>")
+    return "".join(parts)
+
+
+def _rendered_section(static_pages: tuple[PageRecord, ...], rendered_pages: tuple[PageRecord, ...]) -> str:
+    markup_by_url: dict[str, PageRecord] = {}
+    for page in static_pages:
+        markup_by_url.setdefault(_url_key(page.url), page)
+    pairs = "".join(_pair_card(markup_by_url.get(_url_key(page.url)), page) for page in rendered_pages)
+    return (
+        '<section aria-labelledby="rendered-title">'
+        '<h2 id="rendered-title">What changes when a browser draws the page</h2>'
+        '<p class="measure">The markup-only scan guesses from style attributes and the hidden attribute. The '
+        "rendered scan loads each page in Chromium, scrolls from top to bottom, and records which text a reader "
+        "could actually see.</p>"
+        f'<ul class="pairs">{pairs}</ul>'
+        "</section>"
+    )
+
+
+def _caveats(pages: tuple[PageRecord, ...], with_rendering: bool = False) -> str:
     findings = _all_findings(pages)
     matches = [(page, finding) for page in pages for finding in page.instruction_like]
     inline = [finding for finding in findings if finding.kind is Kind.INLINE_STYLE]
@@ -553,8 +759,13 @@ def _caveats(pages: tuple[PageRecord, ...]) -> str:
             "<li><h3>Some &ldquo;hidden&rdquo; text is only waiting to fade in</h3>"
             f"<p>{faded_total} of the {len(inline)} findings hidden by inline style are set to zero opacity, "
             f"{busiest_count} of them on {_escape(busiest_host)}. That's how scroll-in animations start: the text "
-            "arrives invisible and JavaScript fades it in, so people do see it. loupe doesn't run JavaScript, so it "
-            "can't tell the difference.</p></li>"
+            "arrives invisible and JavaScript fades it in, so people do see it. "
+            + (
+                "The markup-only scan can't tell the difference; the rendered scan above traces each of them."
+                if with_rendering
+                else "loupe doesn't run JavaScript, so it can't tell the difference."
+            )
+            + "</p></li>"
         )
     items.append(
         "<li><h3>The two versions come from two services</h3>"
@@ -575,7 +786,18 @@ def _caveats(pages: tuple[PageRecord, ...]) -> str:
     )
 
 
-def _glossary() -> str:
+def _glossary(with_rendering: bool = False) -> str:
+    rendered_term = (
+        (
+            (
+                "Rendered scan",
+                "A check that loads the page in a real browser, runs its styles and scripts, scrolls through it, "
+                "and records which text was ever drawn where a reader could see it.",
+            ),
+        )
+        if with_rendering
+        else ()
+    )
     terms = (
         (
             "HTML comment",
@@ -598,7 +820,7 @@ def _glossary() -> str:
             "&ldquo;ignore your previous instructions&rdquo;. Hiding it on a web page is one way to deliver it.",
         ),
     )
-    entries = "".join(f"<div><dt>{term}</dt><dd>{meaning}</dd></div>" for term, meaning in terms)
+    entries = "".join(f"<div><dt>{term}</dt><dd>{meaning}</dd></div>" for term, meaning in terms + rendered_term)
     return (
         '<section aria-labelledby="glossary-title">'
         '<h2 id="glossary-title">Words used here</h2>'
@@ -755,6 +977,38 @@ h3 { font-size: var(--step-0); line-height: 1.35; font-weight: 700; margin: 0 0 
 .colophon p { margin: 0 0 0.4rem; max-width: var(--measure); }
 """
 
+# Only pages with rendered results carry these rules, so a markup-only page is unchanged.
+_RENDERED_STYLE: Final[str] = """
+:root { --later: #a891f0; }
+:root:has(#theme:checked) { --later: #6f5bb8; }
+h4 { font-size: 0.98rem; line-height: 1.35; font-weight: 700; margin: 1rem 0 0.5rem; }
+.pairs { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; max-width: 52rem; }
+.pair { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 1rem 1.1rem 1.1rem; }
+.pair h3 a { color: var(--ink); display: inline-flex; flex-direction: column; justify-content: center;
+  min-height: 44px; max-width: 100%; }
+.pair-sides { display: grid; gap: 0.8rem; margin-top: 0.4rem; }
+@media (min-width: 40rem) { .pair-sides { grid-template-columns: 1fr 1fr; } }
+.pair-side { border: 1px solid var(--rule); border-radius: 6px; padding: 0.7rem 0.85rem; }
+.pair-side.browser { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pair-side h4 { margin: 0 0 0.4rem; }
+.pair-side.browser h4 { color: var(--accent-ink); }
+.pair-stats { margin: 0; display: grid; gap: 0.3rem; }
+.pair-stats div { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+.pair-stats dt { color: var(--ink-2); font-size: 0.94rem; }
+.pair-stats dd { margin: 0; font-weight: 700; font-size: 1.15em; font-variant-numeric: lining-nums tabular-nums; }
+.swatch.shown, .seg.shown { background: var(--accent); }
+.swatch.later, .seg.later { background: var(--later); }
+.swatch.never, .seg.never { background: var(--missed); }
+.swatch.unmatched, .seg.unmatched { background: var(--unchecked); }
+.trace { list-style: none; margin: 0.6rem 0 0; padding: 0; display: grid; gap: 0.25rem; color: var(--ink-2);
+  font-size: 0.94rem; font-variant-numeric: lining-nums tabular-nums; }
+@media (min-width: 40rem) { .trace { grid-template-columns: 1fr 1fr; } }
+.trace li { display: flex; align-items: center; gap: 0.5rem; }
+.trace b { color: var(--ink); }
+.trace-detail { margin-top: 0.7rem; }
+.trace-detail summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--accent-ink); }
+"""
+
 _MOON: Final[str] = (
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
     '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>'
@@ -766,21 +1020,30 @@ _SUN: Final[str] = (
 )
 
 
+def _page_count(static_pages: tuple[PageRecord, ...], rendered_pages: tuple[PageRecord, ...]) -> str:
+    count = len(static_pages) if not rendered_pages else len({_url_key(page.url) for page in static_pages + rendered_pages})
+    return "one page" if count == 1 else f"{count} pages"
+
+
 def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | None = None) -> str:
     if not pages:
         raise ReportFormatError("there are no pages to report")
+    static_pages = tuple(page for page in pages if page.mode is ScanMode.STATIC)
+    rendered_pages = tuple(page for page in pages if page.mode is ScanMode.RENDERED)
+    with_rendering = bool(rendered_pages)
     date_text = f" on {run_date.day} {run_date:%B %Y}" if run_date else ""
-    page_count = "one page" if len(pages) == 1 else f"{len(pages)} pages"
-    body = "".join(
-        (
-            _example_panel(pages),
-            _result_section(pages),
-            _pages_section(pages),
-            _method_section(),
-            _caveats(pages),
-            _glossary(),
-        )
-    )
+    page_count = _page_count(static_pages, rendered_pages)
+    sections: list[str] = []
+    if static_pages:
+        sections += [_example_panel(static_pages), _result_section(static_pages), _pages_section(static_pages)]
+    if with_rendering:
+        sections.append(_rendered_section(static_pages, rendered_pages))
+    sections.append(_method_section(with_rendering))
+    if static_pages:
+        sections.append(_caveats(static_pages, with_rendering))
+    sections.append(_glossary(with_rendering))
+    body = "".join(sections)
+    style = _STYLE + (_RENDERED_STYLE if with_rendering else "")
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -789,7 +1052,7 @@ def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | 
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>loupe results</title>
 <meta name="description" content="Does text hidden on a web page reach the AI agent that reads it? Results from {page_count}.">
-<style>{_STYLE}</style>
+<style>{style}</style>
 </head>
 <body>
 <input type="checkbox" id="theme" class="theme-input">
