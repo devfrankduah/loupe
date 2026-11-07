@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from loupe.render import BrowserSource, RenderedPage, RenderedText, rendered_findings
+from loupe.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison, rendered_findings
 from loupe.report import PageReport, check_findings, page_to_dict, quote, render_text
 from loupe.scan import Kind, ScanMode, make_finding, scan_html
 
@@ -44,6 +44,9 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
         notes=(SCROLL_LIMIT_NOTE,),
         browser_version="150.0.7000.1",
         transfer_bytes=1_234_567,
+        static_comparison=(
+            StaticComparison("p", "Fades in as you scroll down the page.", "opacity:0", Landing.REVEALED_ON_SCROLL),
+        ),
     )
     page = PageReport(url="https://a.test/", mode=ScanMode.RENDERED, browser=BrowserSource.REMOTE, rendered=rendered)
     page.findings = check_findings(rendered_findings(rendered), None)
@@ -62,12 +65,31 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
         "centre_checks": 0,
         "notes": [SCROLL_LIMIT_NOTE],
         "revealed_on_scroll": [{"tag": "p", "text": "Fades in as you s...", "text_characters": 37}],
+        "static_comparison_counts": {
+            "visible at load": 0,
+            "revealed on scroll": 1,
+            "still hidden": 0,
+            "not matched": 0,
+        },
+        "static_comparison": [
+            {
+                "tag": "p",
+                "detail": "opacity:0",
+                "text": "Fades in as you s...",
+                "text_characters": 37,
+                "landed": "revealed on scroll",
+            }
+        ],
     }
     findings = record["findings"]
     assert isinstance(findings, list)
     assert findings[0]["mode"] == "rendered"
     assert "BRIGHTDATA_BROWSER_WSS (version 150.0.7000.1)" in render_text(page)
     assert "transfer: 1,234,567 bytes" in render_text(page)
+    assert (
+        "static inline-style candidates: 1 (visible at load 0, revealed on scroll 1, still hidden 0, not matched 0)"
+        in render_text(page)
+    )
     assert "didn't reach the bottom" in render_text(page)
 
 

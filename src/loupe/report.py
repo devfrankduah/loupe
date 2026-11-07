@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Final
 
-from loupe.render import BrowserSource, RenderedPage, RenderedText
+from loupe.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
 from loupe.scan import Finding, Kind, ScanMode
 from loupe.survival import MarkdownIndex
 
@@ -91,6 +91,21 @@ def _text_to_dict(item: RenderedText, quote_limit: int) -> dict[str, object]:
     return {"tag": item.tag, "text": quote(item.text, quote_limit), "text_characters": len(item.text)}
 
 
+def comparison_counts(comparison: tuple[StaticComparison, ...]) -> dict[str, int]:
+    counts = Counter(item.landed for item in comparison)
+    return {landing.value: counts[landing] for landing in Landing}
+
+
+def _comparison_to_dict(item: StaticComparison, quote_limit: int) -> dict[str, object]:
+    return {
+        "tag": item.tag,
+        "detail": item.detail,
+        "text": quote(item.text, quote_limit),
+        "text_characters": len(item.text),
+        "landed": item.landed.value,
+    }
+
+
 def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] | None:
     if page.rendered is None:
         return None
@@ -106,6 +121,8 @@ def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] 
         "centre_checks": rendered.centre_checks,
         "notes": list(rendered.notes),
         "revealed_on_scroll": [_text_to_dict(item, quote_limit) for item in rendered.revealed_on_scroll],
+        "static_comparison_counts": comparison_counts(rendered.static_comparison),
+        "static_comparison": [_comparison_to_dict(item, quote_limit) for item in rendered.static_comparison],
     }
 
 
@@ -149,6 +166,10 @@ def _rendering_lines(rendered: RenderedPage, browser: BrowserSource | None) -> l
     ]
     if rendered.transfer_bytes is not None:
         lines.append(f"  transfer: {rendered.transfer_bytes:,} bytes")
+    if rendered.static_comparison:
+        landings = comparison_counts(rendered.static_comparison)
+        counts = ", ".join(f"{landing} {count}" for landing, count in landings.items())
+        lines.append(f"  static inline-style candidates: {len(rendered.static_comparison)} ({counts})")
     lines.extend(f"  note: {note}" for note in rendered.notes)
     return lines
 

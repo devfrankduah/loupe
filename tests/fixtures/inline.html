@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inline styles, then a browser</title>
+<style>
+  body { margin: 0; font: 16px/1.5 Georgia, serif; }
+  .spacer { height: 150vh; }
+  .fades { transition: opacity 0.2s; }
+</style>
+</head>
+<body>
+<p class="fades" id="intro" style="opacity:0"><b>01</b><span>Intro</span> fades in as the page loads. CASE-INLINE-INTRO</p>
+<div aria-hidden="true" style="visibility:hidden"><span style="opacity:0">Said twice, once for layout. CASE-INLINE-TWICE</span></div>
+<span class="fades" id="twice" style="opacity:0">Said twice, once for layout. CASE-INLINE-TWICE</span>
+<p style="display:none">Never shown to anyone. CASE-INLINE-HIDDEN</p>
+<p id="clock" style="opacity:0">--:-- CASE-INLINE-REWRITTEN</p>
+<div class="spacer"></div>
+<p class="fades" id="later" style="opacity:0">Fades in when scrolled to. CASE-INLINE-REVEAL</p>
+<div class="spacer"></div>
+<script>
+  window.addEventListener("load", () => {
+    setTimeout(() => {
+      for (const id of ["intro", "twice"]) document.getElementById(id).style.opacity = "1";
+      const clock = document.getElementById("clock");
+      clock.textContent = "09:41";
+      clock.style.opacity = "1";
+    }, 50);
+  });
+  // Scrolling down also swaps the intro line for an invisible clone, the way
+  // a framework can re-render a hero once it leaves the screen.
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      entry.target.style.opacity = "1";
+      const intro = document.getElementById("intro");
+      const clone = intro.cloneNode(true);
+      clone.style.opacity = "0";
+      intro.replaceWith(clone);
+    }
+  });
+  observer.observe(document.getElementById("later"));
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ from loupe.render import (
     BROWSER_ENDPOINT_VARIABLE,
     BrowserSource,
     EndpointRedactor,
+    Landing,
     RenderedPage,
     RenderedText,
     RenderError,
@@ -18,12 +19,15 @@ from loupe.render import (
     RenderSettings,
     RenderSetupError,
     acquire_browser,
+    most_visible,
+    parse_comparison,
     parse_scan_result,
     read_browser_endpoint,
     rendered_findings,
     settings_for,
+    static_candidates,
 )
-from loupe.scan import Kind, ScanMode
+from loupe.scan import Kind, ScanMode, make_finding
 
 USERNAME = "brd-customer-test0001-zone-fake_browser"
 PASSWORD = "p@ss/word with spaces"
@@ -265,3 +269,53 @@ def test_only_a_remote_browser_gets_the_long_timeouts_blocking_and_byte_count() 
 def test_settings_refuse_a_zero_step_limit() -> None:
     with pytest.raises(ValueError):
         RenderSettings(max_scroll_steps=0)
+
+
+@pytest.mark.parametrize(
+    ("states", "expected"),
+    [
+        ([Landing.STILL_HIDDEN, Landing.VISIBLE_AT_LOAD], Landing.VISIBLE_AT_LOAD),
+        ([Landing.STILL_HIDDEN, Landing.REVEALED_ON_SCROLL], Landing.REVEALED_ON_SCROLL),
+        ([Landing.STILL_HIDDEN], Landing.STILL_HIDDEN),
+        ([], Landing.NOT_MATCHED),
+    ],
+)
+def test_the_most_visible_copy_wins(states: list[Landing], expected: Landing) -> None:
+    assert most_visible(states) is expected
+
+
+CANDIDATES = [
+    make_finding(Kind.INLINE_STYLE, "opacity:0", "span", "break"),
+    make_finding(Kind.INLINE_STYLE, "display:none", "p", "never shown"),
+    make_finding(Kind.INLINE_STYLE, "opacity:0", "p", "rewritten by a script"),
+]
+
+
+def test_a_comparison_takes_the_most_visible_copy_of_each_candidate() -> None:
+    copies = [
+        [["still hidden"], ["visible at load"]],
+        [["still hidden", "still hidden"]],
+        [],
+    ]
+    landed = [item.landed for item in parse_comparison(copies, CANDIDATES)]
+    assert landed == [Landing.VISIBLE_AT_LOAD, Landing.STILL_HIDDEN, Landing.NOT_MATCHED]
+
+
+def test_a_copy_without_text_elements_counts_as_not_matched() -> None:
+    (item,) = parse_comparison([[[]]], CANDIDATES[:1])
+    assert item.landed is Landing.NOT_MATCHED
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, [[], []], [[["visible at load"]], [], "x"], [[["sideways"]], [], []], [[["visible at load"], "x"], [], []]],
+)
+def test_a_malformed_comparison_is_rejected(value: object) -> None:
+    with pytest.raises(RenderError):
+        parse_comparison(value, CANDIDATES)
+
+
+def test_static_candidates_are_the_inline_style_findings_only() -> None:
+    html = '<p style="opacity:0">faded line</p><p hidden>marked hidden</p><!-- a note -->'
+    assert [(finding.tag, finding.text) for finding in static_candidates(html)] == [("p", "faded line")]
+

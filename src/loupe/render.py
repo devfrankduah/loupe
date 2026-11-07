@@ -18,6 +18,11 @@ every step, rather than only at S0 and S1, matters for content that fades
 out again once scrolled past and for content-visibility:auto sections, which
 a browser only draws near the viewport; both are invisible at S1.
 
+Each element the static scan flagged for its inline style is also traced:
+right after S0 it is paired with every live element of the same tag and
+text, and reported as visible at load, revealed on scroll, still hidden, or
+not matched, taking the most visible copy.
+
 The checks run in visibility.js, inside an isolated JavaScript world, so the
 page's own scripts can't tamper with them.
 
@@ -32,14 +37,15 @@ from __future__ import annotations
 
 import functools
 import importlib.resources
-from collections.abc import Callable, Iterator, Mapping
+import json
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Final, Generic, Literal, Protocol, TypeVar
 from urllib.parse import unquote, urlsplit
 
-from loupe.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace
+from loupe.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, CDPSession, Page, Playwright
@@ -146,6 +152,42 @@ class RenderedText:
     reasons: tuple[str, ...] = ()
 
 
+class Landing(str, Enum):
+    """Where an element the static scan flagged for its inline style ended up once rendered."""
+
+    VISIBLE_AT_LOAD = "visible at load"
+    REVEALED_ON_SCROLL = "revealed on scroll"
+    STILL_HIDDEN = "still hidden"
+    NOT_MATCHED = "not matched"
+
+
+# Most visible first. A page can carry several copies of one text, such as an
+# invisible duplicate kept for layout, and a reader sees the text if any copy shows.
+_LANDING_ORDER: Final[tuple[Landing, ...]] = (
+    Landing.VISIBLE_AT_LOAD,
+    Landing.REVEALED_ON_SCROLL,
+    Landing.STILL_HIDDEN,
+)
+
+
+def most_visible(states: Iterable[Landing]) -> Landing:
+    """The most visible of states, or NOT_MATCHED when there are none."""
+    present = set(states)
+    for landing in _LANDING_ORDER:
+        if landing in present:
+            return landing
+    return Landing.NOT_MATCHED
+
+
+@dataclass(frozen=True)
+class StaticComparison:
+    tag: str
+    text: str
+    # The static scan's reasons, such as "opacity:0".
+    detail: str
+    landed: Landing
+
+
 @dataclass(frozen=True)
 class RenderedPage:
     final_url: str
@@ -162,6 +204,8 @@ class RenderedPage:
     transfer_bytes: int | None = None
     # Still-hidden elements scrolled to the middle of the viewport after the scroll pass.
     centre_checks: int = 0
+    # Where each of the static scan's inline-style candidates landed, in document order.
+    static_comparison: tuple[StaticComparison, ...] = ()
 
 
 class PageRenderer(Protocol):
@@ -314,6 +358,10 @@ class _IsolatedWorld:
     def call(self, method: str, *arguments: int) -> object:
         return self.evaluate(f"{_SCANNER}.{method}({', '.join(str(argument) for argument in arguments)})")
 
+    def call_with_data(self, method: str, data: object) -> object:
+        # JSON is a valid JavaScript literal, so page text passes through as data, never as code.
+        return self.evaluate(f"{_SCANNER}.{method}({json.dumps(data)})")
+
 
 
 class _TransferMeter:
@@ -411,6 +459,33 @@ def parse_scan_result(value: object) -> ScanResult:
     )
 
 
+def static_candidates(html: str) -> list[Finding]:
+    """The static scan's inline-style findings: what it guessed was hidden by a style attribute."""
+    return [finding for finding in scan_html(html) if finding.kind is Kind.INLINE_STYLE]
+
+
+def parse_comparison(value: object, candidates: Sequence[Finding]) -> tuple[StaticComparison, ...]:
+    """Turn compareStatic()'s states into one landing per candidate, taking the most visible copy."""
+    if not isinstance(value, list) or len(value) != len(candidates):
+        raise RenderError("the static comparison didn't cover every candidate")
+    comparisons: list[StaticComparison] = []
+    for copies, candidate in zip(value, candidates):
+        if not isinstance(copies, list):
+            raise RenderError("the static comparison held something other than copies")
+        states: list[Landing] = []
+        for members in copies:
+            if not isinstance(members, list):
+                raise RenderError("a copy in the static comparison wasn't a list")
+            for member in members:
+                try:
+                    states.append(Landing(member))
+                except ValueError:
+                    raise RenderError(f"the static comparison had an unknown state {member!r}") from None
+        landed = most_visible(states)
+        comparisons.append(StaticComparison(candidate.tag, candidate.text, candidate.detail, landed))
+    return tuple(comparisons)
+
+
 # Rendering one page
 
 
@@ -470,6 +545,8 @@ def _scan_with_session(
     if world.call("settle", int(settings.settle_timeout_ms)) is not True:
         notes.append("animations were still running when the page was first checked")
     world.call("recordLoad")
+    candidates = static_candidates(html)
+    world.call_with_data("matchStatic", [{"tag": finding.tag, "text": finding.text} for finding in candidates])
     world.call("scrollToTop")
     page.wait_for_timeout(settings.scroll_pause_ms)
     world.call("recheck")
@@ -507,6 +584,7 @@ def _scan_with_session(
     if world.call("settle", int(settings.settle_timeout_ms)) is not True:
         notes.append("animations were still running at the final check")
     result = parse_scan_result(world.call("finish"))
+    comparison = parse_comparison(world.call("compareStatic"), candidates)
 
     return RenderedPage(
         final_url=page.url,
@@ -520,6 +598,7 @@ def _scan_with_session(
         browser_version=browser_version,
         transfer_bytes=None if meter is None else meter.total,
         centre_checks=centre_checks,
+        static_comparison=comparison,
     )
 
 

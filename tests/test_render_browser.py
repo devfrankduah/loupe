@@ -200,3 +200,19 @@ def test_screen_sized_steps_alone_skip_the_middle_band(chromium: Browser, fixtur
     page = render_page(chromium, f"{fixture_site}/centre.html", replace(FAST, max_centre_steps=0))
     assert _buckets(page) == {"CASE-CENTRE": "hidden", "CASE-CENTRE-SECOND": "hidden"}
     assert any("stopped with 2 left" in note for note in page.notes)
+
+
+def test_each_static_inline_style_candidate_is_traced_to_where_it_landed(
+    chromium: Browser, fixture_site: str
+) -> None:
+    page = render_page(chromium, f"{fixture_site}/inline.html", FAST)
+    landed = {(item.tag, MARKER.findall(item.text)[0]): item.landed.value for item in page.static_comparison}
+    assert landed == {
+        ("p", "CASE-INLINE-INTRO"): "visible at load",
+        # The invisible layout copy is hidden, but the span a reader sees is not.
+        ("div", "CASE-INLINE-TWICE"): "still hidden",
+        ("span", "CASE-INLINE-TWICE"): "visible at load",
+        ("p", "CASE-INLINE-HIDDEN"): "still hidden",
+        ("p", "CASE-INLINE-REWRITTEN"): "not matched",
+        ("p", "CASE-INLINE-REVEAL"): "revealed on scroll",
+    }

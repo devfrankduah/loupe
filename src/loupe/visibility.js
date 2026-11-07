@@ -38,6 +38,9 @@
   let scrollTarget = null;
   // Elements centreNext() has already tried, or found to have no box.
   const centred = new Set();
+  // For each static candidate passed to matchStatic(), the text elements of
+  // every live element with the same tag and text.
+  let staticCopies = [];
 
   function collectTextElements() {
     const elements = [];
@@ -410,6 +413,19 @@
     return animation.effect === null ? Infinity : animation.effect.getComputedTiming().endTime;
   }
 
+  // An element's text with all whitespace removed, which is how the static
+  // scan's text (strings joined by spaces) and the live text (joined by
+  // nothing) can be compared. Script and style text is left out on both sides.
+  function textKey(element) {
+    if (element.querySelector("script, style, template") === null) return element.textContent.replace(/\s+/g, "");
+    let key = "";
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (node.parentElement.closest("script, style, template") === null) key += node.data.replace(/\s+/g, "");
+    }
+    return key;
+  }
+
   // Each text element belongs to exactly one unit, so no text is quoted twice.
   function textOf(root, rootOf) {
     const pieces = [];
@@ -430,6 +446,38 @@
       }
       scrollTarget = chooseScrollTarget(pass);
       return seen.size;
+    },
+
+    // Pairs each static candidate ({tag, text}) with every live element of the
+    // same tag and text. Run right after recordLoad(), before scripts move or
+    // replace nodes. Returns how many candidates found at least one copy.
+    matchStatic(candidates) {
+      const wanted = new Map();
+      candidates.forEach((candidate, index) => {
+        const key = candidate.tag + "|" + candidate.text.replace(/\s+/g, "");
+        if (!wanted.has(key)) wanted.set(key, []);
+        wanted.get(key).push(index);
+      });
+      const tags = new Set(candidates.map((candidate) => candidate.tag));
+      staticCopies = candidates.map(() => []);
+      for (const element of document.body === null ? [] : document.body.querySelectorAll("*")) {
+        if (!tags.has(element.localName)) continue;
+        const indexes = wanted.get(element.localName + "|" + textKey(element));
+        if (indexes === undefined) continue;
+        const members = [element, ...element.querySelectorAll("*")].filter((node) => seen.has(node));
+        for (const index of indexes) staticCopies[index].push(members);
+      }
+      return staticCopies.filter((copies) => copies.length > 0).length;
+    },
+
+    // For each candidate, for each copy, the state of each of its text elements.
+    compareStatic() {
+      const state = (element) => {
+        const entry = seen.get(element);
+        if (entry.atLoad === true) return "visible at load";
+        return entry.later ? "revealed on scroll" : "still hidden";
+      };
+      return staticCopies.map((copies) => copies.map((members) => members.map(state)));
     },
 
     recheck() {
