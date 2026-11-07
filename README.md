@@ -107,7 +107,7 @@ In the JSON, each page has a `scan_mode` and each finding a `mode` (`static` or 
 
 ## Results
 
-I ran it once on 2 November 2026 against five pages. example.com is the control. The full output is in `results/2026-11-02.txt` and `results/2026-11-02.json`, with quoted text cut to 80 characters. The pages themselves aren't stored.
+I first ran it on 2 November 2026 against five pages. example.com is the control. The full output is in `results/2026-11-02.txt` and `results/2026-11-02.json`, with quoted text cut to 80 characters. The pages themselves aren't stored.
 
 | Page | Findings | Instruction-like | In markdown | Not in markdown | Not compared |
 |---|---|---|---|---|---|
@@ -123,9 +123,31 @@ None of the 10 instruction-like findings is an attack. On Wikipedia they're link
 
 The markdown for example.com and Wikipedia failed on the first pass with `HTTP 400: Customer is not active`. I had created the `mcp_unlocker` zone moments before, and the account seemed to need a moment to activate. I retried those two markdown fetches once each and both worked, so the run made 12 requests. I hadn't kept the full text of the findings from the first pass, only the 80-character quotes, so on the retry I compared only findings of 80 characters or less (where the quote is the whole text). The 34 longer Wikipedia findings are counted as not compared.
 
+## Results, 7 November 2026: markup against a browser
+
+On 7 November 2026 I ran the same five pages twice, back to back. The first run was markup only, as before. The second used `--render` through the Bright Data Browser API, with images, media and fonts blocked. Both fetched the markdown the same way as on 2 November. The output is in `results/2026-11-07.json` and `results/2026-11-07-rendered.json`, with `.txt` summaries beside them, and quoted text is cut to 80 characters.
+
+| Page | Hidden, markup only | Never shown in a browser | Shown only after scrolling | Instruction-like, markup / browser | Measured transfer |
+|---|---|---|---|---|---|
+| example.com | 0 | 0 | 0 | 0 / 0 | 1,390 bytes |
+| en.wikipedia.org/wiki/Prompt_injection | 1 | 106 | 0 | 5 / 5 | 368,996 bytes |
+| genai.owasp.org/llmrisk/llm01-prompt-injection/ | 3 | 14 | 0 | 0 / 0 | 1,280,903 bytes |
+| github.com/brightdata/brightdata-mcp | 2 | 160 | 0 | 0 / 1 | 1,355,162 bytes |
+| frankduah.me | 50 | 13 | 9 | 5 / 2 | 413,076 bytes |
+
+"Hidden, markup only" counts the `hidden` attribute and inline-style findings. "Never shown in a browser" counts rendered-hidden findings, each the outermost element of a run of hidden text. The browser run measured 3,419,527 bytes in total and refused 100 image, media and font requests.
+
+The browser finds far more on Wikipedia and GitHub, because most of their hidden text is hidden by stylesheets the markup scan can't read. On Wikipedia, 99 of the 106 findings are `display:none`. GitHub's reasons are more mixed: `display:none`, text too small to see, sections collapsed inside a closed `<details>`, and clipped text.
+
+frankduah.me goes the other way. The markup scan flagged 48 elements for inline `opacity:0`. In the browser, 22 showed as the page loaded, 19 showed after scrolling, 6 never showed, and 1 wasn't found in the live page. The one not found is a clock that rewrites its own text. The 6 are words of the animated headline, and I think the trace is wrong about them. A local Chromium run of the same page found all six visible at load, and both runs found the same 13 hidden findings. My guess is that the remote browser checked before the animation ran, and the site then replaced those words with new elements the trace doesn't follow.
+
+The one instruction-like match the browser adds is on GitHub: a table in the README, collapsed inside a closed `<details>`, whose text includes `ask_brightdata_assistant`. It isn't an attack.
+
+Rendering the same five pages in local Chromium gave the same hidden findings on four of them. Wikipedia differed by one, a "Save" button hidden only in the local run.
+
 ## Report
 
-[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-02.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html).
+[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, sets the markup-only and browser runs side by side, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-07.json` and `results/2026-11-07-rendered.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html). The screenshots are from the 2 November version.
 
 ![The report page on a desktop, light mode](docs/screenshot-desktop.png)
 
