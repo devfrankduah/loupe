@@ -115,6 +115,7 @@ def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] 
         "browser_version": rendered.browser_version,
         "viewport": None if rendered.viewport is None else list(rendered.viewport),
         "transfer_bytes": rendered.transfer_bytes,
+        "blocked_requests": rendered.blocked_requests,
         "final_url": rendered.final_url,
         "text_elements": rendered.text_elements,
         "scroll_steps": rendered.scroll_steps,
@@ -166,7 +167,8 @@ def _rendering_lines(rendered: RenderedPage, browser: BrowserSource | None) -> l
         f"  revealed on scroll: {len(rendered.revealed_on_scroll)} (not counted as hidden)",
     ]
     if rendered.transfer_bytes is not None:
-        lines.append(f"  transfer: {rendered.transfer_bytes:,} bytes")
+        blocked = "" if rendered.blocked_requests is None else f", {rendered.blocked_requests} requests blocked"
+        lines.append(f"  transfer: {rendered.transfer_bytes:,} bytes{blocked}")
     if rendered.static_comparison:
         landings = comparison_counts(rendered.static_comparison)
         counts = ", ".join(f"{landing} {count}" for landing, count in landings.items())

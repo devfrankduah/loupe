@@ -19,6 +19,7 @@ from loupe.render import (
     RenderSettings,
     RenderSetupError,
     acquire_browser,
+    measurement_problem,
     most_visible,
     parse_comparison,
     parse_scan_result,
@@ -271,8 +272,8 @@ def test_settings_refuse_negative_times(make_settings: Callable[[], RenderSettin
 
 
 def test_stylesheets_can_never_be_blocked() -> None:
-    with pytest.raises(ValueError, match="Stylesheet"):
-        RenderSettings(blocked_resource_types=frozenset({"Image", "Stylesheet"}))
+    with pytest.raises(ValueError, match="stylesheet"):
+        RenderSettings(blocked_resource_types=frozenset({"image", "stylesheet"}))
 
 
 def test_only_a_remote_browser_gets_the_long_timeouts_blocking_and_byte_count() -> None:
@@ -283,7 +284,7 @@ def test_only_a_remote_browser_gets_the_long_timeouts_blocking_and_byte_count() 
         False,
     )
     assert (remote.connect_timeout_ms, remote.navigation_timeout_ms) == (120_000, 120_000)
-    assert remote.blocked_resource_types == {"Image", "Media", "Font"}
+    assert remote.blocked_resource_types == {"image", "media", "font"}
     assert remote.measure_transfer
 
 
@@ -339,4 +340,25 @@ def test_a_malformed_comparison_is_rejected(value: object) -> None:
 def test_static_candidates_are_the_inline_style_findings_only() -> None:
     html = '<p style="opacity:0">faded line</p><p hidden>marked hidden</p><!-- a note -->'
     assert [(finding.tag, finding.text) for finding in static_candidates(html)] == [("p", "faded line")]
+
+
+@pytest.mark.parametrize(
+    ("transfer_bytes", "fetched_images", "blocked", "blocking", "problem"),
+    [
+        (12_345, 3, 3, True, None),
+        (12_345, 0, 0, True, None),
+        (None, 3, 0, False, None),
+        (0, 0, 0, True, "no bytes were measured"),
+        (12_345, 2, 0, True, "2 images fetched over http(s) but none were blocked"),
+        (12_345, 2, 0, False, None),
+    ],
+)
+def test_measurement_problems(
+    transfer_bytes: int | None, fetched_images: int, blocked: int, blocking: bool, problem: str | None
+) -> None:
+    found = measurement_problem(transfer_bytes, fetched_images, blocked, blocking)
+    if problem is None:
+        assert found is None
+    else:
+        assert found is not None and problem in found
 

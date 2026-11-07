@@ -30,7 +30,8 @@ The browser is local Chromium unless BRIGHTDATA_BROWSER_WSS holds a CDP
 websocket endpoint. That value carries credentials: it is never printed,
 logged or saved, and errors from connecting to it say only that it failed.
 A remote browser gets two-minute timeouts, skips images, media and fonts
-(never stylesheets, which decide what shows), and has its transfer counted.
+(never stylesheets, which decide what shows), and has its transfer counted;
+a page whose count is zero, or whose images weren't blocked, fails.
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ from urllib.parse import unquote, urlsplit
 from loupe.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Browser, CDPSession, Page, Playwright
+    from playwright.sync_api import Browser, CDPSession, Page, Playwright, Request, Route
 
 BROWSER_ENDPOINT_VARIABLE: Final[str] = "BRIGHTDATA_BROWSER_WSS"
 
@@ -68,9 +69,9 @@ _WHOLE_TOKEN_BELOW: Final[int] = 8
 _ERROR_MESSAGE_LIMIT: Final[int] = 300
 _SCANNER: Final[str] = "loupeScanner"
 
-# CDP resource types a remote run may skip to save bandwidth. They never
+# Playwright resource types a remote run may skip to save bandwidth. They never
 # change whether text shows. Stylesheets do, so they can never be blocked.
-BLOCKABLE_RESOURCE_TYPES: Final[frozenset[str]] = frozenset({"Image", "Media", "Font"})
+BLOCKABLE_RESOURCE_TYPES: Final[frozenset[str]] = frozenset({"image", "media", "font"})
 
 
 class RenderError(RuntimeError):
@@ -107,7 +108,7 @@ class RenderSettings:
     # How many still-hidden elements to centre in the viewport after the
     # scroll pass. 0 turns the centring pass off.
     max_centre_steps: int = 40
-    # CDP resource types to refuse, from BLOCKABLE_RESOURCE_TYPES.
+    # Playwright resource types to refuse, from BLOCKABLE_RESOURCE_TYPES.
     blocked_resource_types: frozenset[str] = frozenset()
     # Add up the bytes received over the network for each page.
     measure_transfer: bool = False
@@ -207,8 +208,10 @@ class RenderedPage:
     reached_bottom: bool
     notes: tuple[str, ...]
     browser_version: str | None = None
-    # Bytes received over the network, or None when transfer wasn't measured.
+    # Bytes sent and received over the network, or None when transfer wasn't measured.
     transfer_bytes: int | None = None
+    # Requests refused because of their resource type, or None when nothing was blocked by type.
+    blocked_requests: int | None = None
     # Still-hidden elements scrolled to the middle of the viewport after the scroll pass.
     centre_checks: int = 0
     # Where each of the static scan's inline-style candidates landed, in document order.
@@ -396,31 +399,56 @@ class _IsolatedWorld:
 
 
 
-class _TransferMeter:
-    """Adds up encodedDataLength, the bytes received over the network, for every finished request."""
+class _PageTraffic:
+    """Blocks resource types and measures transfer through Playwright's own request events.
 
-    def __init__(self, session: CDPSession) -> None:
-        self.total = 0
-        session.on("Network.loadingFinished", self._finished)
-        session.send("Network.enable")
+    A remote browser may not pass Network or Fetch events to a second CDP
+    session, but Playwright's own session demonstrably gets them, so both the
+    byte count and the blocking hang off the page itself.
+    """
 
-    def _finished(self, event: object) -> None:
-        length = event.get("encodedDataLength") if isinstance(event, dict) else None
-        if isinstance(length, (int, float)) and not isinstance(length, bool) and length > 0:
-            self.total += int(length)
+    def __init__(self, page: Page, settings: RenderSettings) -> None:
+        self._blocked_types = settings.blocked_resource_types
+        self.blocked = 0
+        self._finished: list[Request] = []
+        if settings.measure_transfer:
+            page.on("requestfinished", self._record)
+        if self._blocked_types:
+            page.route("**/*", self._route)
+
+    def _record(self, request: Request) -> None:
+        self._finished.append(request)
+
+    def _route(self, route: Route) -> None:
+        if route.request.resource_type in self._blocked_types:
+            self.blocked += 1
+            route.abort("blockedbyclient")
+        else:
+            route.fallback()
+
+    def transfer_bytes(self) -> int:
+        """Request and response headers and bodies, as sent and received, for every finished request."""
+        total = 0
+        for request in self._finished:
+            sizes = request.sizes()
+            total += sum(
+                max(0, sizes[key])
+                for key in ("requestHeadersSize", "requestBodySize", "responseHeadersSize", "responseBodySize")
+            )
+        return total
 
 
-def _block_resource_types(session: CDPSession, resource_types: frozenset[str]) -> None:
-    """Fail requests of these types before they are sent. Nothing else is intercepted."""
+def measurement_problem(transfer_bytes: int | None, fetched_images: int, blocked: int, blocking: bool) -> str | None:
+    """Why a remote page's measurements can't be trusted, or None when they look sound.
 
-    def refuse(event: object) -> None:
-        request_id = event.get("requestId") if isinstance(event, dict) else None
-        if isinstance(request_id, str):
-            session.send("Fetch.failRequest", {"requestId": request_id, "errorReason": "BlockedByClient"})
-
-    session.on("Fetch.requestPaused", refuse)
-    patterns = [{"resourceType": resource_type, "requestStage": "Request"} for resource_type in sorted(resource_types)]
-    session.send("Fetch.enable", {"patterns": patterns})
+    The byte limit depends on the count, and the bandwidth on the blocking, so
+    either failing silently would make a run unsafe to continue.
+    """
+    if transfer_bytes is not None and transfer_bytes <= 0:
+        return "no bytes were measured, so the transfer limit can't be enforced"
+    if blocking and fetched_images > 0 and blocked == 0:
+        return f"the page has {fetched_images} images fetched over http(s) but none were blocked"
+    return None
 
 
 def _detach_quietly(session: CDPSession) -> None:
@@ -481,6 +509,8 @@ class ScanResult:
     hidden: tuple[RenderedText, ...]
     revealed_on_scroll: tuple[RenderedText, ...]
     viewport: tuple[int, int] | None = None
+    # <img> elements whose source is an http(s) URL, so loading them is a request that blocking should refuse.
+    fetched_images: int = 0
 
 
 def _viewport(record: Mapping[str, object]) -> tuple[int, int] | None:
@@ -503,6 +533,7 @@ def parse_scan_result(value: object) -> ScanResult:
         hidden=_texts(record, "hidden_units", with_reasons=True),
         revealed_on_scroll=_texts(record, "revealed_units", with_reasons=False),
         viewport=_viewport(record),
+        fetched_images=_count(record, "fetched_images") if "fetched_images" in record else 0,
     )
 
 
@@ -568,9 +599,7 @@ def _scan_loaded_page(page: Page, url: str, settings: RenderSettings, browser_ve
 def _scan_with_session(
     page: Page, session: CDPSession, url: str, settings: RenderSettings, browser_version: str
 ) -> RenderedPage:
-    meter = _TransferMeter(session) if settings.measure_transfer else None
-    if settings.blocked_resource_types:
-        _block_resource_types(session, settings.blocked_resource_types)
+    traffic = _PageTraffic(page, settings)
 
     notes: list[str] = []
     response = page.goto(url, wait_until="domcontentloaded", timeout=settings.navigation_timeout_ms)
@@ -633,6 +662,13 @@ def _scan_with_session(
     result = parse_scan_result(world.call("finish"))
     comparison = parse_comparison(world.call("compareStatic"), candidates)
 
+    transfer = traffic.transfer_bytes() if settings.measure_transfer else None
+    problem = measurement_problem(
+        transfer, result.fetched_images, traffic.blocked, blocking=bool(settings.blocked_resource_types)
+    )
+    if problem is not None:
+        raise RenderError(problem)
+
     return RenderedPage(
         final_url=page.url,
         html=html,
@@ -643,7 +679,8 @@ def _scan_with_session(
         reached_bottom=reached_bottom,
         notes=tuple(notes),
         browser_version=browser_version,
-        transfer_bytes=None if meter is None else meter.total,
+        transfer_bytes=transfer,
+        blocked_requests=traffic.blocked if settings.blocked_resource_types else None,
         centre_checks=centre_checks,
         static_comparison=comparison,
         viewport=result.viewport,

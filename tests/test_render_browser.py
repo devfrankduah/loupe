@@ -175,6 +175,8 @@ def test_blocking_skips_images_media_and_fonts_but_never_stylesheets(
     assert _buckets(page) == {"CASE-ASSETS-STYLESHEET": "hidden"}
     served = (FIXTURES / "assets.html").stat().st_size + (FIXTURES / "assets" / "style.css").stat().st_size
     assert page.transfer_bytes is not None and page.transfer_bytes >= served
+    # The image, the video and the font, each refused at least once.
+    assert page.blocked_requests is not None and page.blocked_requests >= 3
 
 
 def test_without_blocking_every_asset_is_requested_and_nothing_is_counted(
@@ -183,6 +185,7 @@ def test_without_blocking_every_asset_is_requested_and_nothing_is_counted(
     page = render_page(chromium, f"{fixture_site}/assets.html", FAST)
     assert BLOCKED_ASSETS <= set(fixture_server.requested)
     assert page.transfer_bytes is None
+    assert page.blocked_requests is None
     assert page.browser_version == chromium.version
 
 
@@ -217,3 +220,11 @@ def test_each_static_inline_style_candidate_is_traced_to_where_it_landed(
         ("p", "CASE-INLINE-REWRITTEN"): "not matched",
         ("p", "CASE-INLINE-REVEAL"): "revealed on scroll",
     }
+
+
+def test_a_page_whose_images_slip_past_blocking_fails(chromium: Browser, fixture_site: str) -> None:
+    # Blocking is on, but only for media, so the photo still loads: the run
+    # must refuse to trust its bandwidth rather than carry on quietly.
+    settings = replace(FAST, blocked_resource_types=frozenset({"media"}), measure_transfer=True)
+    with pytest.raises(RenderError, match="1 images fetched over http"):
+        render_page(chromium, f"{fixture_site}/picture.html", settings)

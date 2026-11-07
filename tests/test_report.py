@@ -44,6 +44,7 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
         notes=(SCROLL_LIMIT_NOTE,),
         browser_version="150.0.7000.1",
         transfer_bytes=1_234_567,
+        blocked_requests=42,
         static_comparison=(
             StaticComparison("p", "Fades in as you scroll down the page.", "opacity:0", Landing.REVEALED_ON_SCROLL),
         ),
@@ -59,6 +60,7 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
         "browser_version": "150.0.7000.1",
         "viewport": None,
         "transfer_bytes": 1_234_567,
+        "blocked_requests": 42,
         "final_url": "https://a.test/final",
         "text_elements": 12,
         "scroll_steps": 4,
@@ -86,7 +88,7 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
     assert isinstance(findings, list)
     assert findings[0]["mode"] == "rendered"
     assert "BRIGHTDATA_BROWSER_WSS (version 150.0.7000.1)" in render_text(page)
-    assert "transfer: 1,234,567 bytes" in render_text(page)
+    assert "transfer: 1,234,567 bytes, 42 requests blocked" in render_text(page)
     assert (
         "static inline-style candidates: 1 (visible at load 0, revealed on scroll 1, still hidden 0, not matched 0)"
         in render_text(page)

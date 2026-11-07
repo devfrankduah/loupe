@@ -638,7 +638,12 @@
         if (unit.bucket === "hidden") hidden_units.push({ ...item, reasons: unit.reasons });
         else revealed_units.push(item);
       }
-      return { ...counts, viewport: [window.innerWidth, window.innerHeight], hidden_units, revealed_units };
+      // Images loaded over http(s) are requests a remote run's blocking should have refused.
+      const fetched_images = Array.from(document.images).filter((image) =>
+        /^https?:/i.test(image.currentSrc || image.src),
+      ).length;
+      const viewport = [window.innerWidth, window.innerHeight];
+      return { ...counts, viewport, fetched_images, hidden_units, revealed_units };
     },
   };
 
