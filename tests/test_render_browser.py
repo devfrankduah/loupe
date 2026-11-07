@@ -126,7 +126,7 @@ def test_hidden_text_says_how_it_was_hidden(recipe: RenderedPage) -> None:
 def test_hidden_text_goes_through_the_instruction_phrase_check(recipe: RenderedPage) -> None:
     phrases = {MARKER.findall(finding.text)[0]: finding.instruction_phrases for finding in rendered_findings(recipe)}
     assert phrases["CASE-STYLESHEET"] == ("ignore previous", "previous instructions")
-    assert phrases["CASE-INJECTED"] == ("you are", "assistant")
+    assert phrases["CASE-INJECTED"] == ("you are",)
     assert phrases["CASE-DETAILS"] == ()
 
 

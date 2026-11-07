@@ -21,7 +21,10 @@ INSTRUCTION_PHRASES: Final[tuple[str, ...]] = (
     "new instructions",
     "you are",
     "system prompt",
-    "assistant",
+    # "assistant" on its own is left out: on real pages it named products and
+    # projects ("Device-Aware RAG Assistant", ask_brightdata_assistant) far more
+    # often than it addressed a model. Text that does address one still matches
+    # "you are", "system prompt" or an "ignore" phrase.
     "language model",
     "do not tell",
     "do not reveal",

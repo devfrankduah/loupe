@@ -255,7 +255,7 @@ def test_hidden_text_becomes_rendered_findings_with_phrases_checked() -> None:
     (finding,) = rendered_findings(page)
     assert (finding.kind, finding.mode) == (Kind.RENDERED_HIDDEN, ScanMode.RENDERED)
     assert finding.detail == "opacity:0, clipped"
-    assert finding.instruction_phrases == ("you are", "assistant")
+    assert finding.instruction_phrases == ("you are",)
 
 
 @pytest.mark.parametrize(

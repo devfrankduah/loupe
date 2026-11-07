@@ -79,7 +79,7 @@ In the HTML:
 
 Text inside a hidden element is reported once, on the outermost hidden element. Script and style contents are ignored.
 
-Every finding is checked against a short list of phrases that read like instructions to a model ("ignore previous", "ignore all", "you are", "system prompt", "assistant", "do not tell" and a few more). The list lives in `src/loupe/phrases.py`.
+Every finding is checked against a short list of phrases that read like instructions to a model ("ignore previous", "ignore all", "you are", "system prompt", "do not tell" and a few more). The list lives in `src/loupe/phrases.py`. "assistant" was on it until 7 November. On real pages it only ever named products and projects, so it was dropped.
 
 Then loupe fetches the markdown version of the same page and records whether each finding's text appears in it. Both sides are reduced to lowercase words, link targets are dropped, and the finding counts as present only if its full word sequence appears in order. Findings shorter than 12 characters after that reduction aren't compared, because short strings like "Menu" match by accident.
 
