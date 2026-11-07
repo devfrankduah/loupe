@@ -10,7 +10,7 @@ import pytest
 
 from loupe import cli
 from loupe.fetch import BrightDataError
-from loupe.render import BrowserSource, RenderedPage, RenderedText, RenderError, RenderSetupError
+from loupe.render import BrowserSource, EndpointRedactor, RenderedPage, RenderedText, RenderError, RenderSetupError
 
 TOKEN = "cli-test-token-0987654321"
 
@@ -130,6 +130,7 @@ RENDERED_PAGE = RenderedPage(
 class FakeRenderer:
     failure: RenderError | None = None
     source: BrowserSource = BrowserSource.LOCAL
+    endpoint: str | None = None
     urls: list[str] = field(default_factory=list)
 
     def render(self, url: str) -> RenderedPage:
@@ -137,6 +138,9 @@ class FakeRenderer:
         if self.failure is not None:
             raise self.failure
         return RENDERED_PAGE
+
+    def redact(self, text: str) -> str:
+        return EndpointRedactor(self.endpoint)(text)
 
 
 def _install_fake_renderer(monkeypatch: pytest.MonkeyPatch, renderer: FakeRenderer | RenderSetupError) -> None:
@@ -242,3 +246,23 @@ def test_static_results_record_their_mode(monkeypatch: pytest.MonkeyPatch, plant
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
     assert (page["scan_mode"], page["rendering"]) == ("static", None)
     assert {finding["mode"] for finding in page["findings"]} == {"static"}
+
+
+FAKE_ENDPOINT = "wss://brd-customer-hl_0000fake-zone-loupe_test:not-a-real-password@browser.invalid:9222"
+
+
+def test_an_endpoint_that_slips_into_an_error_is_never_printed_or_saved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    leak = RenderError(f"Rendering https://example.com/cake failed: {FAKE_ENDPOINT} hl_0000fake loupe_test")
+    _install_fake_renderer(monkeypatch, FakeRenderer(failure=leak, source=BrowserSource.REMOTE, endpoint=FAKE_ENDPOINT))
+    output_path = tmp_path / "rendered.json"
+
+    cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json", str(output_path)])
+
+    printed = capsys.readouterr()
+    saved = output_path.read_text(encoding="utf-8")
+    for part in ("browser.invalid", "hl_0000fake", "loupe_test", "not-a-real-password", "brd-customer"):
+        assert part not in printed.out and part not in printed.err and part not in saved
+    assert "failed: [endpoint] [endpoint] [endpoint]" in saved
+

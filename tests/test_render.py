@@ -124,13 +124,32 @@ def test_missing_chromium_is_a_setup_problem_with_the_fix() -> None:
     assert "/somewhere" not in str(caught.value)
 
 
-def test_the_redactor_removes_credentials_in_every_spelling() -> None:
-    redact = EndpointRedactor(ENDPOINT)
-    text = f"{ENDPOINT} | {USERNAME} | {PASSWORD} | p%40ss%2Fword%20with%20spaces | session=secret-session-id"
-    cleaned = redact(text)
-    for secret in (ENDPOINT, USERNAME, PASSWORD, "p%40ss", "secret-session-id"):
-        assert secret not in cleaned
-    assert "secret" not in repr(redact)
+ENDPOINT_PARTS = (
+    ENDPOINT,
+    USERNAME,
+    PASSWORD,
+    "p%40ss%2Fword%20with%20spaces",
+    "browser.invalid:9222",
+    "browser.invalid",
+    "test0001",
+    "fake_browser",
+    "session=secret-session-id",
+)
+
+
+@pytest.mark.parametrize("part", ENDPOINT_PARTS)
+def test_every_part_of_the_endpoint_becomes_the_placeholder(part: str) -> None:
+    cleaned = EndpointRedactor(ENDPOINT)(f"connect failed: {part} (code 401)")
+    assert cleaned == "connect failed: [endpoint] (code 401)"
+
+
+def test_the_redactor_leaves_ordinary_text_and_shows_nothing_of_itself() -> None:
+    redact = EndpointRedactor("wss://brd-customer-hl_1234abcd-zone-sb:pw-000001@host.invalid:9222")
+    # A short zone name is replaced as a whole token only, not inside words.
+    assert redact("zone sb failed; absorb the sbx error") == "zone [endpoint] failed; absorb the sbx error"
+    assert redact("customer hl_1234abcd") == "customer [endpoint]"
+    assert "1234" not in repr(redact) and "host" not in repr(redact)
+    assert EndpointRedactor(None)("wss://anything") == "wss://anything"
 
 
 @dataclass

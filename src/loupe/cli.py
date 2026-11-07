@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from collections.abc import Callable
 from typing import Sequence
 
 from loupe import __version__
@@ -159,6 +160,21 @@ def report_main(argv: Sequence[str]) -> int:
     return EXIT_OK
 
 
+def _unchanged(text: str) -> str:
+    return text
+
+
+def _scrub_strings(value: object, scrub: Callable[[str], str]) -> object:
+    """value with scrub applied to every string in it, keys included."""
+    if isinstance(value, str):
+        return scrub(value)
+    if isinstance(value, dict):
+        return {scrub(str(key)): _scrub_strings(item, scrub) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_scrub_strings(item, scrub) for item in value]
+    return value
+
+
 def _client_from_environment(zone: str) -> BrightDataClient | None:
     """The Bright Data client, or None after explaining on stderr why there isn't one."""
     try:
@@ -185,19 +201,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_USAGE
 
     pages: list[PageReport] = []
+    # A rendered scan passes everything it prints or saves through the
+    # renderer's redactor, a second guard after the one around each error.
+    scrub: Callable[[str], str] = _unchanged
 
     def record(page: PageReport) -> None:
         pages.append(page)
-        print(render_text(page, arguments.quote_chars), flush=True)
+        print(scrub(render_text(page, arguments.quote_chars)), flush=True)
         print()
 
     if arguments.render:
         try:
             with open_renderer(os.environ) as renderer:
+                scrub = renderer.redact
                 for url in arguments.urls:
                     record(scan_rendered_page(renderer, client, url))
         except RenderSetupError as error:
-            print(f"loupe: {error}", file=sys.stderr)
+            print(scrub(f"loupe: {error}"), file=sys.stderr)
             return EXIT_USAGE
     elif client is not None:
         for url in arguments.urls:
@@ -206,7 +226,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.json is not None:
         report = {"loupe_version": __version__, "pages": [page_to_dict(page, arguments.quote_chars) for page in pages]}
         try:
-            arguments.json.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            text = json.dumps(_scrub_strings(report, scrub), indent=2, ensure_ascii=False) + "\n"
+            arguments.json.write_text(text, encoding="utf-8")
         except OSError as error:
             print(f"loupe: could not write {arguments.json}: {error.strerror}", file=sys.stderr)
             return EXIT_USAGE

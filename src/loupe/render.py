@@ -38,6 +38,7 @@ from __future__ import annotations
 import functools
 import importlib.resources
 import json
+import re
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -57,7 +58,13 @@ BROWSER_ENDPOINT_VARIABLE: Final[str] = "BRIGHTDATA_BROWSER_WSS"
 SUPERSEDED_BY_RENDERING: Final[frozenset[Kind]] = frozenset({Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE})
 
 INSTALL_HINT: Final[str] = "pip install 'loupe[render]' && playwright install chromium"
-_REDACTED: Final[str] = "[redacted]"
+ENDPOINT_PLACEHOLDER: Final[str] = "[endpoint]"
+# Bright Data's browser usernames read brd-customer-<id>-zone-<zone>, and the
+# customer id or zone name can turn up on its own in an error.
+_LABELLED_USERNAME_PART: Final[re.Pattern[str]] = re.compile(r"(?:^|-)(?:customer|zone)-([^-]+)")
+# Pieces shorter than this are replaced only as whole tokens, so that a short
+# zone name doesn't eat parts of ordinary words.
+_WHOLE_TOKEN_BELOW: Final[int] = 8
 _ERROR_MESSAGE_LIMIT: Final[int] = 300
 _SCANNER: Final[str] = "loupeScanner"
 
@@ -214,6 +221,10 @@ class PageRenderer(Protocol):
 
     def render(self, url: str) -> RenderedPage: ...
 
+    def redact(self, text: str) -> str:
+        """text with any part of the browser endpoint replaced by ENDPOINT_PLACEHOLDER."""
+        ...
+
 
 class Closeable(Protocol):
     def close(self) -> None: ...
@@ -255,27 +266,46 @@ def read_browser_endpoint(environment: Mapping[str, str]) -> str | None:
     return value
 
 
+def _endpoint_pieces(endpoint: str) -> set[str]:
+    parts = urlsplit(endpoint)
+    host_and_port = parts.netloc.rpartition("@")[2]
+    candidates = [endpoint, parts.netloc, host_and_port, parts.hostname, parts.username, parts.password, parts.query]
+    if parts.username:
+        candidates.extend(_LABELLED_USERNAME_PART.findall(unquote(parts.username)))
+    pieces: set[str] = set()
+    for candidate in candidates:
+        if candidate:
+            pieces.add(candidate)
+            pieces.add(unquote(candidate))
+    return pieces
+
+
+def _piece_pattern(piece: str) -> str:
+    escaped = re.escape(piece)
+    if len(piece) >= _WHOLE_TOKEN_BELOW:
+        return escaped
+    return rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])"
+
+
 class EndpointRedactor:
-    """Removes an endpoint, and the credentials and query inside it, from text."""
+    """Replaces an endpoint, or any part of it, with ENDPOINT_PLACEHOLDER.
+
+    The parts are the whole URL, the host, the username with the customer id
+    and zone inside it, the password and the query, each as written and
+    percent-decoded.
+    """
 
     def __init__(self, endpoint: str | None) -> None:
-        pieces: set[str] = set()
-        if endpoint:
-            pieces.add(endpoint)
-            parts = urlsplit(endpoint)
-            for piece in (parts.username, parts.password, parts.query):
-                if piece:
-                    pieces.add(piece)
-                    pieces.add(unquote(piece))
-        self._pieces = tuple(sorted(pieces, key=len, reverse=True))
+        pieces = sorted(_endpoint_pieces(endpoint), key=len, reverse=True) if endpoint else []
+        self._pattern = re.compile("|".join(_piece_pattern(piece) for piece in pieces)) if pieces else None
 
     def __repr__(self) -> str:
         return "EndpointRedactor()"
 
     def __call__(self, text: str) -> str:
-        for piece in self._pieces:
-            text = text.replace(piece, _REDACTED)
-        return text
+        if self._pattern is None:
+            return text
+        return self._pattern.sub(ENDPOINT_PLACEHOLDER, text)
 
 
 def _first_line(error: BaseException) -> str:
@@ -655,6 +685,9 @@ class Renderer(Generic[BrowserT]):
     @property
     def source(self) -> BrowserSource:
         return BrowserSource.LOCAL if self._endpoint is None else BrowserSource.REMOTE
+
+    def redact(self, text: str) -> str:
+        return self._redact(text)
 
     def render(self, url: str) -> RenderedPage:
         _require_http_url(url)
