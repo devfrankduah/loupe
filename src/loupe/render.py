@@ -22,6 +22,8 @@ page's own scripts can't tamper with them.
 The browser is local Chromium unless BRIGHTDATA_BROWSER_WSS holds a CDP
 websocket endpoint. That value carries credentials: it is never printed,
 logged or saved, and errors from connecting to it say only that it failed.
+A remote browser gets two-minute timeouts, skips images, media and fonts
+(never stylesheets, which decide what shows), and has its transfer counted.
 """
 
 from __future__ import annotations
@@ -38,7 +40,7 @@ from urllib.parse import unquote, urlsplit
 from loupe.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Browser, Page, Playwright
+    from playwright.sync_api import Browser, CDPSession, Page, Playwright
 
 BROWSER_ENDPOINT_VARIABLE: Final[str] = "BRIGHTDATA_BROWSER_WSS"
 
@@ -50,6 +52,10 @@ INSTALL_HINT: Final[str] = "pip install 'loupe[render]' && playwright install ch
 _REDACTED: Final[str] = "[redacted]"
 _ERROR_MESSAGE_LIMIT: Final[int] = 300
 _SCANNER: Final[str] = "loupeScanner"
+
+# CDP resource types a remote run may skip to save bandwidth. They never
+# change whether text shows. Stylesheets do, so they can never be blocked.
+BLOCKABLE_RESOURCE_TYPES: Final[frozenset[str]] = frozenset({"Image", "Media", "Font"})
 
 
 class RenderError(RuntimeError):
@@ -83,8 +89,15 @@ class RenderSettings:
     scroll_pause_ms: float = 250
     settle_timeout_ms: float = 3_000
     max_scroll_steps: int = 60
+    # CDP resource types to refuse, from BLOCKABLE_RESOURCE_TYPES.
+    blocked_resource_types: frozenset[str] = frozenset()
+    # Add up the bytes received over the network for each page.
+    measure_transfer: bool = False
 
     def __post_init__(self) -> None:
+        unknown = self.blocked_resource_types - BLOCKABLE_RESOURCE_TYPES
+        if unknown:
+            raise ValueError(f"can't block {sorted(unknown)}; only {sorted(BLOCKABLE_RESOURCE_TYPES)} may be blocked")
         for name in ("viewport_width", "viewport_height", "max_scroll_steps"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be at least 1")
@@ -99,6 +112,23 @@ class RenderSettings:
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
+
+
+LOCAL_SETTINGS: Final[RenderSettings] = RenderSettings()
+
+# A remote browser is billed by the byte and sits further away: Bright Data
+# allows up to two minutes for a navigation, images, media and fonts are
+# skipped, and every page's transfer is counted.
+REMOTE_SETTINGS: Final[RenderSettings] = RenderSettings(
+    connect_timeout_ms=120_000,
+    navigation_timeout_ms=120_000,
+    blocked_resource_types=BLOCKABLE_RESOURCE_TYPES,
+    measure_transfer=True,
+)
+
+
+def settings_for(endpoint: str | None) -> RenderSettings:
+    return LOCAL_SETTINGS if endpoint is None else REMOTE_SETTINGS
 
 
 @dataclass(frozen=True)
@@ -120,6 +150,9 @@ class RenderedPage:
     scroll_steps: int
     reached_bottom: bool
     notes: tuple[str, ...]
+    browser_version: str | None = None
+    # Bytes received over the network, or None when transfer wasn't measured.
+    transfer_bytes: int | None = None
 
 
 class PageRenderer(Protocol):
@@ -234,8 +267,8 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
 class _IsolatedWorld:
     """A JavaScript world on the page's main frame that the page's own scripts can't reach."""
 
-    def __init__(self, page: Page) -> None:
-        self._session = page.context.new_cdp_session(page)
+    def __init__(self, session: CDPSession) -> None:
+        self._session = session
         tree = _mapping(self._session.send("Page.getFrameTree"), "the frame tree")
         frame = _mapping(_mapping(tree.get("frameTree"), "the frame tree").get("frame"), "the main frame")
         frame_id = frame.get("id")
@@ -272,14 +305,41 @@ class _IsolatedWorld:
     def call(self, method: str, *arguments: int) -> object:
         return self.evaluate(f"{_SCANNER}.{method}({', '.join(str(argument) for argument in arguments)})")
 
-    def detach(self) -> None:
-        from playwright.sync_api import Error as PlaywrightError
 
-        try:
-            self._session.detach()
-        except PlaywrightError:
-            # The page is closed right after this, which ends the session anyway.
-            pass
+
+class _TransferMeter:
+    """Adds up encodedDataLength, the bytes received over the network, for every finished request."""
+
+    def __init__(self, session: CDPSession) -> None:
+        self.total = 0
+        session.on("Network.loadingFinished", self._finished)
+        session.send("Network.enable")
+
+    def _finished(self, event: object) -> None:
+        length = event.get("encodedDataLength") if isinstance(event, dict) else None
+        if isinstance(length, (int, float)) and not isinstance(length, bool) and length > 0:
+            self.total += int(length)
+
+
+def _block_resource_types(session: CDPSession, resource_types: frozenset[str]) -> None:
+    """Fail requests of these types before they are sent. Nothing else is intercepted."""
+
+    def refuse(event: object) -> None:
+        request_id = event.get("requestId") if isinstance(event, dict) else None
+        if isinstance(request_id, str):
+            session.send("Fetch.failRequest", {"requestId": request_id, "errorReason": "BlockedByClient"})
+
+    session.on("Fetch.requestPaused", refuse)
+    patterns = [{"resourceType": resource_type, "requestStage": "Request"} for resource_type in sorted(resource_types)]
+    session.send("Fetch.enable", {"patterns": patterns})
+
+
+def _detach_quietly(session: CDPSession) -> None:
+    try:
+        session.detach()
+    except Exception:
+        # The page is closed right after this, which ends the session anyway.
+        pass
 
 
 def _exception_text(details: object) -> str:
@@ -364,7 +424,23 @@ def _wait_for(page: Page, state: Literal["load", "networkidle"], timeout_ms: flo
     return True
 
 
-def _scan_loaded_page(page: Page, url: str, settings: RenderSettings) -> RenderedPage:
+def _scan_loaded_page(page: Page, url: str, settings: RenderSettings, browser_version: str) -> RenderedPage:
+    # One CDP session, opened before navigation so that blocking and the
+    # transfer count cover every request, also hosts the isolated world.
+    session = page.context.new_cdp_session(page)
+    try:
+        return _scan_with_session(page, session, url, settings, browser_version)
+    finally:
+        _detach_quietly(session)
+
+
+def _scan_with_session(
+    page: Page, session: CDPSession, url: str, settings: RenderSettings, browser_version: str
+) -> RenderedPage:
+    meter = _TransferMeter(session) if settings.measure_transfer else None
+    if settings.blocked_resource_types:
+        _block_resource_types(session, settings.blocked_resource_types)
+
     notes: list[str] = []
     response = page.goto(url, wait_until="domcontentloaded", timeout=settings.navigation_timeout_ms)
     if response is None:
@@ -380,39 +456,36 @@ def _scan_loaded_page(page: Page, url: str, settings: RenderSettings) -> Rendere
             "so the first check ran with requests open"
         )
 
-    world = _IsolatedWorld(page)
-    try:
-        world.evaluate(_scanner_source())
-        if world.call("settle", int(settings.settle_timeout_ms)) is not True:
-            notes.append("animations were still running when the page was first checked")
-        world.call("recordLoad")
-        world.call("scrollToTop")
+    world = _IsolatedWorld(session)
+    world.evaluate(_scanner_source())
+    if world.call("settle", int(settings.settle_timeout_ms)) is not True:
+        notes.append("animations were still running when the page was first checked")
+    world.call("recordLoad")
+    world.call("scrollToTop")
+    page.wait_for_timeout(settings.scroll_pause_ms)
+    world.call("recheck")
+
+    steps = 0
+    reached_bottom = False
+    while steps < settings.max_scroll_steps:
+        at_bottom = world.call("scrollOneViewport") is True
+        steps += 1
         page.wait_for_timeout(settings.scroll_pause_ms)
         world.call("recheck")
+        if at_bottom:
+            _wait_for(page, "networkidle", settings.growth_timeout_ms)
+            if world.call("atBottom") is True:
+                reached_bottom = True
+                break
+    if not reached_bottom:
+        notes.append(
+            f"stopped after {steps} scroll steps without reaching the bottom, so text further down "
+            "that only appears on scroll counts as hidden"
+        )
 
-        steps = 0
-        reached_bottom = False
-        while steps < settings.max_scroll_steps:
-            at_bottom = world.call("scrollOneViewport") is True
-            steps += 1
-            page.wait_for_timeout(settings.scroll_pause_ms)
-            world.call("recheck")
-            if at_bottom:
-                _wait_for(page, "networkidle", settings.growth_timeout_ms)
-                if world.call("atBottom") is True:
-                    reached_bottom = True
-                    break
-        if not reached_bottom:
-            notes.append(
-                f"stopped after {steps} scroll steps without reaching the bottom, so text further down "
-                "that only appears on scroll counts as hidden"
-            )
-
-        if world.call("settle", int(settings.settle_timeout_ms)) is not True:
-            notes.append("animations were still running at the final check")
-        result = parse_scan_result(world.call("finish"))
-    finally:
-        world.detach()
+    if world.call("settle", int(settings.settle_timeout_ms)) is not True:
+        notes.append("animations were still running at the final check")
+    result = parse_scan_result(world.call("finish"))
 
     return RenderedPage(
         final_url=page.url,
@@ -423,6 +496,8 @@ def _scan_loaded_page(page: Page, url: str, settings: RenderSettings) -> Rendere
         scroll_steps=steps,
         reached_bottom=reached_bottom,
         notes=tuple(notes),
+        browser_version=browser_version,
+        transfer_bytes=None if meter is None else meter.total,
     )
 
 
@@ -450,7 +525,7 @@ def render_page(
     except PlaywrightError as error:
         raise RenderError(redact(f"Rendering {url} failed: couldn't open a tab: {_first_line(error)}")) from None
     try:
-        return _scan_loaded_page(page, url, settings)
+        return _scan_loaded_page(page, url, settings, browser.version)
     except (PlaywrightError, RenderError) as error:
         raise RenderError(redact(f"Rendering {url} failed: {_first_line(error)}")) from None
     finally:
@@ -510,6 +585,6 @@ def open_renderer(
     endpoint = read_browser_endpoint(environment)
     playwright = _start_playwright()
     try:
-        yield Renderer(playwright.chromium, endpoint, settings or RenderSettings(), render_page)
+        yield Renderer(playwright.chromium, endpoint, settings or settings_for(endpoint), render_page)
     finally:
         playwright.stop()

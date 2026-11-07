@@ -42,6 +42,8 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
         scroll_steps=4,
         reached_bottom=False,
         notes=(SCROLL_LIMIT_NOTE,),
+        browser_version="150.0.7000.1",
+        transfer_bytes=1_234_567,
     )
     page = PageReport(url="https://a.test/", mode=ScanMode.RENDERED, browser=BrowserSource.REMOTE, rendered=rendered)
     page.findings = check_findings(rendered_findings(rendered), None)
@@ -51,6 +53,8 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
     assert record["scan_mode"] == "rendered"
     assert record["rendering"] == {
         "browser": "remote-cdp",
+        "browser_version": "150.0.7000.1",
+        "transfer_bytes": 1_234_567,
         "final_url": "https://a.test/final",
         "text_elements": 12,
         "scroll_steps": 4,
@@ -61,7 +65,8 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
     findings = record["findings"]
     assert isinstance(findings, list)
     assert findings[0]["mode"] == "rendered"
-    assert "BRIGHTDATA_BROWSER_WSS" in render_text(page)
+    assert "BRIGHTDATA_BROWSER_WSS (version 150.0.7000.1)" in render_text(page)
+    assert "transfer: 1,234,567 bytes" in render_text(page)
     assert "didn't reach the bottom" in render_text(page)
 
 

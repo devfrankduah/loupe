@@ -97,6 +97,8 @@ def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] 
     rendered = page.rendered
     return {
         "browser": None if page.browser is None else page.browser.value,
+        "browser_version": rendered.browser_version,
+        "transfer_bytes": rendered.transfer_bytes,
         "final_url": rendered.final_url,
         "text_elements": rendered.text_elements,
         "scroll_steps": rendered.scroll_steps,
@@ -136,12 +138,16 @@ def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) 
 
 def _rendering_lines(rendered: RenderedPage, browser: BrowserSource | None) -> list[str]:
     where = "a browser" if browser is None else browser.description
+    if rendered.browser_version:
+        where += f" (version {rendered.browser_version})"
     ending = "reached the bottom" if rendered.reached_bottom else "didn't reach the bottom"
     lines = [
         f"  rendered in {where}: {rendered.text_elements} text elements, "
         f"{rendered.scroll_steps} scroll steps, {ending}",
         f"  revealed on scroll: {len(rendered.revealed_on_scroll)} (not counted as hidden)",
     ]
+    if rendered.transfer_bytes is not None:
+        lines.append(f"  transfer: {rendered.transfer_bytes:,} bytes")
     lines.extend(f"  note: {note}" for note in rendered.notes)
     return lines
 

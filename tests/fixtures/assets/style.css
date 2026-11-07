@@ -1,0 +1,6 @@
+@font-face {
+  font-family: "Fixture Serif";
+  src: url("fixture-serif.woff2") format("woff2");
+}
+body { font-family: "Fixture Serif", Georgia, serif; }
+.note-for-agents { display: none; }

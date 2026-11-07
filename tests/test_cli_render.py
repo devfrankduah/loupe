@@ -20,7 +20,7 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 from loupe import cli  # noqa: E402
 
-from .fixture_site import serve_fixtures  # noqa: E402
+from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 
 MARKER = re.compile(r"CASE-[A-Z-]+")
 
@@ -35,9 +35,15 @@ def chromium_installed() -> None:
 
 
 @pytest.fixture(scope="module")
-def fixture_site() -> Iterator[str]:
-    with serve_fixtures() as base_url:
-        yield base_url
+def fixture_server() -> Iterator[FixtureSite]:
+    with serve_fixtures() as site:
+        yield site
+
+
+@pytest.fixture
+def fixture_site(fixture_server: FixtureSite) -> str:
+    fixture_server.requested.clear()
+    return fixture_server.base_url
 
 
 def test_render_flag_end_to_end(

@@ -18,19 +18,33 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Browser, sync_playwright  # noqa: E402
 from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 
-from loupe.render import RenderedPage, RenderError, RenderSettings, render_page, rendered_findings  # noqa: E402
+from loupe.render import (  # noqa: E402
+    BLOCKABLE_RESOURCE_TYPES,
+    RenderedPage,
+    RenderError,
+    RenderSettings,
+    render_page,
+    rendered_findings,
+)
 from loupe.scan import scan_html  # noqa: E402
 
-from .fixture_site import serve_fixtures  # noqa: E402
+from .conftest import FIXTURES  # noqa: E402
+from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 
 FAST = RenderSettings(scroll_pause_ms=150, network_idle_timeout_ms=5_000, settle_timeout_ms=2_000)
 MARKER = re.compile(r"CASE-[A-Z-]+")
 
 
 @pytest.fixture(scope="module")
-def fixture_site() -> Iterator[str]:
-    with serve_fixtures() as base_url:
-        yield base_url
+def fixture_server() -> Iterator[FixtureSite]:
+    with serve_fixtures() as site:
+        yield site
+
+
+@pytest.fixture
+def fixture_site(fixture_server: FixtureSite) -> str:
+    fixture_server.requested.clear()
+    return fixture_server.base_url
 
 
 @pytest.fixture(scope="module")
@@ -49,8 +63,8 @@ def chromium() -> Iterator[Browser]:
 
 
 @pytest.fixture(scope="module")
-def recipe(chromium: Browser, fixture_site: str) -> RenderedPage:
-    return render_page(chromium, f"{fixture_site}/rendered.html", FAST)
+def recipe(chromium: Browser, fixture_server: FixtureSite) -> RenderedPage:
+    return render_page(chromium, f"{fixture_server.base_url}/rendered.html", FAST)
 
 
 def _buckets(page: RenderedPage) -> dict[str, str]:
@@ -134,3 +148,30 @@ def test_a_scroll_limit_is_reported_with_what_it_costs(chromium: Browser, fixtur
 def test_an_error_status_fails_the_page(chromium: Browser, fixture_site: str) -> None:
     with pytest.raises(RenderError, match="HTTP 404"):
         render_page(chromium, f"{fixture_site}/missing.html", FAST)
+
+
+BLOCKED_ASSETS = {"/assets/cake.png", "/assets/icing.webm", "/assets/fixture-serif.woff2"}
+
+
+def test_blocking_skips_images_media_and_fonts_but_never_stylesheets(
+    chromium: Browser, fixture_server: FixtureSite, fixture_site: str
+) -> None:
+    remote_like = replace(FAST, blocked_resource_types=BLOCKABLE_RESOURCE_TYPES, measure_transfer=True)
+    page = render_page(chromium, f"{fixture_site}/assets.html", remote_like)
+
+    assert "/assets/style.css" in fixture_server.requested
+    assert BLOCKED_ASSETS.isdisjoint(fixture_server.requested)
+    # The stylesheet still applied: the line it hides is found hidden.
+    assert _buckets(page) == {"CASE-ASSETS-STYLESHEET": "hidden"}
+    served = (FIXTURES / "assets.html").stat().st_size + (FIXTURES / "assets" / "style.css").stat().st_size
+    assert page.transfer_bytes is not None and page.transfer_bytes >= served
+
+
+def test_without_blocking_every_asset_is_requested_and_nothing_is_counted(
+    chromium: Browser, fixture_server: FixtureSite, fixture_site: str
+) -> None:
+    page = render_page(chromium, f"{fixture_site}/assets.html", FAST)
+    assert BLOCKED_ASSETS <= set(fixture_server.requested)
+    assert page.transfer_bytes is None
+    assert page.browser_version == chromium.version
+

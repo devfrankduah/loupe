@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -21,6 +21,7 @@ from loupe.render import (
     parse_scan_result,
     read_browser_endpoint,
     rendered_findings,
+    settings_for,
 )
 from loupe.scan import Kind, ScanMode
 
@@ -231,10 +232,34 @@ def test_hidden_text_becomes_rendered_findings_with_phrases_checked() -> None:
     assert finding.instruction_phrases == ("you are", "assistant")
 
 
-@pytest.mark.parametrize("field_name", ["scroll_pause_ms", "navigation_timeout_ms", "settle_timeout_ms"])
-def test_settings_refuse_negative_times(field_name: str) -> None:
+@pytest.mark.parametrize(
+    "make_settings",
+    [
+        lambda: RenderSettings(scroll_pause_ms=-1),
+        lambda: RenderSettings(navigation_timeout_ms=-1),
+        lambda: RenderSettings(settle_timeout_ms=-1),
+    ],
+)
+def test_settings_refuse_negative_times(make_settings: Callable[[], RenderSettings]) -> None:
     with pytest.raises(ValueError):
-        replace(RenderSettings(), **{field_name: -1})
+        make_settings()
+
+
+def test_stylesheets_can_never_be_blocked() -> None:
+    with pytest.raises(ValueError, match="Stylesheet"):
+        RenderSettings(blocked_resource_types=frozenset({"Image", "Stylesheet"}))
+
+
+def test_only_a_remote_browser_gets_the_long_timeouts_blocking_and_byte_count() -> None:
+    local, remote = settings_for(None), settings_for(ENDPOINT)
+    assert (local.navigation_timeout_ms, local.blocked_resource_types, local.measure_transfer) == (
+        60_000,
+        frozenset(),
+        False,
+    )
+    assert (remote.connect_timeout_ms, remote.navigation_timeout_ms) == (120_000, 120_000)
+    assert remote.blocked_resource_types == {"Image", "Media", "Font"}
+    assert remote.measure_transfer
 
 
 def test_settings_refuse_a_zero_step_limit() -> None:
