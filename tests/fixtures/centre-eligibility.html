@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Which hidden lines get centred</title>
+<style>
+  body { margin: 0; font: 16px/1.5 Georgia, serif; }
+  .faded { opacity: 0; }
+  .slid-away { transform: translateX(-300vw); }
+  .unseen { visibility: hidden; }
+  .gone { display: none; }
+</style>
+</head>
+<body>
+<p>A visible line to anchor the page. CASE-ANCHOR</p>
+<p class="faded">Faded, the way scroll animations start. CASE-CENTRE-FADED</p>
+<p class="slid-away">Slid off the screen with a transform. CASE-CENTRE-SLID</p>
+<p class="unseen">Hidden with visibility, which waits for a click. CASE-SKIP-VISIBILITY</p>
+<p class="gone">Removed from layout with display:none. CASE-SKIP-DISPLAY</p>
+<details><summary>More</summary><p>Inside a closed details. CASE-SKIP-DETAILS</p></details>
+</body>
+</html>

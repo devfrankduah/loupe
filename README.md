@@ -95,7 +95,7 @@ For each page, loupe opens Chromium at 1280 by 800, loads the page, and waits fo
 - it isn't clipped away by `overflow`, `clip` or `clip-path`
 - its opacity, multiplied through its ancestors, is at least 0.05
 
-Then loupe scrolls from the top to the bottom one screen at a time, pausing at each step and checking again. After that, it brings each element that is still hidden, and has a box, to the middle of the screen and checks once more, because some reveals fire only at one scroll position. A last check runs once transitions settle.
+Then loupe scrolls from the top to the bottom one screen at a time, pausing at each step and checking again. After that, it brings each element that is still hidden only by opacity, position or clipping (the ways scroll animations hide things) to the middle of the screen and checks once more, because some reveals fire only at one scroll position. Text hidden with `display:none`, `visibility:hidden` or a closed `<details>` waits for a click, not a position, so it isn't centred. A last check runs once transitions settle.
 
 Text that was never seen visible becomes a `rendered-hidden` finding, with the reason (such as `display:none`, `clipped` or `inside a closed <details>`). It goes through the same phrase list and markdown comparison as everything else. Text hidden at load but seen later is listed separately as revealed on scroll and isn't counted as hidden. The markup checks for comments, meta tags, label attributes, `aria-hidden` and `<noscript>` still run on the HTML as served. The rendered result replaces the inline-style and `hidden` attribute guesses. Each element an inline-style guess flagged is traced and reported as visible at load, revealed on scroll, still hidden, or not matched. It is matched by tag and text right after the first check and again at the end, since a framework can swap a node for a copy after load. A page can carry several copies of the same text, so the most visible copy decides.
 
@@ -184,4 +184,5 @@ A rendered scan still misses some things, or counts them as hidden when a reader
 - Text that appears only after a click or hover, such as menus, tabs and dialogs, counts as hidden, and so does a closed `<details>`.
 - Only one screen size is checked. Text a page shows only at other sizes, such as a phone-only line, counts as hidden.
 - Shadow DOM and iframes aren't scanned.
-- Scrolling stops after 60 screens and centring after 40 elements. A note says so when either limit cuts the check short.
+- Scrolling stops after 60 screens, and centring after 200 elements or 60 seconds a page. A note says so when a limit cuts the check short.
+- Animation libraries that hide with `visibility:hidden` as well as opacity (GSAP's autoAlpha, for one) aren't centred, so text they reveal only at one scroll position counts as hidden.

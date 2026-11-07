@@ -32,6 +32,18 @@
   const BOX_OPTIONS = { opacityProperty: true, contentVisibilityAuto: true };
   const NO_OVERFLOW_DISPLAYS = new Set(["inline", "contents", "none"]);
 
+  // The ways scroll animations hide content until it is in view. Only text
+  // hidden in these ways alone is worth centring; display:none,
+  // visibility:hidden and closed <details> wait for a click, not a position.
+  const CENTRABLE_REASONS = new Set([
+    "opacity:0",
+    "near-zero opacity",
+    "outside the page",
+    "clipped",
+    "too small to see",
+    "content-visibility:auto",
+  ]);
+
   // Element -> { atLoad: true | false | null, later: boolean }. atLoad is null
   // for elements that weren't in the page yet when it finished loading.
   const seen = new Map();
@@ -373,6 +385,14 @@
     return reasons;
   }
 
+  // An element is worth centring when it has a box and every reason it is
+  // hidden is one a scroll animation could undo.
+  function isCentrable(element, pass) {
+    if (element.getClientRects().length === 0) return false;
+    const reasons = inspect(element, pass, false);
+    return reasons.length > 0 && reasons.every((reason) => CENTRABLE_REASONS.has(reason));
+  }
+
   function visibleNow(element, pass) {
     return inspect(element, pass, true).length === 0;
   }
@@ -531,11 +551,12 @@
     // that has a box to the middle of the viewport. Returns false when none is
     // left. Elements without a box (display:none) can't be moved into view.
     centreNext() {
+      const pass = newPass();
       for (const element of collectTextElements()) {
         const entry = seen.get(element);
         if (entry === undefined || entry.atLoad === true || entry.later || centred.has(element)) continue;
         centred.add(element);
-        if (element.getClientRects().length === 0) continue;
+        if (!isCentrable(element, pass)) continue;
         element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
         return true;
       }
@@ -543,11 +564,12 @@
     },
 
     uncentredCount() {
+      const pass = newPass();
       let count = 0;
       for (const element of collectTextElements()) {
         const entry = seen.get(element);
         if (entry === undefined || entry.atLoad === true || entry.later || centred.has(element)) continue;
-        if (element.getClientRects().length > 0) count += 1;
+        if (isCentrable(element, pass)) count += 1;
       }
       return count;
     },

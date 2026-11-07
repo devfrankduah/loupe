@@ -8,8 +8,9 @@ a real Chromium loads the page instead:
    finish, then record whether each element's own text is visible (S0).
 2. Scroll from the top to the bottom one viewport at a time, pausing at each
    step and checking again whatever hasn't been seen yet.
-3. Scroll each element that is still hidden, and has a box, into the middle
-   of the viewport, pause and check again, for reveals tied to one position.
+3. Scroll each element that is still hidden only in ways a scroll animation
+   uses (opacity, position, clipping) into the middle of the viewport, pause
+   and check again, for reveals tied to one position.
 4. Wait for transitions to settle and check one last time (S1).
 
 Text never seen visible is a hidden finding. Text hidden at S0 but seen at a
@@ -42,6 +43,7 @@ import functools
 import importlib.resources
 import json
 import re
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -108,8 +110,9 @@ class RenderSettings:
     settle_timeout_ms: float = 3_000
     max_scroll_steps: int = 60
     # How many still-hidden elements to centre in the viewport after the
-    # scroll pass. 0 turns the centring pass off.
-    max_centre_steps: int = 40
+    # scroll pass, and how long it may take in all. 0 steps turns it off.
+    max_centre_steps: int = 200
+    centre_budget_ms: float = 60_000
     # Playwright resource types to refuse, from BLOCKABLE_RESOURCE_TYPES.
     blocked_resource_types: frozenset[str] = frozenset()
     # Add up the bytes received over the network for each page.
@@ -132,6 +135,7 @@ class RenderSettings:
             "growth_timeout_ms",
             "scroll_pause_ms",
             "settle_timeout_ms",
+            "centre_budget_ms",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
@@ -648,15 +652,26 @@ def _scan_with_session(
         )
 
     centre_checks = 0
-    while centre_checks < settings.max_centre_steps and world.call("centreNext") is True:
+    centre_started = time.monotonic()
+    out_of_time = False
+    while centre_checks < settings.max_centre_steps:
+        if (time.monotonic() - centre_started) * 1000 >= settings.centre_budget_ms:
+            out_of_time = True
+            break
+        if world.call("centreNext") is not True:
+            break
         centre_checks += 1
         page.wait_for_timeout(settings.scroll_pause_ms)
         world.call("recheck")
     uncentred = world.call("uncentredCount")
     if isinstance(uncentred, int) and uncentred > 0:
+        if out_of_time:
+            limit = f"the {_seconds(settings.centre_budget_ms)} budget"
+        else:
+            limit = f"the limit of {settings.max_centre_steps}"
         notes.append(
-            f"centred {centre_checks} still-hidden elements in the viewport and stopped with {uncentred} "
-            "left, so any of those revealed only at one scroll position counts as hidden"
+            f"centred {centre_checks} still-hidden elements and stopped at {limit} with {uncentred} left, "
+            "so any of those revealed only at one scroll position counts as hidden"
         )
 
     if world.call("settle", int(settings.settle_timeout_ms)) is not True:

@@ -203,7 +203,7 @@ def test_screen_sized_steps_alone_skip_the_middle_band(chromium: Browser, fixtur
     # line really sits between the positions the scroll steps stop at.
     page = render_page(chromium, f"{fixture_site}/centre.html", replace(FAST, max_centre_steps=0))
     assert _buckets(page) == {"CASE-CENTRE": "hidden", "CASE-CENTRE-SECOND": "hidden"}
-    assert any("stopped with 2 left" in note for note in page.notes)
+    assert any("stopped at the limit of 0 with 2 left" in note for note in page.notes)
 
 
 def test_each_static_inline_style_candidate_is_traced_to_where_it_landed(
@@ -230,3 +230,25 @@ def test_a_page_whose_images_slip_past_blocking_fails(chromium: Browser, fixture
     settings = replace(FAST, blocked_resource_types=frozenset({"media"}), measure_transfer=True)
     with pytest.raises(RenderError, match="1 images fetched over http"):
         render_page(chromium, f"{fixture_site}/picture.html", settings)
+
+
+def test_only_text_hidden_the_way_scroll_animations_hide_it_is_centred(
+    chromium: Browser, fixture_site: str
+) -> None:
+    page = render_page(chromium, f"{fixture_site}/centre-eligibility.html", FAST)
+    # The faded line and the slid-away line, not visibility, display:none or a closed details.
+    assert page.centre_checks == 2
+    assert not any("centred" in note for note in page.notes)
+
+
+def test_the_centring_cap_is_noted(chromium: Browser, fixture_site: str) -> None:
+    page = render_page(chromium, f"{fixture_site}/centre.html", replace(FAST, max_centre_steps=1))
+    assert page.centre_checks == 1
+    assert any("stopped at the limit of 1 with 1 left" in note for note in page.notes)
+
+
+def test_the_centring_time_budget_is_noted(chromium: Browser, fixture_site: str) -> None:
+    page = render_page(chromium, f"{fixture_site}/centre.html", replace(FAST, centre_budget_ms=0))
+    assert page.centre_checks == 0
+    assert any("stopped at the 0 s budget with 2 left" in note for note in page.notes)
+
