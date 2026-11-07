@@ -16,6 +16,13 @@ cd loupe
 pip install -e ".[test]"
 ```
 
+For rendered scans (`--render`), add the `render` extra, which installs Playwright, and download its Chromium:
+
+```
+pip install -e ".[render]"
+playwright install chromium
+```
+
 ## Usage
 
 loupe needs a Bright Data API token in `BRIGHTDATA_API_TOKEN`. It reads the token from the environment and never prints or saves it.
@@ -31,6 +38,7 @@ Options:
 - `--quote-chars N` cuts quoted hidden text to N characters (default 160, 0 for no limit).
 - `--skip-markdown` scans the HTML only.
 - `--zone NAME` picks the Web Unlocker zone (default `mcp_unlocker`).
+- `--render` loads each page in a browser instead and checks what actually shows. See [Rendered scan](#rendered-scan). With `--skip-markdown` as well, it needs no Bright Data token at all.
 
 The exit code is 0 when every fetch worked, 1 when any fetch failed, and 2 for usage errors such as a missing token.
 
@@ -40,11 +48,15 @@ To turn a saved run into a web page:
 loupe report results/2026-11-02.json -o docs/index.html
 ```
 
+`loupe report` takes several results files too. Give it a markup-only run and a `--render` run of the same pages and it shows them side by side, page by page.
+
 Tests run offline against local fixtures and don't need a token:
 
 ```
 pytest
 ```
+
+The browser tests serve their fixture pages from 127.0.0.1 and are skipped when Playwright or its Chromium isn't installed.
 
 ## How pages are fetched
 
@@ -70,6 +82,28 @@ Text inside a hidden element is reported once, on the outermost hidden element. 
 Every finding is checked against a short list of phrases that read like instructions to a model ("ignore previous", "ignore all", "you are", "system prompt", "assistant", "do not tell" and a few more). The list lives in `src/loupe/phrases.py`.
 
 Then loupe fetches the markdown version of the same page and records whether each finding's text appears in it. Both sides are reduced to lowercase words, link targets are dropped, and the finding counts as present only if its full word sequence appears in order. Findings shorter than 12 characters after that reduction aren't compared, because short strings like "Menu" match by accident.
+
+## Rendered scan
+
+The checks above read markup only, so they miss text hidden by a stylesheet class or by a script, and they flag text that starts invisible and fades in as you scroll. `--render` asks a real browser instead.
+
+For each page, loupe opens Chromium at 1280 by 800, loads the page, and waits for the load event, for the network to go quiet and for opening animations to finish. Then it records whether each element's own text is visible. Visible means all of these:
+
+- `checkVisibility()` passes with `opacityProperty`, `visibilityProperty` and `contentVisibilityAuto`
+- the text has a box at least 2px each way, inside the part of the page a reader can scroll to
+- the computed `font-size` is above 0
+- it isn't clipped away by `overflow`, `clip` or `clip-path`
+- its opacity, multiplied through its ancestors, is at least 0.05
+
+Then loupe scrolls from the top to the bottom one screen at a time, pausing at each step and checking again. After that, it brings each element that is still hidden, and has a box, to the middle of the screen and checks once more, because some reveals fire only at one scroll position. A last check runs once transitions settle.
+
+Text that was never seen visible becomes a `rendered-hidden` finding, with the reason (such as `display:none`, `clipped` or `inside a closed <details>`). It goes through the same phrase list and markdown comparison as everything else. Text hidden at load but seen later is listed separately as revealed on scroll and isn't counted as hidden. The markup checks for comments, meta tags, label attributes, `aria-hidden` and `<noscript>` still run on the HTML as served. The rendered result replaces the inline-style and `hidden` attribute guesses. Each element an inline-style guess flagged is traced and reported as visible at load, revealed on scroll, still hidden, or not matched. A page can carry several copies of the same text, so the most visible copy decides.
+
+The checks run in an isolated JavaScript world, so a page's own scripts can't patch `checkVisibility` or `getClientRects` to make hidden text look visible.
+
+The browser is local Chromium unless `BRIGHTDATA_BROWSER_WSS` holds a CDP websocket endpoint for Bright Data's Browser API. That value carries credentials. loupe never prints, logs or saves it, and a failed connection reports only that it failed. A remote browser gets two-minute timeouts. It skips images, media and fonts, but never stylesheets, since they decide what shows, and each page records the bytes transferred. Every page gets a fresh browser.
+
+In the JSON, each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace.
 
 ## Results
 
@@ -118,7 +152,14 @@ Two caveats on these numbers. The HTML comes from Web Unlocker and the markdown 
 ## Limitations
 
 - Phrase matching is a heuristic, and it produces false positives. Every instruction-like finding in this run was one: Wikipedia's account link title, and my own project name matching "assistant". A real injection worded to avoid the list won't be flagged.
-- The scanner can't tell real hiding from presentation. All 48 inline-style findings on frankduah.me are `opacity:0`, the starting state of a scroll-reveal animation. JavaScript fades that content in, so people do see it, but nothing in the HTML says so. Any site that animates content in this way will look full of hidden text.
-- Only inline styles are read. An element hidden by a class in a stylesheet isn't detected.
-- Nothing is rendered. No CSS is applied and no JavaScript runs, so content hidden or revealed at runtime is missed, and so is text that's hidden by being the same color as the background or covered by another element.
+- The markup-only scan can't tell real hiding from presentation. All 48 inline-style findings on frankduah.me are `opacity:0`, the starting state of a scroll-reveal animation. JavaScript fades that content in, so people do see it, but nothing in the HTML says so. Any site that animates content in this way will look full of hidden text. `--render` is there to separate the two.
+- The markup-only scan reads inline styles only. An element hidden by a class in a stylesheet isn't detected without `--render`.
 - The markdown comparison is exact word-sequence matching. If the markdown converter splits or reorders a hidden string, it counts as not present.
+
+A rendered scan still misses some things, or counts them as hidden when a reader would see them:
+
+- Text colored like its background, or covered by another element, counts as visible.
+- Text that appears only after a click or hover, such as menus, tabs and dialogs, counts as hidden, and so does a closed `<details>`.
+- Only one screen size is checked. Text a page shows only at other sizes, such as a phone-only line, counts as hidden.
+- Shadow DOM and iframes aren't scanned.
+- Scrolling stops after 60 screens and centring after 40 elements. A note says so when either limit cuts the check short.
