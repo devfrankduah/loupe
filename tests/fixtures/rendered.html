@@ -22,6 +22,9 @@
   .escapes-shelf { position: absolute; }
   .faint { visibility: hidden; }
   .no-type { font-size: 0; }
+  .barely-there { opacity: 0.01; }
+  .half-strength { opacity: 0.5; }
+  .dimmed { opacity: 0.2; }
   .faint .shown-anyway { visibility: visible; }
   .offscreen { position: absolute; left: -9999px; }
   .scroll-box { height: 60px; overflow: auto; }
@@ -47,6 +50,9 @@
   <p class="clip-path-hidden">Clipped away with clip-path. CASE-CLIP-PATH</p>
   <p class="faint">Hidden by visibility. CASE-VIS-HIDDEN <span class="shown-anyway">Shown by its own visibility. CASE-VIS-SHOWN</span></p>
   <p class="no-type">Set in zero-size type. CASE-FONT-SIZE</p>
+  <p class="barely-there">Faded to one percent. CASE-OPACITY-LOW</p>
+  <p class="half-strength">Faded to half, still easy to read. CASE-OPACITY-HALF</p>
+  <div class="dimmed"><p class="dimmed">Dimmed twice, which multiplies to 0.04. CASE-OPACITY-NESTED</p></div>
   <p class="offscreen">Pushed far off the left edge of the page. CASE-OFFSCREEN</p>
   <div class="scroll-box">
     <p>Butter, 175 g.</p>

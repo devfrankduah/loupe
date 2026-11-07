@@ -92,6 +92,8 @@ def test_each_case_lands_in_its_bucket(recipe: RenderedPage) -> None:
         "CASE-CLIP-PATH": "hidden",
         "CASE-VIS-HIDDEN": "hidden",
         "CASE-FONT-SIZE": "hidden",
+        "CASE-OPACITY-LOW": "hidden",
+        "CASE-OPACITY-NESTED": "hidden",
         "CASE-OFFSCREEN": "hidden",
         "CASE-INJECTED": "hidden",
         "CASE-REVEAL": "revealed",
@@ -113,6 +115,8 @@ def test_hidden_text_says_how_it_was_hidden(recipe: RenderedPage) -> None:
         "CASE-CLIP-PATH": ("clipped",),
         "CASE-VIS-HIDDEN": ("visibility:hidden",),
         "CASE-FONT-SIZE": ("font-size:0", "too small to see"),
+        "CASE-OPACITY-LOW": ("near-zero opacity",),
+        "CASE-OPACITY-NESTED": ("near-zero opacity",),
         "CASE-OFFSCREEN": ("outside the page",),
         "CASE-INJECTED": ("opacity:0",),
     }

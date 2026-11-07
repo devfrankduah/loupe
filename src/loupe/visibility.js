@@ -22,6 +22,10 @@
   // nothing readable, so anything thinner than this counts as unseen.
   const MIN_READABLE_PX = 2;
 
+  // Text faded almost to nothing is as unreadable as text at opacity 0, and
+  // opacity multiplies down the tree: 0.2 inside 0.2 shows at 0.04.
+  const MIN_VISIBLE_OPACITY = 0.05;
+
   const VISIBILITY_OPTIONS = { opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true };
   // A display:contents element has no box of its own, so its nearest boxed
   // ancestor is checked instead, and the element's own visibility separately.
@@ -313,6 +317,20 @@
     return reasons;
   }
 
+  // The opacity a box is drawn at. display:contents elements have no box,
+  // so their opacity doesn't apply.
+  function combinedOpacity(box, pass) {
+    let product = 1;
+    for (let node = box; node !== null; node = node.parentElement) {
+      const s = pass.style(node);
+      if (s.display === "contents") continue;
+      const opacity = parseFloat(s.opacity);
+      if (Number.isFinite(opacity)) product *= opacity;
+      if (product < MIN_VISIBLE_OPACITY) break;
+    }
+    return product;
+  }
+
   function nearestBoxedAncestor(element, pass) {
     for (let node = element.parentElement; node !== null; node = node.parentElement) {
       if (pass.style(node).display !== "contents") return node;
@@ -340,6 +358,8 @@
         if (add(reason)) return reasons;
       }
     }
+    const opacity = combinedOpacity(box, pass);
+    if (opacity > 0 && opacity < MIN_VISIBLE_OPACITY && add("near-zero opacity")) return reasons;
     if ((s.visibility === "hidden" || s.visibility === "collapse") && add("visibility:hidden")) return reasons;
     if (!(parseFloat(s.fontSize) > 0) && add("font-size:0")) return reasons;
     const geometry = geometryReason(element, pass);
