@@ -39,8 +39,11 @@
   // Elements centreNext() has already tried, or found to have no box.
   const centred = new Set();
   // For each static candidate passed to matchStatic(), the text elements of
-  // every live element with the same tag and text.
+  // every live element with the same tag and text, as matched at load.
   let staticCopies = [];
+  let staticWanted = new Map();
+  let staticTags = new Set();
+  let staticCount = 0;
 
   function collectTextElements() {
     const elements = [];
@@ -426,6 +429,20 @@
     return key;
   }
 
+  // The text elements of every live element that matches a static candidate
+  // now, grouped by candidate. Only elements the scanner has seen count.
+  function copiesNow() {
+    const copies = Array.from({ length: staticCount }, () => []);
+    for (const element of document.body === null ? [] : document.body.querySelectorAll("*")) {
+      if (!staticTags.has(element.localName)) continue;
+      const indexes = staticWanted.get(element.localName + "|" + textKey(element));
+      if (indexes === undefined) continue;
+      const members = [element, ...element.querySelectorAll("*")].filter((node) => seen.has(node));
+      for (const index of indexes) copies[index].push(members);
+    }
+    return copies;
+  }
+
   // Each text element belongs to exactly one unit, so no text is quoted twice.
   function textOf(root, rootOf) {
     const pieces = [];
@@ -451,33 +468,37 @@
     // Pairs each static candidate ({tag, text}) with every live element of the
     // same tag and text. Run right after recordLoad(), before scripts move or
     // replace nodes. Returns how many candidates found at least one copy.
+    // Pairs each static candidate ({tag, text}) with every live element of the
+    // same tag and text. Run right after recordLoad(), before scripts move or
+    // replace nodes; compareStatic() matches against the final page as well.
+    // Returns how many candidates found at least one copy.
     matchStatic(candidates) {
-      const wanted = new Map();
+      staticWanted = new Map();
       candidates.forEach((candidate, index) => {
         const key = candidate.tag + "|" + candidate.text.replace(/\s+/g, "");
-        if (!wanted.has(key)) wanted.set(key, []);
-        wanted.get(key).push(index);
+        if (!staticWanted.has(key)) staticWanted.set(key, []);
+        staticWanted.get(key).push(index);
       });
-      const tags = new Set(candidates.map((candidate) => candidate.tag));
-      staticCopies = candidates.map(() => []);
-      for (const element of document.body === null ? [] : document.body.querySelectorAll("*")) {
-        if (!tags.has(element.localName)) continue;
-        const indexes = wanted.get(element.localName + "|" + textKey(element));
-        if (indexes === undefined) continue;
-        const members = [element, ...element.querySelectorAll("*")].filter((node) => seen.has(node));
-        for (const index of indexes) staticCopies[index].push(members);
-      }
+      staticTags = new Set(candidates.map((candidate) => candidate.tag));
+      staticCount = candidates.length;
+      staticCopies = copiesNow();
       return staticCopies.filter((copies) => copies.length > 0).length;
     },
 
-    // For each candidate, for each copy, the state of each of its text elements.
+    // For each candidate, for each copy matched at load or in the final page,
+    // the state of each of its text elements. A framework can replace a node
+    // after load, so the final page may hold the copy a reader actually saw.
     compareStatic() {
       const state = (element) => {
         const entry = seen.get(element);
         if (entry.atLoad === true) return "visible at load";
+        // Seen later, whether revealed by scrolling or added after load.
         return entry.later ? "revealed on scroll" : "still hidden";
       };
-      return staticCopies.map((copies) => copies.map((members) => members.map(state)));
+      const finalCopies = copiesNow();
+      return staticCopies.map((copies, index) =>
+        copies.concat(finalCopies[index]).map((members) => members.map(state)),
+      );
     },
 
     recheck() {

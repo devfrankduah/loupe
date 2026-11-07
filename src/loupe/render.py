@@ -19,9 +19,11 @@ out again once scrolled past and for content-visibility:auto sections, which
 a browser only draws near the viewport; both are invisible at S1.
 
 Each element the static scan flagged for its inline style is also traced:
-right after S0 it is paired with every live element of the same tag and
-text, and reported as visible at load, revealed on scroll, still hidden, or
-not matched, taking the most visible copy.
+right after S0, and again at the end, it is paired with every live element of
+the same tag and text, and reported as visible at load, revealed on scroll,
+still hidden, or not matched, taking the most visible copy. Matching twice
+covers both a node a framework replaces with a hidden one and a hidden node
+it replaces with a visible one.
 
 The checks run in visibility.js, inside an isolated JavaScript world, so the
 page's own scripts can't tamper with them.

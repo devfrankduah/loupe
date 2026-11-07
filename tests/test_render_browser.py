@@ -218,6 +218,8 @@ def test_each_static_inline_style_candidate_is_traced_to_where_it_landed(
         ("span", "CASE-INLINE-TWICE"): "visible at load",
         ("p", "CASE-INLINE-HIDDEN"): "still hidden",
         ("p", "CASE-INLINE-REWRITTEN"): "not matched",
+        # Hidden at load and replaced: only the final page holds the copy that showed.
+        ("span", "CASE-INLINE-SWAPPED"): "revealed on scroll",
         ("p", "CASE-INLINE-REVEAL"): "revealed on scroll",
     }
 

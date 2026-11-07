@@ -15,6 +15,7 @@
 <span class="fades" id="twice" style="opacity:0">Said twice, once for layout. CASE-INLINE-TWICE</span>
 <p style="display:none">Never shown to anyone. CASE-INLINE-HIDDEN</p>
 <p id="clock" style="opacity:0">--:-- CASE-INLINE-REWRITTEN</p>
+<span id="swap" style="opacity:0">Animated in by a framework. CASE-INLINE-SWAPPED</span>
 <div class="spacer"></div>
 <p class="fades" id="later" style="opacity:0">Fades in when scrolled to. CASE-INLINE-REVEAL</p>
 <div class="spacer"></div>
@@ -37,6 +38,12 @@
       const clone = intro.cloneNode(true);
       clone.style.opacity = "0";
       intro.replaceWith(clone);
+      // And the opposite: a word that was never shown at load is swapped for
+      // a visible copy, as an animation library can do once it runs.
+      const swap = document.getElementById("swap");
+      const shown = swap.cloneNode(true);
+      shown.style.opacity = "1";
+      swap.replaceWith(shown);
     }
   });
   observer.observe(document.getElementById("later"));
