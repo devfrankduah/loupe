@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Centre band reveal</title>
+<style>
+  body { margin: 0; font: 16px/1.5 Georgia, serif; }
+  /* With an 800 px viewport, screen-sized steps put the middle band (360 to
+     440 px down the viewport) at 360, 1160, 1960 and 2760 px down the page.
+     The two lines sit at 1400 and 2200 px, between those positions. */
+  .before { height: 1400px; }
+  .between { height: 760px; }
+  .after { height: 2000px; }
+  .centre-only { height: 40px; margin: 0; opacity: 0; transition: opacity 0.1s; }
+  .centre-only.shown { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="before"></div>
+<p class="centre-only">Shown only while it crosses the middle of the screen. CASE-CENTRE</p>
+<div class="between"></div>
+<p class="centre-only">Also shown only in the middle band, and hidden again after. CASE-CENTRE-SECOND</p>
+<div class="after"></div>
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) entry.target.classList.toggle("shown", entry.isIntersecting);
+  }, { rootMargin: "-45% 0px -45% 0px" });
+  document.querySelectorAll(".centre-only").forEach((line) => observer.observe(line));
+</script>
+</body>
+</html>

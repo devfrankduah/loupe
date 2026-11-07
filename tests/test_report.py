@@ -59,6 +59,7 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
         "text_elements": 12,
         "scroll_steps": 4,
         "reached_bottom": False,
+        "centre_checks": 0,
         "notes": [SCROLL_LIMIT_NOTE],
         "revealed_on_scroll": [{"tag": "p", "text": "Fades in as you s...", "text_characters": 37}],
     }

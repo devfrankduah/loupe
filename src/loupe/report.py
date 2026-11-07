@@ -103,6 +103,7 @@ def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] 
         "text_elements": rendered.text_elements,
         "scroll_steps": rendered.scroll_steps,
         "reached_bottom": rendered.reached_bottom,
+        "centre_checks": rendered.centre_checks,
         "notes": list(rendered.notes),
         "revealed_on_scroll": [_text_to_dict(item, quote_limit) for item in rendered.revealed_on_scroll],
     }
@@ -143,7 +144,7 @@ def _rendering_lines(rendered: RenderedPage, browser: BrowserSource | None) -> l
     ending = "reached the bottom" if rendered.reached_bottom else "didn't reach the bottom"
     lines = [
         f"  rendered in {where}: {rendered.text_elements} text elements, "
-        f"{rendered.scroll_steps} scroll steps, {ending}",
+        f"{rendered.scroll_steps} scroll steps, {ending}, {rendered.centre_checks} centred",
         f"  revealed on scroll: {len(rendered.revealed_on_scroll)} (not counted as hidden)",
     ]
     if rendered.transfer_bytes is not None:

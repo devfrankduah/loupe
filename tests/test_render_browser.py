@@ -138,11 +138,16 @@ def test_a_page_cannot_fool_the_scan_by_patching_the_dom(chromium: Browser, fixt
 
 
 def test_a_scroll_limit_is_reported_with_what_it_costs(chromium: Browser, fixture_site: str) -> None:
-    page = render_page(chromium, f"{fixture_site}/rendered.html", replace(FAST, max_scroll_steps=1))
+    page = render_page(chromium, f"{fixture_site}/rendered.html", replace(FAST, max_scroll_steps=1, max_centre_steps=0))
     assert not page.reached_bottom
     assert page.scroll_steps == 1
-    assert any("counts as hidden" in note for note in page.notes)
+    assert any("checked only by centring" in note for note in page.notes)
     assert _buckets(page)["CASE-CONTENT-VISIBILITY"] == "hidden"
+
+
+def test_centring_recovers_what_a_scroll_limit_missed(chromium: Browser, fixture_site: str) -> None:
+    page = render_page(chromium, f"{fixture_site}/rendered.html", replace(FAST, max_scroll_steps=1))
+    assert _buckets(page)["CASE-CONTENT-VISIBILITY"] == "revealed"
 
 
 def test_an_error_status_fails_the_page(chromium: Browser, fixture_site: str) -> None:
@@ -175,3 +180,19 @@ def test_without_blocking_every_asset_is_requested_and_nothing_is_counted(
     assert page.transfer_bytes is None
     assert page.browser_version == chromium.version
 
+
+
+def test_a_reveal_tied_to_the_middle_of_the_screen_is_found_by_centring(
+    chromium: Browser, fixture_site: str
+) -> None:
+    page = render_page(chromium, f"{fixture_site}/centre.html", FAST)
+    assert _buckets(page) == {"CASE-CENTRE": "revealed", "CASE-CENTRE-SECOND": "revealed"}
+    assert page.centre_checks == 2
+
+
+def test_screen_sized_steps_alone_skip_the_middle_band(chromium: Browser, fixture_site: str) -> None:
+    # Without the centring pass the fixture line is never seen, which shows the
+    # line really sits between the positions the scroll steps stop at.
+    page = render_page(chromium, f"{fixture_site}/centre.html", replace(FAST, max_centre_steps=0))
+    assert _buckets(page) == {"CASE-CENTRE": "hidden", "CASE-CENTRE-SECOND": "hidden"}
+    assert any("stopped with 2 left" in note for note in page.notes)

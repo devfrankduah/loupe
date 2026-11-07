@@ -8,7 +8,9 @@ a real Chromium loads the page instead:
    finish, then record whether each element's own text is visible (S0).
 2. Scroll from the top to the bottom one viewport at a time, pausing at each
    step and checking again whatever hasn't been seen yet.
-3. Wait for transitions to settle and check one last time (S1).
+3. Scroll each element that is still hidden, and has a box, into the middle
+   of the viewport, pause and check again, for reveals tied to one position.
+4. Wait for transitions to settle and check one last time (S1).
 
 Text never seen visible is a hidden finding. Text hidden at S0 but seen at a
 later step was revealed on scroll and is reported separately. Checking at
@@ -89,6 +91,9 @@ class RenderSettings:
     scroll_pause_ms: float = 250
     settle_timeout_ms: float = 3_000
     max_scroll_steps: int = 60
+    # How many still-hidden elements to centre in the viewport after the
+    # scroll pass. 0 turns the centring pass off.
+    max_centre_steps: int = 40
     # CDP resource types to refuse, from BLOCKABLE_RESOURCE_TYPES.
     blocked_resource_types: frozenset[str] = frozenset()
     # Add up the bytes received over the network for each page.
@@ -101,6 +106,8 @@ class RenderSettings:
         for name in ("viewport_width", "viewport_height", "max_scroll_steps"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be at least 1")
+        if self.max_centre_steps < 0:
+            raise ValueError("max_centre_steps must not be negative")
         for name in (
             "connect_timeout_ms",
             "navigation_timeout_ms",
@@ -153,6 +160,8 @@ class RenderedPage:
     browser_version: str | None = None
     # Bytes received over the network, or None when transfer wasn't measured.
     transfer_bytes: int | None = None
+    # Still-hidden elements scrolled to the middle of the viewport after the scroll pass.
+    centre_checks: int = 0
 
 
 class PageRenderer(Protocol):
@@ -480,7 +489,19 @@ def _scan_with_session(
     if not reached_bottom:
         notes.append(
             f"stopped after {steps} scroll steps without reaching the bottom, so text further down "
-            "that only appears on scroll counts as hidden"
+            "was checked only by centring it"
+        )
+
+    centre_checks = 0
+    while centre_checks < settings.max_centre_steps and world.call("centreNext") is True:
+        centre_checks += 1
+        page.wait_for_timeout(settings.scroll_pause_ms)
+        world.call("recheck")
+    uncentred = world.call("uncentredCount")
+    if isinstance(uncentred, int) and uncentred > 0:
+        notes.append(
+            f"centred {centre_checks} still-hidden elements in the viewport and stopped with {uncentred} "
+            "left, so any of those revealed only at one scroll position counts as hidden"
         )
 
     if world.call("settle", int(settings.settle_timeout_ms)) is not True:
@@ -498,6 +519,7 @@ def _scan_with_session(
         notes=tuple(notes),
         browser_version=browser_version,
         transfer_bytes=None if meter is None else meter.total,
+        centre_checks=centre_checks,
     )
 
 

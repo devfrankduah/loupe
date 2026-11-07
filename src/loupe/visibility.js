@@ -4,7 +4,8 @@
 // checkVisibility or getClientRects to make hidden text look visible.
 //
 // It installs one object, loupeScanner. render.py calls recordLoad() once the
-// page has loaded, recheck() after every scroll step, and finish() at the end.
+// page has loaded, recheck() after every scroll step and every centreNext(),
+// and finish() at the end.
 (() => {
   "use strict";
 
@@ -31,6 +32,8 @@
   // for elements that weren't in the page yet when it finished loading.
   const seen = new Map();
   let scrollTarget = null;
+  // Elements centreNext() has already tried, or found to have no box.
+  const centred = new Set();
 
   function collectTextElements() {
     const elements = [];
@@ -431,6 +434,33 @@
       const before = scrollTarget.scrollTop;
       scrollTarget.scrollTo({ top: before + scrollTarget.clientHeight, behavior: "instant" });
       return scrollTarget.scrollTop <= before || scanner.atBottom();
+    },
+
+    // Some reveals fire only when an element reaches one position, such as an
+    // observer watching a band in the middle of the viewport, and screen-sized
+    // steps can skip that position. This scrolls the next still-hidden element
+    // that has a box to the middle of the viewport. Returns false when none is
+    // left. Elements without a box (display:none) can't be moved into view.
+    centreNext() {
+      for (const element of collectTextElements()) {
+        const entry = seen.get(element);
+        if (entry === undefined || entry.atLoad === true || entry.later || centred.has(element)) continue;
+        centred.add(element);
+        if (element.getClientRects().length === 0) continue;
+        element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+        return true;
+      }
+      return false;
+    },
+
+    uncentredCount() {
+      let count = 0;
+      for (const element of collectTextElements()) {
+        const entry = seen.get(element);
+        if (entry === undefined || entry.atLoad === true || entry.later || centred.has(element)) continue;
+        if (element.getClientRects().length > 0) count += 1;
+      }
+      return count;
     },
 
     atBottom() {
