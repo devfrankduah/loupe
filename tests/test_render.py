@@ -231,6 +231,8 @@ def test_scan_results_are_read_and_whitespace_is_normalized() -> None:
         _scan_result(hidden_units=[{"tag": "p", "text": "x"}]),
         _scan_result(hidden_units=[{"tag": "p", "text": "x", "reasons": [1]}]),
         _scan_result(revealed_units=[{"text": "x"}]),
+        _scan_result(viewport=[1280]),
+        _scan_result(viewport=["1280", 800]),
     ],
 )
 def test_malformed_scan_results_are_rejected(result: object) -> None:

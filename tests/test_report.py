@@ -57,6 +57,7 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
     assert record["rendering"] == {
         "browser": "remote-cdp",
         "browser_version": "150.0.7000.1",
+        "viewport": None,
         "transfer_bytes": 1_234_567,
         "final_url": "https://a.test/final",
         "text_elements": 12,

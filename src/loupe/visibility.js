@@ -638,7 +638,7 @@
         if (unit.bucket === "hidden") hidden_units.push({ ...item, reasons: unit.reasons });
         else revealed_units.push(item);
       }
-      return { ...counts, hidden_units, revealed_units };
+      return { ...counts, viewport: [window.innerWidth, window.innerHeight], hidden_units, revealed_units };
     },
   };
 

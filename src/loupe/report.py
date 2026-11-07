@@ -113,6 +113,7 @@ def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] 
     return {
         "browser": None if page.browser is None else page.browser.value,
         "browser_version": rendered.browser_version,
+        "viewport": None if rendered.viewport is None else list(rendered.viewport),
         "transfer_bytes": rendered.transfer_bytes,
         "final_url": rendered.final_url,
         "text_elements": rendered.text_elements,

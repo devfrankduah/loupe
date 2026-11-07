@@ -213,6 +213,8 @@ class RenderedPage:
     centre_checks: int = 0
     # Where each of the static scan's inline-style candidates landed, in document order.
     static_comparison: tuple[StaticComparison, ...] = ()
+    # The viewport the page reported (innerWidth, innerHeight), to confirm the requested size took effect.
+    viewport: tuple[int, int] | None = None
 
 
 class PageRenderer(Protocol):
@@ -478,6 +480,20 @@ class ScanResult:
     text_elements: int
     hidden: tuple[RenderedText, ...]
     revealed_on_scroll: tuple[RenderedText, ...]
+    viewport: tuple[int, int] | None = None
+
+
+def _viewport(record: Mapping[str, object]) -> tuple[int, int] | None:
+    value = record.get("viewport")
+    if value is None:
+        return None
+    if (
+        not isinstance(value, list)
+        or len(value) != 2
+        or not all(isinstance(side, int) and not isinstance(side, bool) and side >= 0 for side in value)
+    ):
+        raise RenderError("the scan result's viewport was not a width and height")
+    return int(value[0]), int(value[1])
 
 
 def parse_scan_result(value: object) -> ScanResult:
@@ -486,6 +502,7 @@ def parse_scan_result(value: object) -> ScanResult:
         text_elements=_count(record, "text_elements"),
         hidden=_texts(record, "hidden_units", with_reasons=True),
         revealed_on_scroll=_texts(record, "revealed_units", with_reasons=False),
+        viewport=_viewport(record),
     )
 
 
@@ -629,6 +646,7 @@ def _scan_with_session(
         transfer_bytes=None if meter is None else meter.total,
         centre_checks=centre_checks,
         static_comparison=comparison,
+        viewport=result.viewport,
     )
 
 

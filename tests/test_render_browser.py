@@ -102,6 +102,7 @@ def test_each_case_lands_in_its_bucket(recipe: RenderedPage) -> None:
     }
     assert recipe.reached_bottom
     assert recipe.notes == ()
+    assert recipe.viewport == (FAST.viewport_width, FAST.viewport_height)
 
 
 def test_hidden_text_says_how_it_was_hidden(recipe: RenderedPage) -> None:
