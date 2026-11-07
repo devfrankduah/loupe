@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Final
@@ -11,6 +12,13 @@ from loupe.scan import Finding, Kind, ScanMode
 from loupe.survival import MarkdownIndex
 
 DEFAULT_QUOTE_CHARACTERS: Final[int] = 160
+
+# Text from fetched pages reaches the terminal through render_text. Control
+# characters, including the ESC that starts an ANSI sequence and the 8-bit
+# CSI, can move the cursor, clear the screen or rewrite earlier lines, and
+# bidirectional overrides can reorder what is shown. Each is printed as an
+# escape instead.
+_UNPRINTABLE: Final[re.Pattern[str]] = re.compile(r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
 @dataclass(frozen=True)
@@ -138,11 +146,26 @@ def _rendering_lines(rendered: RenderedPage, browser: BrowserSource | None) -> l
     return lines
 
 
+def _escape_character(match: re.Match[str]) -> str:
+    code = ord(match.group())
+    return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}"
+
+
+def printable(text: str) -> str:
+    """Return text with every control or direction-changing character shown as an escape."""
+    return _UNPRINTABLE.sub(_escape_character, text)
+
+
 def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> str:
+    """The plain-text summary of one page, safe to print to a terminal."""
+    return "\n".join(printable(line) for line in _text_lines(page, quote_limit))
+
+
+def _text_lines(page: PageReport, quote_limit: int) -> list[str]:
     lines = [page.url]
     if page.html_error is not None:
         lines.append(f"  error: {page.html_error}")
-        return "\n".join(lines)
+        return lines
 
     markdown_size = "not fetched" if page.markdown_characters is None else f"{page.markdown_characters} chars"
     lines.append(f"  html: {page.html_characters} chars, markdown: {markdown_size}")
@@ -169,4 +192,4 @@ def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -
             f"matched {phrases}; {_survival_label(item.in_markdown)}"
         )
         lines.append(f"      {quote(finding.text, quote_limit)}")
-    return "\n".join(lines)
+    return lines
