@@ -6,7 +6,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Final
 
-from loupe.scan import Finding, Kind
+from loupe.render import BrowserSource, RenderedPage, RenderedText
+from loupe.scan import Finding, Kind, ScanMode
 from loupe.survival import MarkdownIndex
 
 DEFAULT_QUOTE_CHARACTERS: Final[int] = 160
@@ -27,6 +28,10 @@ class PageReport:
     markdown_characters: int | None = None
     html_error: str | None = None
     markdown_error: str | None = None
+    mode: ScanMode = ScanMode.STATIC
+    # Set for rendered scans that loaded the page.
+    browser: BrowserSource | None = None
+    rendered: RenderedPage | None = None
 
     @property
     def instruction_like(self) -> list[CheckedFinding]:
@@ -70,9 +75,29 @@ def _survival_label(in_markdown: bool | None) -> str:
     return "not compared"
 
 
+def _text_to_dict(item: RenderedText, quote_limit: int) -> dict[str, object]:
+    return {"tag": item.tag, "text": quote(item.text, quote_limit), "text_characters": len(item.text)}
+
+
+def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] | None:
+    if page.rendered is None:
+        return None
+    rendered = page.rendered
+    return {
+        "browser": None if page.browser is None else page.browser.value,
+        "final_url": rendered.final_url,
+        "text_elements": rendered.text_elements,
+        "scroll_steps": rendered.scroll_steps,
+        "reached_bottom": rendered.reached_bottom,
+        "notes": list(rendered.notes),
+        "revealed_on_scroll": [_text_to_dict(item, quote_limit) for item in rendered.revealed_on_scroll],
+    }
+
+
 def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> dict[str, object]:
     return {
         "url": page.url,
+        "scan_mode": page.mode.value,
         "html_characters": page.html_characters,
         "markdown_characters": page.markdown_characters,
         "html_error": page.html_error,
@@ -80,8 +105,10 @@ def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) 
         "counts_by_kind": page.count_by_kind(),
         "instruction_like_count": len(page.instruction_like),
         "survival": page.survival_counts(),
+        "rendering": _rendering_to_dict(page, quote_limit),
         "findings": [
             {
+                "mode": item.finding.mode.value,
                 "kind": item.finding.kind.value,
                 "detail": item.finding.detail,
                 "tag": item.finding.tag,
@@ -95,6 +122,18 @@ def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) 
     }
 
 
+def _rendering_lines(rendered: RenderedPage, browser: BrowserSource | None) -> list[str]:
+    where = "a browser" if browser is None else browser.description
+    ending = "reached the bottom" if rendered.reached_bottom else "didn't reach the bottom"
+    lines = [
+        f"  rendered in {where}: {rendered.text_elements} text elements, "
+        f"{rendered.scroll_steps} scroll steps, {ending}",
+        f"  revealed on scroll: {len(rendered.revealed_on_scroll)} (not counted as hidden)",
+    ]
+    lines.extend(f"  note: {note}" for note in rendered.notes)
+    return lines
+
+
 def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> str:
     lines = [page.url]
     if page.html_error is not None:
@@ -105,6 +144,8 @@ def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -
     lines.append(f"  html: {page.html_characters} chars, markdown: {markdown_size}")
     if page.markdown_error is not None:
         lines.append(f"  markdown error: {page.markdown_error}")
+    if page.rendered is not None:
+        lines.extend(_rendering_lines(page.rendered, page.browser))
 
     kinds = ", ".join(f"{kind} {count}" for kind, count in page.count_by_kind().items()) or "none"
     lines.append(f"  findings: {len(page.findings)} ({kinds})")

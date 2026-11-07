@@ -1,9 +1,10 @@
-"""Command line entry points: loupe <url> [<url> ...] and loupe report <results.json> -o <page.html>"""
+"""Command line entry points: loupe <url> [<url> ...] [--render] and loupe report <results.json> -o <page.html>"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -17,8 +18,17 @@ from loupe.fetch import (
     MissingTokenError,
     read_token_from_environment,
 )
+from loupe.render import (
+    BROWSER_ENDPOINT_VARIABLE,
+    SUPERSEDED_BY_RENDERING,
+    PageRenderer,
+    RenderError,
+    RenderSetupError,
+    open_renderer,
+    rendered_findings,
+)
 from loupe.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
-from loupe.scan import scan_html
+from loupe.scan import ScanMode, scan_html
 from loupe.site import ReportFormatError, load_results, render_report_page, run_date_from_filename
 
 EXIT_OK = 0
@@ -52,6 +62,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--skip-markdown", action="store_true", help="scan the HTML only and skip the markdown comparison"
     )
     parser.add_argument(
+        "--render",
+        action="store_true",
+        help=(
+            "load each page in Chromium and check what actually shows, scrolling to the bottom; "
+            f"uses the CDP endpoint in {BROWSER_ENDPOINT_VARIABLE} if set, local Chromium otherwise"
+        ),
+    )
+    parser.add_argument(
         "--quote-chars",
         type=_non_negative_int,
         default=DEFAULT_QUOTE_CHARACTERS,
@@ -62,6 +80,18 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _fetch_markdown(client: BrightDataClient | None, url: str, page: PageReport) -> str | None:
+    if client is None:
+        return None
+    try:
+        markdown = client.fetch_markdown(url)
+    except BrightDataError as error:
+        page.markdown_error = str(error)
+        return None
+    page.markdown_characters = len(markdown)
+    return markdown
+
+
 def scan_page(client: BrightDataClient, url: str, *, fetch_markdown: bool) -> PageReport:
     page = PageReport(url=url)
     try:
@@ -70,16 +100,24 @@ def scan_page(client: BrightDataClient, url: str, *, fetch_markdown: bool) -> Pa
         page.html_error = str(error)
         return page
     page.html_characters = len(html)
-
-    markdown: str | None = None
-    if fetch_markdown:
-        try:
-            markdown = client.fetch_markdown(url)
-            page.markdown_characters = len(markdown)
-        except BrightDataError as error:
-            page.markdown_error = str(error)
-
+    markdown = _fetch_markdown(client if fetch_markdown else None, url, page)
     page.findings = check_findings(scan_html(html), markdown)
+    return page
+
+
+def scan_rendered_page(renderer: PageRenderer, markdown_client: BrightDataClient | None, url: str) -> PageReport:
+    """Render url, then check what never showed. Markdown is compared only when a client is given."""
+    page = PageReport(url=url, mode=ScanMode.RENDERED, browser=renderer.source)
+    try:
+        rendered = renderer.render(url)
+    except RenderError as error:
+        page.html_error = str(error)
+        return page
+    page.html_characters = len(rendered.html)
+    page.rendered = rendered
+    markdown = _fetch_markdown(markdown_client, url, page)
+    markup_findings = [finding for finding in scan_html(rendered.html) if finding.kind not in SUPERSEDED_BY_RENDERING]
+    page.findings = check_findings(markup_findings + rendered_findings(rendered), markdown)
     return page
 
 
@@ -115,6 +153,17 @@ def report_main(argv: Sequence[str]) -> int:
     return EXIT_OK
 
 
+def _client_from_environment(zone: str) -> BrightDataClient | None:
+    """The Bright Data client, or None after explaining on stderr why there isn't one."""
+    try:
+        return BrightDataClient(read_token_from_environment(), unlocker_zone=zone)
+    except MissingTokenError:
+        print(f"loupe: set {TOKEN_ENVIRONMENT_VARIABLE} to a Bright Data API token", file=sys.stderr)
+    except ValueError as error:
+        print(f"loupe: {error}", file=sys.stderr)
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     # A page URL always starts with a scheme, so a bare "report" can only be the subcommand.
@@ -122,22 +171,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         return report_main(raw_arguments[1:])
     arguments = _build_parser().parse_args(raw_arguments)
 
-    try:
-        token = read_token_from_environment()
-        client = BrightDataClient(token, unlocker_zone=arguments.zone)
-    except MissingTokenError:
-        print(f"loupe: set {TOKEN_ENVIRONMENT_VARIABLE} to a Bright Data API token", file=sys.stderr)
-        return EXIT_USAGE
-    except ValueError as error:
-        print(f"loupe: {error}", file=sys.stderr)
-        return EXIT_USAGE
+    # A rendered scan loads pages itself, so it needs Bright Data only for markdown.
+    client: BrightDataClient | None = None
+    if not arguments.render or not arguments.skip_markdown:
+        client = _client_from_environment(arguments.zone)
+        if client is None:
+            return EXIT_USAGE
 
     pages: list[PageReport] = []
-    for url in arguments.urls:
-        page = scan_page(client, url, fetch_markdown=not arguments.skip_markdown)
+
+    def record(page: PageReport) -> None:
         pages.append(page)
         print(render_text(page, arguments.quote_chars), flush=True)
         print()
+
+    if arguments.render:
+        try:
+            with open_renderer(os.environ) as renderer:
+                for url in arguments.urls:
+                    record(scan_rendered_page(renderer, client, url))
+        except RenderSetupError as error:
+            print(f"loupe: {error}", file=sys.stderr)
+            return EXIT_USAGE
+    elif client is not None:
+        for url in arguments.urls:
+            record(scan_page(client, url, fetch_markdown=not arguments.skip_markdown))
 
     if arguments.json is not None:
         report = {"loupe_version": __version__, "pages": [page_to_dict(page, arguments.quote_chars) for page in pages]}

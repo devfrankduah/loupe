@@ -1,7 +1,8 @@
 """Find text in an HTML document that a person looking at the page won't see.
 
 Only the markup is inspected. Stylesheets, scripts and layout are not
-evaluated, so an element hidden by a CSS class is invisible to this scanner.
+evaluated, so an element hidden by a CSS class is invisible to this scanner;
+loupe.render covers that case by asking a real browser.
 """
 
 from __future__ import annotations
@@ -40,6 +41,15 @@ class Kind(str, Enum):
     LABEL_ATTRIBUTE = "label-attribute"
     META = "meta"
     NOSCRIPT = "noscript"
+    # Found by loupe.render: a browser drew the page and this text never showed.
+    RENDERED_HIDDEN = "rendered-hidden"
+
+
+class ScanMode(str, Enum):
+    """How a finding was produced: from the markup alone, or from the page as a browser drew it."""
+
+    STATIC = "static"
+    RENDERED = "rendered"
 
 
 @dataclass(frozen=True)
@@ -49,6 +59,7 @@ class Finding:
     tag: str
     text: str
     instruction_phrases: tuple[str, ...]
+    mode: ScanMode = ScanMode.STATIC
 
     @property
     def is_instruction_like(self) -> bool:
@@ -156,13 +167,14 @@ def _meta_label(element: Tag) -> str | None:
     return None
 
 
-def _make_finding(kind: Kind, detail: str, tag: str, text: str) -> Finding:
+def make_finding(kind: Kind, detail: str, tag: str, text: str, mode: ScanMode = ScanMode.STATIC) -> Finding:
     return Finding(
         kind=kind,
         detail=detail,
         tag=tag,
         text=text,
         instruction_phrases=find_instruction_phrases(text),
+        mode=mode,
     )
 
 
@@ -184,7 +196,7 @@ def scan_html(html: str) -> list[Finding]:
         if isinstance(node, Comment):
             text = normalize_whitespace(str(node))
             if text:
-                findings.append(_make_finding(Kind.COMMENT, "<!-- -->", "comment", text))
+                findings.append(make_finding(Kind.COMMENT, "<!-- -->", "comment", text))
             continue
         if not isinstance(node, Tag):
             continue
@@ -194,13 +206,13 @@ def scan_html(html: str) -> list[Finding]:
         for attribute in _LABEL_ATTRIBUTES:
             text = _attribute_text(node, attribute)
             if text:
-                findings.append(_make_finding(Kind.LABEL_ATTRIBUTE, attribute, tag_name, text))
+                findings.append(make_finding(Kind.LABEL_ATTRIBUTE, attribute, tag_name, text))
 
         if tag_name == "meta":
             label = _meta_label(node)
             text = _attribute_text(node, "content")
             if label is not None and text:
-                findings.append(_make_finding(Kind.META, label, tag_name, text))
+                findings.append(make_finding(Kind.META, label, tag_name, text))
             continue
 
         if tag_name in _NON_CONTENT_TAGS or _is_inside(node, hidden_containers):
@@ -212,12 +224,12 @@ def scan_html(html: str) -> list[Finding]:
             text = _visible_text(node)
             if text:
                 kind, detail = hiding
-                findings.append(_make_finding(kind, detail, tag_name, text))
+                findings.append(make_finding(kind, detail, tag_name, text))
             continue
 
         if tag_name == "noscript":
             text = _visible_text(node)
             if text:
-                findings.append(_make_finding(Kind.NOSCRIPT, "<noscript>", tag_name, text))
+                findings.append(make_finding(Kind.NOSCRIPT, "<noscript>", tag_name, text))
 
     return findings

@@ -17,12 +17,17 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+# loupe --render. After installing, fetch the browser with: playwright install chromium
+render = ["playwright>=1.64"]
 
 [project.scripts]
 loupe = "loupe.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+loupe = ["visibility.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

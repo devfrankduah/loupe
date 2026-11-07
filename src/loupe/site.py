@@ -31,6 +31,18 @@ class ReportFormatError(ValueError):
     """The results file isn't in the shape loupe writes."""
 
 
+RENDERED_NOT_COVERED: Final[str] = "comes from a rendered scan (loupe --render), which the report page doesn't cover"
+
+
+def _require_static_mode(record: dict[str, object], name: str, where: str) -> None:
+    # Files written before scan modes existed have no mode field and are static.
+    mode = record.get(name, "static")
+    if mode == "rendered":
+        raise ReportFormatError(f"{where} {RENDERED_NOT_COVERED}")
+    if mode != "static":
+        raise ReportFormatError(f"{where}.{name} should be \"static\" or \"rendered\"")
+
+
 @dataclass(frozen=True)
 class FindingRecord:
     kind: Kind
@@ -127,6 +139,9 @@ def _load_finding(value: object, where: str) -> FindingRecord:
         kind = Kind(kind_value)
     except ValueError:
         raise ReportFormatError(f"{where}.kind {kind_value!r} is not a known kind") from None
+    _require_static_mode(record, "mode", where)
+    if kind is Kind.RENDERED_HIDDEN:
+        raise ReportFormatError(f"{where} {RENDERED_NOT_COVERED}")
     phrases = _list(_field(record, "instruction_phrases", where), f"{where}.instruction_phrases")
     if not all(isinstance(phrase, str) for phrase in phrases):
         raise ReportFormatError(f"{where}.instruction_phrases should hold strings")
@@ -149,6 +164,7 @@ def _load_finding(value: object, where: str) -> FindingRecord:
 
 def _load_page(value: object, where: str) -> PageRecord:
     record = _object(value, where)
+    _require_static_mode(record, "scan_mode", where)
     findings = _list(_field(record, "findings", where), f"{where}.findings")
     retry_value = record.get("markdown_retry")
     retry = _object(retry_value, f"{where}.markdown_retry") if retry_value is not None else {}

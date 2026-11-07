@@ -18,6 +18,8 @@ def visible_html() -> str:
 
 
 @pytest.fixture(autouse=True)
-def no_real_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A token in the developer's shell must never leak into a test run.
+def no_real_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Credentials in the developer's shell must never reach a test run: no
+    # Bright Data token, and no remote browser, so rendering stays local.
     monkeypatch.delenv("BRIGHTDATA_API_TOKEN", raising=False)
+    monkeypatch.delenv("BRIGHTDATA_BROWSER_WSS", raising=False)

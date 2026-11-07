@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tampered page</title>
+<style>.quiet { display: none; }</style>
+<script>
+  // What a page could do to fool a scanner that runs in the page's own
+  // JavaScript world: every element claims to be visible and to have a box.
+  Element.prototype.checkVisibility = function () { return true; };
+  Range.prototype.getClientRects = function () { return [new DOMRect(10, 10, 200, 20)]; };
+</script>
+</head>
+<body>
+<p>Plain visible text. CASE-TAMPER-VISIBLE</p>
+<p class="quiet">Hidden by a class on a page that patches the DOM. CASE-TAMPERED</p>
+</body>
+</html>

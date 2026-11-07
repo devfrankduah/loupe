@@ -267,3 +267,35 @@ def test_card_heading_shortens_the_path_keeps_the_full_url_and_stays_escaped() -
     assert "…" in card[: card.index("</h3>")]
     assert 'title="https://genai.owasp.org/llmrisk/llm01-prompt-injection/&lt;script&gt;' in card
     assert "script" not in _parse(page_html).tags
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        _results(_page("https://a.test/", [], scan_mode="rendered")),
+        _results(_page("https://a.test/", [{**_finding("comment", "<!-- -->", "a note", None), "mode": "rendered"}])),
+        _results(_page("https://a.test/", [_finding("rendered-hidden", "opacity:0", "faded text", None)])),
+    ],
+)
+def test_rendered_results_are_refused_with_a_reason(document: str) -> None:
+    with pytest.raises(ReportFormatError, match="rendered scan"):
+        load_results(document)
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        _results(_page("https://a.test/", [], scan_mode="sideways")),
+        _results(_page("https://a.test/", [{**_finding("comment", "<!-- -->", "a note", None), "mode": 3}])),
+    ],
+)
+def test_an_unknown_scan_mode_is_rejected(document: str) -> None:
+    with pytest.raises(ReportFormatError, match="static"):
+        load_results(document)
+
+
+def test_static_results_load_with_or_without_a_mode() -> None:
+    tagged = {**_finding("comment", "<!-- -->", "a note in the source", False), "mode": "static"}
+    untagged = _finding("comment", "<!-- -->", "an older note", False)
+    pages = load_results(_results(_page("https://a.test/", [tagged, untagged], scan_mode="static")))
+    assert [finding.text for finding in pages[0].findings] == ["a note in the source", "an older note"]
