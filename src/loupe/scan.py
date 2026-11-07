@@ -32,6 +32,18 @@ _OFFSET_PROPERTIES: Final[tuple[str, ...]] = ("left", "top", "right", "bottom")
 _LENGTH_PATTERN: Final[re.Pattern[str]] = re.compile(r"^([+-]?(?:\d+\.?\d*|\.\d+))([a-z%]*)$")
 _WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
 
+PER_REQUEST_PLACEHOLDER: Final[str] = "[per-request value removed]"
+
+# Meta names whose values are minted for each request: nonces, signatures,
+# CSRF tokens, request and visitor ids. They identify one fetch, say nothing
+# about the page, and shouldn't end up in published results.
+_PER_REQUEST_META_NAME: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[-_:.])"
+    r"(?:nonce|hmac|csrf|xsrf|visitor|token|signature|traceparent|(?:request|req|session|trace)[-_]?id)"
+    r"(?:$|[-_:.])",
+    re.IGNORECASE,
+)
+
 
 class Kind(str, Enum):
     COMMENT = "comment"
@@ -60,6 +72,8 @@ class Finding:
     text: str
     instruction_phrases: tuple[str, ...]
     mode: ScanMode = ScanMode.STATIC
+    # True when text is PER_REQUEST_PLACEHOLDER standing in for a per-request meta value.
+    value_removed: bool = False
 
     @property
     def is_instruction_like(self) -> bool:
@@ -159,15 +173,32 @@ def _attribute_text(element: Tag, attribute: str) -> str:
     return normalize_whitespace(value) if isinstance(value, str) else ""
 
 
-def _meta_label(element: Tag) -> str | None:
+def _meta_key(element: Tag) -> tuple[str, str] | None:
     for attribute in _META_KEY_ATTRIBUTES:
         key = _attribute_text(element, attribute)
         if key:
-            return f"{attribute}={key}"
+            return attribute, key
     return None
 
 
-def make_finding(kind: Kind, detail: str, tag: str, text: str, mode: ScanMode = ScanMode.STATIC) -> Finding:
+def is_per_request_meta(name: str, value: str) -> bool:
+    """True when a meta tag's value looks minted for this one request.
+
+    A value with spaces is prose, not a token, so it is kept whatever the name
+    and still goes through the instruction phrase check.
+    """
+    return _PER_REQUEST_META_NAME.search(name) is not None and _WHITESPACE.search(value) is None
+
+
+def make_finding(
+    kind: Kind,
+    detail: str,
+    tag: str,
+    text: str,
+    mode: ScanMode = ScanMode.STATIC,
+    *,
+    value_removed: bool = False,
+) -> Finding:
     return Finding(
         kind=kind,
         detail=detail,
@@ -175,6 +206,7 @@ def make_finding(kind: Kind, detail: str, tag: str, text: str, mode: ScanMode = 
         text=text,
         instruction_phrases=find_instruction_phrases(text),
         mode=mode,
+        value_removed=value_removed,
     )
 
 
@@ -209,10 +241,17 @@ def scan_html(html: str) -> list[Finding]:
                 findings.append(make_finding(Kind.LABEL_ATTRIBUTE, attribute, tag_name, text))
 
         if tag_name == "meta":
-            label = _meta_label(node)
+            meta_key = _meta_key(node)
             text = _attribute_text(node, "content")
-            if label is not None and text:
-                findings.append(make_finding(Kind.META, label, tag_name, text))
+            if meta_key is not None and text:
+                attribute, key = meta_key
+                label = f"{attribute}={key}"
+                if is_per_request_meta(key, text):
+                    findings.append(
+                        make_finding(Kind.META, label, tag_name, PER_REQUEST_PLACEHOLDER, value_removed=True)
+                    )
+                else:
+                    findings.append(make_finding(Kind.META, label, tag_name, text))
             continue
 
         if tag_name in _NON_CONTENT_TAGS or _is_inside(node, hidden_containers):

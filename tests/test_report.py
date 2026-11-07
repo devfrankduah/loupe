@@ -4,7 +4,7 @@ import pytest
 
 from loupe.render import BrowserSource, RenderedPage, RenderedText, rendered_findings
 from loupe.report import PageReport, check_findings, page_to_dict, quote, render_text
-from loupe.scan import ScanMode
+from loupe.scan import ScanMode, scan_html
 
 
 @pytest.mark.parametrize(
@@ -63,3 +63,9 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
     assert findings[0]["mode"] == "rendered"
     assert "BRIGHTDATA_BROWSER_WSS" in render_text(page)
     assert "didn't reach the bottom" in render_text(page)
+
+
+def test_a_removed_meta_value_is_not_compared_with_the_markdown() -> None:
+    page = '<meta name="request-id" content="8C2E3B7A19F00D1A1B2C3"><meta name="description" content="A lemon cake recipe.">'
+    checked = {item.finding.detail: item.in_markdown for item in check_findings(scan_html(page), "A lemon cake recipe.")}
+    assert checked == {"name=request-id": None, "name=description": True}

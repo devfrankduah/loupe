@@ -53,7 +53,11 @@ def check_findings(findings: list[Finding], markdown: str | None) -> list[Checke
     if markdown is None:
         return [CheckedFinding(finding, None) for finding in findings]
     index = MarkdownIndex(markdown)
-    return [CheckedFinding(finding, index.contains(finding.text)) for finding in findings]
+    # A removed value can't be compared: only the placeholder is left.
+    return [
+        CheckedFinding(finding, None if finding.value_removed else index.contains(finding.text))
+        for finding in findings
+    ]
 
 
 def quote(text: str, limit: int) -> str:
