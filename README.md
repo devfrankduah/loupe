@@ -125,29 +125,29 @@ The markdown for example.com and Wikipedia failed on the first pass with `HTTP 4
 
 ## Results, 7 November 2026: markup against a browser
 
-On 7 November 2026 I ran the same five pages twice, back to back. The first run was markup only, as before. The second used `--render` through the Bright Data Browser API, with images, media and fonts blocked. Both fetched the markdown the same way as on 2 November. The output is in `results/2026-11-07.json` and `results/2026-11-07-rendered.json`, with `.txt` summaries beside them, and quoted text is cut to 80 characters. These replace an earlier run the same day, which I made before three fixes: the trace now also matches the final page, centring skips what no scroll position reveals, and "assistant" is no longer an instruction phrase.
+On 7 November 2026 I ran the same five pages twice, back to back. The first run was markup only, as before. The second used `--render` through the Bright Data Browser API, with images, media and fonts blocked. Both fetched the markdown the same way as on 2 November. The output is in `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`, with `.txt` summaries beside them, and quoted text is cut to 80 characters. They're the second pair of files from that day. The first, `results/2026-11-07.json` and `results/2026-11-07-rendered.json`, came before the trace watched each flagged element for the whole scan.
 
 | Page | Hidden, markup only | Never shown in a browser | Shown only after scrolling | Instruction-like, markup / browser | Measured transfer |
 |---|---|---|---|---|---|
 | example.com | 0 | 0 | 0 | 0 / 0 | 1,393 bytes |
-| en.wikipedia.org/wiki/Prompt_injection | 1 | 107 | 0 | 5 / 5 | 372,033 bytes |
-| genai.owasp.org/llmrisk/llm01-prompt-injection/ | 3 | 14 | 1 | 0 / 0 | 1,517,598 bytes |
-| github.com/brightdata/brightdata-mcp | 2 | 160 | 0 | 0 / 0 | 376,868 bytes |
-| frankduah.me | 50 | 13 | 9 | 0 / 0 | 349,925 bytes |
+| en.wikipedia.org/wiki/Prompt_injection | 1 | 107 | 0 | 5 / 5 | 372,068 bytes |
+| genai.owasp.org/llmrisk/llm01-prompt-injection/ | 3 | 14 | 1 | 0 / 0 | 1,521,545 bytes |
+| github.com/brightdata/brightdata-mcp | 2 | 160 | 0 | 0 / 0 | 2,147,051 bytes |
+| frankduah.me | 50 | 13 | 9 | 0 / 0 | 148,667 bytes |
 
-"Hidden, markup only" counts the `hidden` attribute and inline-style findings. "Never shown in a browser" counts rendered-hidden findings, each the outermost element of a run of hidden text. The browser run measured 2,617,817 bytes in total and refused 96 image, media and font requests.
+"Hidden, markup only" counts the `hidden` attribute and inline-style findings. "Never shown in a browser" counts rendered-hidden findings, each the outermost element of a run of hidden text. The browser run measured 4,190,724 bytes in total and refused 101 image, media and font requests. On this run GitHub's network was still busy after 10 seconds, so its first check ran with requests open, and it measured about 2.1 MB against 0.4 MB earlier the same day.
 
 The browser finds far more on Wikipedia and GitHub, because most of their hidden text is hidden by stylesheets the markup scan can't read. On Wikipedia, 99 of the 107 findings are `display:none`. GitHub's reasons are more mixed: `display:none`, text too small to see, sections collapsed inside a closed `<details>`, and clipped text.
 
-frankduah.me goes the other way. The markup scan flagged 48 elements for inline `opacity:0`. In the browser, 23 showed as the page loaded, 18 showed after scrolling, 6 never showed, and 1 wasn't found in the live page. The one not found is a clock that rewrites its own text. The 6 are words of the animated headline, and I think the trace is wrong about them. Local Chromium sees all six as the page loads, and both browsers found the same hidden and revealed text on this page. I haven't found the cause. It isn't a node swapped after load (the trace now checks the final page too), blocked fonts or reduced motion, since local runs with each of those still see the words.
+frankduah.me goes the other way. The markup scan flagged 48 elements for inline `opacity:0`. In the browser, 29 showed as the page loaded, 18 showed after scrolling, none stayed hidden, and 1 wasn't found in the live page: a clock that rewrites its own text. The headline is a carousel that shows one of four statements at a time and moves on every 6 seconds, over an invisible copy of all four that keeps its size. The Browser API reached its first check about 11 seconds in, after the first statement had rotated out, so the earlier pair of files traced six of its words to that invisible copy and called them never shown. loupe now watches each flagged element from the moment the page arrives, so they count as shown as the page loaded.
 
 All the instruction-like matches left are Wikipedia link titles, such as "You are encouraged to create an account" and "Large language model". None of them is an attack.
 
-Rendering the same five pages in local Chromium found the same hidden and revealed text on all five. The only difference is the frankduah.me headline above.
+Rendering the same five pages in local Chromium found the same hidden and revealed text on all five.
 
 ## Report
 
-[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, sets the markup-only and browser runs side by side, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-07.json` and `results/2026-11-07-rendered.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html). The screenshots are from the 2 November version.
+[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, sets the markup-only and browser runs side by side, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html). The screenshots are from the 2 November version.
 
 ![The report page on a desktop, light mode](docs/screenshot-desktop.png)
 
@@ -186,3 +186,4 @@ A rendered scan still misses some things, or counts them as hidden when a reader
 - Shadow DOM and iframes aren't scanned.
 - Scrolling stops after 60 screens, and centring after 200 elements or 60 seconds a page. A note says so when a limit cuts the check short.
 - Animation libraries that hide with `visibility:hidden` as well as opacity (GSAP's autoAlpha, for one) aren't centred, so text they reveal only at one scroll position counts as hidden.
+- The trace checks each flagged element every 250 milliseconds and whenever nodes are added. Text a page shows for less than that by changing a style alone can be missed.

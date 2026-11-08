@@ -1,0 +1,59 @@
+https://example.com
+  html: 577 chars, markdown: 156 chars
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 7 text elements, 1 scroll steps, reached the bottom, 0 centred
+  revealed on scroll: 0 (not counted as hidden)
+  transfer: 1,393 bytes, 0 requests blocked
+  findings: 1 (meta 1)
+  in markdown: 0, not in markdown: 1, not compared: 0
+  instruction-like: 0
+
+https://en.wikipedia.org/wiki/Prompt_injection
+  html: 185906 chars, markdown: 42636 chars
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 657 text elements, 8 scroll steps, reached the bottom, 13 centred
+  revealed on scroll: 0 (not counted as hidden)
+  transfer: 372,068 bytes, 26 requests blocked
+  static inline-style candidates: 1 (visible at load 0, revealed on scroll 0, still hidden 1, not matched 0)
+  findings: 381 (comment 7, aria-hidden 11, label-attribute 245, meta 11, rendered-hidden 107)
+  in markdown: 175, not in markdown: 72, not compared: 134
+  instruction-like: 5
+    [label-attribute: title] <a> matched you are; in markdown
+      You are encouraged to create an account and log in; however, it is not mandatory
+    [label-attribute: title] <a> matched you are; in markdown
+      You are encouraged to create an account and log in; however, it is not mandatory
+    [label-attribute: title] <a> matched language model; in markdown
+      Gemini (language model)
+    [label-attribute: title] <a> matched language model; in markdown
+      Large language model
+    [label-attribute: title] <a> matched system prompt; in markdown
+      Edit section: System prompt
+
+https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+  html: 364078 chars, markdown: 20242 chars
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 229 text elements, 7 scroll steps, reached the bottom, 5 centred
+  revealed on scroll: 1 (not counted as hidden)
+  transfer: 1,521,545 bytes, 34 requests blocked
+  static inline-style candidates: 1 (visible at load 0, revealed on scroll 0, still hidden 1, not matched 0)
+  findings: 63 (comment 15, label-attribute 12, meta 22, rendered-hidden 14)
+  in markdown: 12, not in markdown: 30, not compared: 21
+  instruction-like: 0
+
+https://github.com/brightdata/brightdata-mcp
+  html: 466661 chars, markdown: 61290 chars
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 156.0.8078.12): 1201 text elements, 17 scroll steps, reached the bottom, 62 centred
+  revealed on scroll: 0 (not counted as hidden)
+  transfer: 2,147,051 bytes, 37 requests blocked
+  note: the network was still busy after 10 s, so the first check ran with requests open
+  findings: 468 (comment 4, aria-hidden 10, label-attribute 235, meta 59, rendered-hidden 160)
+  in markdown: 138, not in markdown: 176, not compared: 154
+  instruction-like: 0
+
+https://frankduah.me
+  html: 302916 chars, markdown: 15652 chars
+  rendered in the browser at BRIGHTDATA_BROWSER_WSS (version 154.0.8037.17): 489 text elements, 25 scroll steps, reached the bottom, 6 centred
+  revealed on scroll: 9 (not counted as hidden)
+  transfer: 148,667 bytes, 4 requests blocked
+  static inline-style candidates: 48 (visible at load 29, revealed on scroll 18, still hidden 0, not matched 1)
+  findings: 111 (comment 8, aria-hidden 20, label-attribute 52, meta 18, rendered-hidden 13)
+  in markdown: 7, not in markdown: 51, not compared: 53
+  instruction-like: 0
+
