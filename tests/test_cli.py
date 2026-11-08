@@ -97,6 +97,17 @@ def test_quoted_text_is_cut_to_the_requested_length(
     assert "PLANTED" not in capsys.readouterr().out
 
 
+def test_help_names_the_report_subcommand_and_it_exists(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["--help"])
+    assert caught.value.code == 0
+    assert "loupe report RESULTS [RESULTS ...] -o PATH" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["report", "--help"])
+    assert caught.value.code == 0
+    assert "usage: loupe report" in capsys.readouterr().out
+
+
 def test_negative_quote_limit_is_a_usage_error(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_client(monkeypatch, FakeClient("<p>x</p>", None))
     with pytest.raises(SystemExit) as caught:

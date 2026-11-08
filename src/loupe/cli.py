@@ -51,6 +51,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="loupe",
         description="Flag text that readers can't see but an AI agent reading the page would.",
+        # Raw, so the report command stays on one line however wide the terminal is.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "To turn results files written with --json into one HTML page:\n"
+            "  loupe report RESULTS [RESULTS ...] -o PATH\n"
+            "See loupe report --help."
+        ),
     )
     parser.add_argument("urls", nargs="+", metavar="url", help="page to fetch and scan")
     parser.add_argument("--json", type=Path, metavar="PATH", help="also write the full report as JSON")

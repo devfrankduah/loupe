@@ -8,13 +8,19 @@ Agents don't look at pages. They read them, usually as raw HTML or as markdown c
 
 ## Install
 
-Python 3.10 or newer.
+You need Python 3.10 or newer. `python3 --version` shows which one you have. The commands here are for macOS and Linux shells.
+
+Clone the repo, then create a virtual environment and activate it before installing anything:
 
 ```
 git clone https://github.com/devfrankduah/loupe.git
 cd loupe
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[test]"
 ```
+
+In each new terminal, run `source .venv/bin/activate` again before using loupe.
 
 For rendered scans (`--render`), add the `render` extra, which installs Playwright, and download its Chromium:
 
@@ -23,12 +29,42 @@ pip install -e ".[render]"
 playwright install chromium
 ```
 
-## Usage
+## Credentials
 
-loupe needs a Bright Data API token in `BRIGHTDATA_API_TOKEN`. It reads the token from the environment and never prints or saves it.
+loupe reads two values from the environment. Every scan that fetches through Bright Data needs an API token. Rendered scans through Bright Data's Browser API also need its endpoint; without it, `--render` uses local Chromium.
+
+To get an API token (Bright Data's guide: [Authentication](https://docs.brightdata.com/api-reference/authentication)):
+
+1. Sign in to the Bright Data control panel and open Account settings.
+2. Click Add API key, set the user, permissions and expiry date, and click Save.
+3. Copy the key. It's shown only once.
+
+To get the Browser API endpoint (Bright Data's guide: [Create your first Browser API](https://docs.brightdata.com/products/scraping-browser/quickstart)):
+
+1. In the control panel, open Web Access, click Create API and choose Browser API.
+2. Name the zone and click Add API.
+3. Open the zone's Overview tab, which shows its connection details, and copy the URL that starts with `wss://`.
+
+Put both in a file named `.env` in the repo folder, each value in single quotes:
 
 ```
-export BRIGHTDATA_API_TOKEN=...
+BRIGHTDATA_API_TOKEN='your API token'
+BRIGHTDATA_BROWSER_WSS='your Browser API endpoint'
+```
+
+The endpoint contains the zone's password. Never commit it, and never paste it anywhere else, such as an issue, a chat or a log. Treat the token the same way. `.gitignore` already excludes `.env`.
+
+loupe doesn't read `.env` itself. Load it in each new terminal before running loupe:
+
+```
+set -a; source .env; set +a
+```
+
+## Usage
+
+loupe reads the token from `BRIGHTDATA_API_TOKEN` and never prints or saves it. With `.env` loaded:
+
+```
 loupe https://example.com https://en.wikipedia.org/wiki/Prompt_injection
 ```
 
@@ -42,13 +78,13 @@ Options:
 
 The exit code is 0 when every fetch worked, 1 when any fetch failed, and 2 for usage errors such as a missing token.
 
-To turn a saved run into a web page:
+To turn saved runs into a web page, give `loupe report` the results files and a file to write. This rebuilds the published report page from the second 7 November pair:
 
 ```
-loupe report results/2026-11-02.json -o docs/index.html
+loupe report results/2026-11-07-2.json results/2026-11-07-2-rendered.json -o /tmp/loupe-report.html
 ```
 
-`loupe report` takes several results files too. Give it a markup-only run and a `--render` run of the same pages and it shows them side by side, page by page.
+`docs/index.html`, the page at https://devfrankduah.github.io/loupe/, is built from that pair, so `cmp /tmp/loupe-report.html docs/index.html` prints nothing. Given a markup-only run and a `--render` run of the same pages, the report sets them side by side, page by page. One results file works too.
 
 Tests run offline against local fixtures and don't need a token:
 
@@ -147,7 +183,7 @@ Rendering the same five pages in local Chromium found the same hidden and reveal
 
 ## Report
 
-[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, sets the markup-only and browser runs side by side, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html). The screenshots are from the 2 November version.
+[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, sets the markup-only and browser runs side by side, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html). The screenshots show this version, taken on 8 November 2026.
 
 ![The report page on a desktop, light mode](docs/screenshot-desktop.png)
 
