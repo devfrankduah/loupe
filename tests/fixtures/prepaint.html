@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A copy hidden by a stylesheet that arrives late</title>
+<!-- The fixture server holds anything under slow/ for a second, so the page
+     is parsed long before it can paint. -->
+<link rel="stylesheet" href="slow/hide.css">
+</head>
+<body>
+<p><span style="opacity:0">Hidden by its own style. CASE-PREPAINT</span></p>
+<p><span class="copy">Hidden by its own style. CASE-PREPAINT</span></p>
+</body>
+</html>

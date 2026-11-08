@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A page that replaces itself as it loads</title>
+</head>
+<body>
+<p><span style="opacity:0">Gone before the first check. CASE-REPLACED</span></p>
+<script>
+  window.addEventListener("load", () => {
+    setTimeout(() => location.replace("inline.html"), 200);
+  });
+</script>
+</body>
+</html>

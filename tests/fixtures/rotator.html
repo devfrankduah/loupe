@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A rotating headline</title>
+<style>
+  body { margin: 0; font: 16px/1.5 Georgia, serif; }
+  .stage { display: grid; }
+  .stage > * { grid-area: 1 / 1; margin: 0; }
+  .sizer { visibility: hidden; }
+  /* The headline rotates at 0.45 s, before the network has been quiet for
+     the 0.5 s loupe waits for, so only a watch started right after
+     navigation sees it. A finite animation elsewhere also holds loupe's
+     first check until about 2 s. */
+  .busy { width: 8px; height: 8px; background: #888; animation: turn 2s linear 1; }
+  @keyframes turn { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="busy"></div>
+<div class="stage">
+  <!-- An invisible copy of every statement, so the headline keeps one size as it rotates. -->
+  <div class="sizer" aria-hidden="true">
+    <p><span>First statement, shown and then rotated away. CASE-ROTATOR-SHOWN</span></p>
+    <p><span>Second statement, on screen from then on.</span></p>
+  </div>
+  <h1 id="headline"><span style="opacity:0">First statement, shown and then rotated away. CASE-ROTATOR-SHOWN</span></h1>
+</div>
+<p><span style="opacity:0">Never faded in. CASE-ROTATOR-NEVER</span></p>
+<script>
+  window.addEventListener("DOMContentLoaded", () => {
+    // A fade with no nodes added, so only the timed checks can see it.
+    setTimeout(() => {
+      document.querySelector("#headline span").style.opacity = "1";
+    }, 100);
+    setTimeout(() => {
+      const next = document.createElement("span");
+      next.textContent = "Second statement, on screen from then on.";
+      document.getElementById("headline").replaceChildren(next);
+    }, 450);
+  });
+</script>
+</body>
+</html>

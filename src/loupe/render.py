@@ -253,6 +253,12 @@ class BrowserLauncher(Protocol[BrowserT_co]):
     def connect_over_cdp(self, endpoint_url: str, *, timeout: float | None = None) -> BrowserT_co: ...
 
 
+class CdpSender(Protocol):
+    """The part of Playwright's CDPSession the isolated world uses, so tests can pass a fake."""
+
+    def send(self, method: str, params: dict[str, object] | None = None) -> dict[str, object]: ...
+
+
 def rendered_findings(page: RenderedPage) -> list[Finding]:
     return [
         make_finding(Kind.RENDERED_HIDDEN, ", ".join(item.reasons), item.tag, item.text, ScanMode.RENDERED)
@@ -361,7 +367,7 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
 class _IsolatedWorld:
     """A JavaScript world on the page's main frame that the page's own scripts can't reach."""
 
-    def __init__(self, session: CDPSession) -> None:
+    def __init__(self, session: CdpSender) -> None:
         self._session = session
         tree = _mapping(self._session.send("Page.getFrameTree"), "the frame tree")
         frame = _mapping(_mapping(tree.get("frameTree"), "the frame tree").get("frame"), "the main frame")
@@ -395,6 +401,15 @@ class _IsolatedWorld:
             raise RenderError(f"the scan script failed: {_exception_text(details)}")
         result = reply.get("result")
         return result.get("value") if isinstance(result, dict) else None
+
+    def alive(self) -> bool:
+        """Whether the world still exists: a page that replaces its document takes its worlds with it."""
+        from playwright.sync_api import Error as PlaywrightError
+
+        try:
+            return self.evaluate(f"typeof globalThis.{_SCANNER} === 'object'") is True
+        except PlaywrightError:
+            return False
 
     def call(self, method: str, *arguments: int) -> object:
         return self.evaluate(f"{_SCANNER}.{method}({', '.join(str(argument) for argument in arguments)})")
@@ -570,6 +585,40 @@ def parse_comparison(value: object, candidates: Sequence[Finding]) -> tuple[Stat
     return tuple(comparisons)
 
 
+@dataclass(frozen=True)
+class WatchStatus:
+    """How the watch over the static candidates went between watchStatic() and finish()."""
+
+    samples: int
+    # The scanner's own error message if the watch broke off, else None.
+    error: str | None
+
+
+def parse_watch_status(value: object) -> WatchStatus:
+    record = _mapping(value, "the watch status")
+    error = record.get("error")
+    if error is not None and not isinstance(error, str):
+        raise RenderError("the watch status's error was not text")
+    return WatchStatus(samples=_count(record, "samples"), error=error)
+
+
+def watch_notes(status: WatchStatus, candidates: int) -> list[str]:
+    """Notes for a watch that couldn't do its job, so a two-moment trace isn't taken for more."""
+    if candidates == 0:
+        return []
+    if status.error is not None:
+        return [
+            f"watching the inline-style candidates broke off ({status.error}), so the trace may have "
+            "missed text shown only between its checks"
+        ]
+    if status.samples == 0:
+        return [
+            "the page never reported a first paint, so the trace saw the inline-style candidates "
+            "only at its first and final checks"
+        ]
+    return []
+
+
 # Rendering one page
 
 
@@ -590,6 +639,26 @@ def _wait_for(page: Page, state: Literal["load", "networkidle"], timeout_ms: flo
     except PlaywrightTimeoutError:
         return False
     return True
+
+
+def _watching_world(session: CdpSender, candidates: Sequence[Finding]) -> _IsolatedWorld:
+    world = _IsolatedWorld(session)
+    world.evaluate(_scanner_source())
+    world.call_with_data("watchStatic", [{"tag": finding.tag, "text": finding.text} for finding in candidates])
+    return world
+
+
+def _early_watching_world(session: CdpSender, candidates: Sequence[Finding]) -> _IsolatedWorld | None:
+    """The watching world, or None when the page replaced its document while it was being set up."""
+    from playwright.sync_api import Error as PlaywrightError
+
+    try:
+        return _watching_world(session, candidates)
+    except PlaywrightError:
+        # A page that replaces its document as it loads takes a half-built
+        # world with it. The caller builds one again once the page has
+        # loaded, and notes that the watch started late.
+        return None
 
 
 def _scan_loaded_page(page: Page, url: str, settings: RenderSettings, browser_version: str) -> RenderedPage:
@@ -614,6 +683,10 @@ def _scan_with_session(
     if response.status >= 400:
         raise RenderError(f"HTTP {response.status}")
     html = response.text()
+    candidates = static_candidates(html)
+    # Watching starts before the page has finished loading, because text a
+    # carousel shows and takes away again may be gone by the first check.
+    early_world = _early_watching_world(session, candidates)
     if not _wait_for(page, "load", settings.load_timeout_ms):
         notes.append(f"the load event hadn't fired after {_seconds(settings.load_timeout_ms)}")
     if not _wait_for(page, "networkidle", settings.network_idle_timeout_ms):
@@ -621,14 +694,19 @@ def _scan_with_session(
             f"the network was still busy after {_seconds(settings.network_idle_timeout_ms)}, "
             "so the first check ran with requests open"
         )
+    if early_world is not None and early_world.alive():
+        world = early_world
+    else:
+        notes.append(
+            "the page replaced its document while it loaded, so the inline-style candidates were "
+            "watched only from then on"
+        )
+        world = _watching_world(session, candidates)
 
-    world = _IsolatedWorld(session)
-    world.evaluate(_scanner_source())
     if world.call("settle", int(settings.settle_timeout_ms)) is not True:
         notes.append("animations were still running when the page was first checked")
     world.call("recordLoad")
-    candidates = static_candidates(html)
-    world.call_with_data("matchStatic", [{"tag": finding.tag, "text": finding.text} for finding in candidates])
+    world.call("matchStatic")
     world.call("scrollToTop")
     page.wait_for_timeout(settings.scroll_pause_ms)
     world.call("recheck")
@@ -678,6 +756,7 @@ def _scan_with_session(
         notes.append("animations were still running at the final check")
     result = parse_scan_result(world.call("finish"))
     comparison = parse_comparison(world.call("compareStatic"), candidates)
+    notes.extend(watch_notes(parse_watch_status(world.call("watchStatus")), len(candidates)))
 
     transfer = traffic.transfer_bytes() if settings.measure_transfer else None
     problem = measurement_problem(

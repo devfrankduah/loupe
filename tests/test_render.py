@@ -18,15 +18,18 @@ from loupe.render import (
     Renderer,
     RenderSettings,
     RenderSetupError,
+    WatchStatus,
     acquire_browser,
     measurement_problem,
     most_visible,
     parse_comparison,
     parse_scan_result,
+    parse_watch_status,
     read_browser_endpoint,
     rendered_findings,
     settings_for,
     static_candidates,
+    watch_notes,
 )
 from loupe.scan import Kind, ScanMode, make_finding
 
@@ -362,3 +365,33 @@ def test_measurement_problems(
     else:
         assert found is not None and problem in found
 
+
+
+def test_the_watch_status_is_read() -> None:
+    assert parse_watch_status({"samples": 3, "error": None}) == WatchStatus(samples=3, error=None)
+    assert parse_watch_status({"samples": 0, "error": "boom"}) == WatchStatus(samples=0, error="boom")
+
+
+@pytest.mark.parametrize(
+    "status",
+    [None, [], {"error": None}, {"samples": -1, "error": None}, {"samples": True, "error": None}, {"samples": 1, "error": 5}],
+)
+def test_a_malformed_watch_status_is_rejected(status: object) -> None:
+    with pytest.raises(RenderError):
+        parse_watch_status(status)
+
+
+def test_a_watch_that_worked_or_had_nothing_to_watch_adds_no_note() -> None:
+    assert watch_notes(WatchStatus(samples=12, error=None), candidates=4) == []
+    assert watch_notes(WatchStatus(samples=0, error=None), candidates=0) == []
+    assert watch_notes(WatchStatus(samples=0, error="boom"), candidates=0) == []
+
+
+def test_a_watch_that_broke_off_says_so_and_why() -> None:
+    (note,) = watch_notes(WatchStatus(samples=5, error="boom"), candidates=2)
+    assert "broke off (boom)" in note
+
+
+def test_a_page_that_never_painted_says_the_trace_saw_two_moments_only() -> None:
+    (note,) = watch_notes(WatchStatus(samples=0, error=None), candidates=2)
+    assert "never reported a first paint" in note

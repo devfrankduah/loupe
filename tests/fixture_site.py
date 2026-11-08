@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import functools
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 from .conftest import FIXTURES
+
+# Files under slow/ are held this long before they're served, for pages that
+# need to be parsed well before a stylesheet arrives.
+SLOW_SECONDS = 1.0
 
 
 @dataclass
@@ -26,7 +31,10 @@ def serve_fixtures() -> Iterator[FixtureSite]:
 
     class RecordingHandler(SimpleHTTPRequestHandler):
         def do_GET(self) -> None:
-            site.requested.append(self.path.split("?", 1)[0])
+            path = self.path.split("?", 1)[0]
+            site.requested.append(path)
+            if path.startswith("/slow/"):
+                time.sleep(SLOW_SECONDS)
             super().do_GET()
 
         def log_message(self, format: str, *args: object) -> None:

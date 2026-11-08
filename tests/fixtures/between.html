@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Text shown only between two checks</title>
+<style>
+  body { margin: 0; font: 16px/1.5 Georgia, serif; }
+  .spacer { height: 150vh; }
+</style>
+</head>
+<body>
+<p id="added" style="opacity:0">Added for a moment. CASE-BETWEEN-ADDED</p>
+<p style="opacity:0">Typed in for a moment. CASE-BETWEEN-TYPED</p>
+<p style="opacity:0">Edited in place for a moment. CASE-BETWEEN-EDITED</p>
+<p id="typed">Placeholder one.</p>
+<p id="edited">Placeholder two.</p>
+<div class="spacer"></div>
+<script>
+  // On the first scroll each line shows for 50 ms, well inside the pause
+  // before loupe's next check: once as a new node, once as text set on an
+  // existing node, once as an existing text node edited in place.
+  let shown = false;
+  window.addEventListener("scroll", () => {
+    if (shown) return;
+    shown = true;
+    const copy = document.getElementById("added").cloneNode(true);
+    copy.removeAttribute("id");
+    copy.style.opacity = "1";
+    document.getElementById("added").after(copy);
+    const typed = document.getElementById("typed");
+    typed.textContent = "Typed in for a moment. CASE-BETWEEN-TYPED";
+    const edited = document.getElementById("edited").firstChild;
+    edited.data = "Edited in place for a moment. CASE-BETWEEN-EDITED";
+    setTimeout(() => {
+      copy.remove();
+      typed.textContent = "Placeholder one.";
+      edited.data = "Placeholder two.";
+    }, 50);
+  });
+</script>
+</body>
+</html>

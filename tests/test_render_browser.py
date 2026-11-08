@@ -20,6 +20,7 @@ from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 
 from loupe.render import (  # noqa: E402
     BLOCKABLE_RESOURCE_TYPES,
+    _early_watching_world,
     RenderedPage,
     RenderError,
     RenderSettings,
@@ -223,6 +224,70 @@ def test_each_static_inline_style_candidate_is_traced_to_where_it_landed(
         ("p", "CASE-INLINE-REVEAL"): "revealed on scroll",
     }
 
+
+
+def _trace(page: RenderedPage) -> dict[str, str]:
+    return {MARKER.findall(item.text)[0]: item.landed.value for item in page.static_comparison}
+
+
+def test_a_headline_rotated_away_before_the_first_check_still_counts_as_seen(
+    chromium: Browser, fixture_site: str
+) -> None:
+    page = render_page(chromium, f"{fixture_site}/rotator.html", FAST)
+    assert _trace(page) == {
+        # On screen from 0.1 s to 0.45 s; by the first check only the invisible sizing copy is left.
+        "CASE-ROTATOR-SHOWN": "visible at load",
+        "CASE-ROTATOR-NEVER": "still hidden",
+    }
+    # The sizing copy itself really is hidden, and stays a hidden unit.
+    assert any("CASE-ROTATOR-SHOWN" in unit.text and "visibility:hidden" in unit.reasons for unit in page.hidden)
+    assert page.notes == ()
+
+
+def test_text_shown_only_between_two_checks_counts_as_revealed(chromium: Browser, fixture_site: str) -> None:
+    page = render_page(chromium, f"{fixture_site}/between.html", FAST)
+    assert _trace(page) == {
+        "CASE-BETWEEN-ADDED": "revealed on scroll",
+        "CASE-BETWEEN-TYPED": "revealed on scroll",
+        "CASE-BETWEEN-EDITED": "revealed on scroll",
+    }
+
+
+def test_a_copy_counts_as_seen_only_once_the_page_has_painted(chromium: Browser, fixture_site: str) -> None:
+    # Until its stylesheet arrives the second copy has no style hiding it, but nothing has been drawn yet.
+    page = render_page(chromium, f"{fixture_site}/prepaint.html", FAST)
+    assert _trace(page) == {"CASE-PREPAINT": "still hidden"}
+
+
+def test_a_page_that_replaces_its_document_while_loading_is_watched_again(
+    chromium: Browser, fixture_site: str
+) -> None:
+    page = render_page(chromium, f"{fixture_site}/replaced.html", FAST)
+    assert page.final_url.endswith("/inline.html")
+    assert any("replaced its document while it loaded" in note for note in page.notes)
+    # The candidate came from replaced.html as served; the page that replaced it has no copy.
+    assert _trace(page) == {"CASE-REPLACED": "not matched"}
+
+
+class _VanishingDocument:
+    """A CDP session whose page replaces its document before the world is built."""
+
+    def send(self, method: str, params: dict[str, object] | None = None) -> dict[str, object]:
+        raise PlaywrightError("Execution context was destroyed, most likely because of a navigation.")
+
+
+class _NoFrameTree:
+    def send(self, method: str, params: dict[str, object] | None = None) -> dict[str, object]:
+        return {}
+
+
+def test_a_document_replaced_during_setup_leaves_the_watch_to_start_after_loading() -> None:
+    assert _early_watching_world(_VanishingDocument(), []) is None
+
+
+def test_other_setup_failures_are_not_mistaken_for_a_replaced_document() -> None:
+    with pytest.raises(RenderError, match="frame tree"):
+        _early_watching_world(_NoFrameTree(), [])
 
 def test_a_page_whose_images_slip_past_blocking_fails(chromium: Browser, fixture_site: str) -> None:
     # Blocking is on, but only for media, so the photo still loads: the run

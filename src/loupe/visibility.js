@@ -3,9 +3,10 @@
 // the DOM with it but not its globals or prototypes, so a page can't patch
 // checkVisibility or getClientRects to make hidden text look visible.
 //
-// It installs one object, loupeScanner. render.py calls recordLoad() once the
-// page has loaded, recheck() after every scroll step and every centreNext(),
-// and finish() at the end.
+// It installs one object, loupeScanner. render.py calls watchStatic() as soon
+// as the page's HTML has arrived, recordLoad() once the page has loaded,
+// recheck() after every scroll step and every centreNext(), and finish() at
+// the end.
 (() => {
   "use strict";
 
@@ -50,19 +51,43 @@
   let scrollTarget = null;
   // Elements centreNext() has already tried, or found to have no box.
   const centred = new Set();
-  // For each static candidate passed to matchStatic(), the text elements of
-  // every live element with the same tag and text, as matched at load.
-  let staticCopies = [];
+  // The static candidates passed to watchStatic(): "tag|text" keys (text with
+  // whitespace removed) to candidate indexes, and each candidate's own key.
   let staticWanted = new Map();
+  let staticKeys = [];
   let staticTags = new Set();
   let staticCount = 0;
+  let longestStaticText = 0;
+  // For each candidate, the text elements of every live element with the
+  // same tag and text, as matched at load by matchStatic().
+  let staticCopies = [];
 
-  function collectTextElements() {
+  // A carousel can show a candidate's text and take it away again before
+  // the first check or between two checks, which two snapshots would call
+  // hidden. So from watchStatic() until finish(), the live copies of every
+  // candidate are tracked as they appear, and checked every
+  // WATCH_INTERVAL_MS and whenever nodes are added.
+  const WATCH_INTERVAL_MS = 250;
+  // For each candidate, the live elements with its tag and text.
+  let watchedCopies = [];
+  // For each candidate, the page time any copy was first visible, or null.
+  let firstVisibleAt = [];
+  // The page time of recordLoad(), the first check.
+  let firstCheckAt = null;
+  let watching = false;
+  let watchTimer = null;
+  let watchObserver = null;
+  let sampleQueued = false;
+  let watchSamples = 0;
+  let watchError = null;
+  let hasPainted = false;
+
+  function collectTextElements(root = document.body) {
     const elements = [];
-    if (document.body === null) return elements;
+    if (root === null) return elements;
     const accepted = new Set();
     const rejected = new Set();
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
       const parent = node.parentElement;
       if (parent === null || accepted.has(parent) || rejected.has(parent)) continue;
@@ -463,6 +488,124 @@
     return copies;
   }
 
+  function setStaticCandidates(candidates) {
+    staticWanted = new Map();
+    staticKeys = candidates.map((candidate) => candidate.tag + "|" + candidate.text.replace(/\s+/g, ""));
+    staticKeys.forEach((key, index) => {
+      if (!staticWanted.has(key)) staticWanted.set(key, []);
+      staticWanted.get(key).push(index);
+    });
+    staticTags = new Set(candidates.map((candidate) => candidate.tag));
+    staticCount = candidates.length;
+    // A reduce, not Math.max(...), which a page with enough candidates could overflow.
+    longestStaticText = staticKeys.reduce((longest, key) => Math.max(longest, key.length - key.indexOf("|") - 1), 0);
+  }
+
+  // Before the first paint a reader sees nothing, and a stylesheet that
+  // hides a copy may not have arrived yet, so nothing counts as seen until then.
+  function painted() {
+    if (!hasPainted) hasPainted = performance.getEntriesByType("paint").length > 0;
+    return hasPainted;
+  }
+
+  function watchWithText(element, text) {
+    const indexes = staticWanted.get(element.localName + "|" + text);
+    if (indexes === undefined) return;
+    for (const index of indexes) watchedCopies[index].add(element);
+  }
+
+  function watchSubtree(root) {
+    for (const element of [root, ...root.querySelectorAll("*")]) {
+      if (staticTags.has(element.localName)) watchWithText(element, textKey(element));
+    }
+  }
+
+  // New text inside element changes the text of element and its ancestors.
+  // An ancestor holds at least the text of its descendants, so the walk stops
+  // once the text is longer than any candidate's.
+  function watchAncestors(element) {
+    for (let node = element; node !== null && node !== document.documentElement; node = node.parentElement) {
+      const text = textKey(node);
+      if (text.length > longestStaticText) return;
+      if (staticTags.has(node.localName)) watchWithText(node, text);
+    }
+  }
+
+  function sampleWatched() {
+    if (!painted()) return;
+    watchSamples += 1;
+    const now = performance.now();
+    let pass = null;
+    for (let index = 0; index < staticCount; index += 1) {
+      if (firstVisibleAt[index] !== null) continue;
+      for (const element of watchedCopies[index]) {
+        // A node can be removed, or keep its place and change its words.
+        if (!element.isConnected || element.localName + "|" + textKey(element) !== staticKeys[index]) {
+          watchedCopies[index].delete(element);
+          continue;
+        }
+        if (pass === null) pass = newPass();
+        if (collectTextElements(element).some((member) => visibleNow(member, pass))) {
+          firstVisibleAt[index] = now;
+          break;
+        }
+      }
+    }
+  }
+
+  function watchMutations(records) {
+    // Many records can share a parent, so each grown element is walked once.
+    const grown = new Set();
+    for (const record of records) {
+      if (!record.target.isConnected) continue;
+      if (record.type === "characterData") {
+        if (record.target.parentElement !== null) grown.add(record.target.parentElement);
+        continue;
+      }
+      if (record.addedNodes.length === 0) continue;
+      for (const node of record.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE && node.isConnected) watchSubtree(node);
+      }
+      if (record.target.nodeType === Node.ELEMENT_NODE) grown.add(record.target);
+    }
+    for (const element of grown) watchAncestors(element);
+  }
+
+  // Checked at the next frame rather than at once, so a node a script hides
+  // again before the browser paints doesn't count as seen.
+  function sampleAtNextFrame() {
+    if (sampleQueued) return;
+    sampleQueued = true;
+    nextFrame().then(
+      guarded(() => {
+        sampleQueued = false;
+        if (watching) sampleWatched();
+      }),
+    );
+  }
+
+  function stopWatching() {
+    watching = false;
+    if (watchTimer !== null) clearInterval(watchTimer);
+    watchTimer = null;
+    if (watchObserver !== null) watchObserver.disconnect();
+    watchObserver = null;
+  }
+
+  // An error inside a timer or an observer would otherwise vanish, and the
+  // trace would quietly lose what the watch was there to catch.
+  function guarded(work) {
+    return (...args) => {
+      if (watchError !== null) return;
+      try {
+        work(...args);
+      } catch (error) {
+        watchError = String(error instanceof Error ? error.message : error);
+        stopWatching();
+      }
+    };
+  }
+
   // Each text element belongs to exactly one unit, so no text is quoted twice.
   function textOf(root, rootOf) {
     const pieces = [];
@@ -476,7 +619,37 @@
   }
 
   const scanner = {
+    // Starts watching the static candidates ({tag, text}) for the rest of
+    // the scan. Returns how many there are.
+    watchStatic(candidates) {
+      stopWatching();
+      setStaticCandidates(candidates);
+      watchedCopies = Array.from({ length: staticCount }, () => new Set());
+      firstVisibleAt = new Array(staticCount).fill(null);
+      if (staticCount === 0) return staticCount;
+      guarded(() => {
+        if (document.body !== null) watchSubtree(document.body);
+        sampleWatched();
+      })();
+      if (watchError !== null) return staticCount;
+      watching = true;
+      watchObserver = new MutationObserver(
+        guarded((records) => {
+          watchMutations(records);
+          sampleAtNextFrame();
+        }),
+      );
+      watchObserver.observe(document, { childList: true, subtree: true, characterData: true });
+      watchTimer = setInterval(guarded(sampleWatched), WATCH_INTERVAL_MS);
+      return staticCount;
+    },
+
+    watchStatus() {
+      return { samples: watchSamples, error: watchError };
+    },
+
     recordLoad() {
+      firstCheckAt = performance.now();
       const pass = newPass();
       for (const element of collectTextElements()) {
         seen.set(element, { atLoad: visibleNow(element, pass), later: false });
@@ -485,22 +658,11 @@
       return seen.size;
     },
 
-    // Pairs each static candidate ({tag, text}) with every live element of the
-    // same tag and text. Run right after recordLoad(), before scripts move or
-    // replace nodes. Returns how many candidates found at least one copy.
-    // Pairs each static candidate ({tag, text}) with every live element of the
-    // same tag and text. Run right after recordLoad(), before scripts move or
-    // replace nodes; compareStatic() matches against the final page as well.
-    // Returns how many candidates found at least one copy.
-    matchStatic(candidates) {
-      staticWanted = new Map();
-      candidates.forEach((candidate, index) => {
-        const key = candidate.tag + "|" + candidate.text.replace(/\s+/g, "");
-        if (!staticWanted.has(key)) staticWanted.set(key, []);
-        staticWanted.get(key).push(index);
-      });
-      staticTags = new Set(candidates.map((candidate) => candidate.tag));
-      staticCount = candidates.length;
+    // Pairs each candidate passed to watchStatic() with every live element of
+    // the same tag and text. Run right after recordLoad(); compareStatic()
+    // matches against the final page as well. Returns how many candidates
+    // found at least one copy.
+    matchStatic() {
       staticCopies = copiesNow();
       return staticCopies.filter((copies) => copies.length > 0).length;
     },
@@ -508,6 +670,8 @@
     // For each candidate, for each copy matched at load or in the final page,
     // the state of each of its text elements. A framework can replace a node
     // after load, so the final page may hold the copy a reader actually saw.
+    // A copy the watch saw visible adds one more state: visible at load if
+    // that was at or before the first check, revealed if after it.
     compareStatic() {
       const state = (element) => {
         const entry = seen.get(element);
@@ -516,9 +680,14 @@
         return entry.later ? "revealed on scroll" : "still hidden";
       };
       const finalCopies = copiesNow();
-      return staticCopies.map((copies, index) =>
-        copies.concat(finalCopies[index]).map((members) => members.map(state)),
-      );
+      return staticCopies.map((copies, index) => {
+        const states = copies.concat(finalCopies[index]).map((members) => members.map(state));
+        const visibleAt = firstVisibleAt[index] ?? null;
+        if (visibleAt !== null) {
+          states.push([firstCheckAt !== null && visibleAt <= firstCheckAt ? "visible at load" : "revealed on scroll"]);
+        }
+        return states;
+      });
     },
 
     recheck() {
@@ -600,6 +769,8 @@
     },
 
     finish() {
+      // From here the final check covers what the watch would see.
+      stopWatching();
       scanner.recheck();
       const pass = newPass();
       const elements = collectTextElements();
