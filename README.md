@@ -2,6 +2,7 @@
 
 Scans web pages for hidden text that reaches AI agents, using Bright Data's Browser API and Playwright.
 
+[![Tests](https://github.com/devfrankduah/loupe/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/devfrankduah/loupe/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.10 or newer](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 
