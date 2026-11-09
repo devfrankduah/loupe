@@ -9,6 +9,7 @@ The version in `pyproject.toml` has been 0.1.0 since the first commit, and nothi
 - The README now runs from what loupe catches through a quickstart, one results table and the limits. The detail moved to `docs/how-it-works.md`.
 - CI runs the tests and `mypy --strict` on Python 3.10 and 3.13 for every push to `main` and every pull request, with Chromium installed for the rendered tests.
 - `docs/demo.gif`, at the top of the README, shows one real rendered scan of frankduah.me through the Browser API. `scripts/record-demo.sh` records it with asciinema and agg.
+- `docs/social-preview.png`, a 1280 by 640 image for the repo's social preview.
 - Added a contributing guide, a code of conduct, a security policy, issue forms, a pull request template, a Dependabot config and a citation file.
 - The report page's dark mode checkbox moved into the header beside its label. Keyboard focus now starts at the skip link, every control sits in a landmark, and axe-core 4.10.3 finds no violations at desktop or phone width in either mode.
 
