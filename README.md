@@ -183,11 +183,11 @@ Rendering the same five pages in local Chromium found the same hidden and reveal
 
 ## Report
 
-[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, sets the markup-only and browser runs side by side, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html). The screenshots show this version, taken on 8 November 2026.
+[The report page](https://devfrankduah.github.io/loupe/) is the same results written for someone who doesn't read HTML. It opens on one real line of hidden text shown twice, as a person sees the page and as an AI reads it, then charts how often each hiding method reached the markdown, gives a card per page, sets the markup-only and browser runs side by side, and lists what I'm unsure about. It's one file with no scripts and no external requests, built by `loupe report` from `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`, with a light and a dark mode. The source is [docs/index.html](docs/index.html). The screenshots show this version, taken on 9 November 2026.
 
-![The report page on a desktop, light mode](docs/screenshot-desktop.png)
+![The report page on a desktop, light mode](docs/screenshot-desktop-2026-11-09.png)
 
-<img src="docs/screenshot-phone.png" alt="The report page on a phone" width="300">
+<img src="docs/screenshot-phone-2026-11-09.png" alt="The report page on a phone" width="300">
 
 ## Does hidden text reach an agent that reads markdown?
 
