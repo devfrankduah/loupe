@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+test = ["pytest>=9.2.0"]
 # loupe --render. After installing, fetch the browser with: playwright install chromium
 render = ["playwright>=1.64"]
 
