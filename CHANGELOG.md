@@ -6,6 +6,7 @@ The version in `pyproject.toml` has been 0.1.0 since the first commit, and nothi
 
 ### 9 November 2026
 
+- A test page at `docs/test-page/`: a product page for a made-up blender that hides six instructions to AI and two fake reviews, modelled on The Guardian's December 2024 test of ChatGPT search. Its ground truth says what loupe should report for each, including the background-coloured line it misses, and the tests check both scan modes against it.
 - The README now runs from what loupe catches through a quickstart, one results table and the limits. The detail moved to `docs/how-it-works.md`.
 - CI runs the tests and `mypy --strict` on Python 3.10 and 3.13 for every push to `main` and every pull request, with Chromium installed for the rendered tests.
 - The dark mode control is a switch named "Dark mode" in both modes, so a screen reader hears "Dark mode, on" or "Dark mode, off". In dark mode the moon fills in and the border takes the accent color. Light mode looks the same as before.
