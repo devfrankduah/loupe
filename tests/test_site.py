@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -236,11 +237,17 @@ def test_every_finding_is_counted_under_exactly_one_hiding_method() -> None:
 def test_theme_toggle_works_without_javascript() -> None:
     page_html = render_report_page(load_results(_results(_page("https://a.test/", []))))
     parsed = _parse(page_html)
-    assert '<input type="checkbox" id="theme"' in page_html
+    assert 'type="checkbox" role="switch" id="theme"' in page_html
     assert '<label for="theme"' in page_html
     assert ":root:has(#theme:checked)" in page_html
-    assert ".theme-toggle .when-dark { display: none; }" in page_html
     assert "script" not in parsed.tags
+
+
+def test_theme_switch_has_one_name_whichever_mode_is_on() -> None:
+    page_html = render_report_page(load_results(_results(_page("https://a.test/", []))))
+    label = page_html.split('<label for="theme"', 1)[1].split("</label>", 1)[0]
+    assert re.sub(r"<[^>]+>", "", label.split(">", 1)[1]).strip() == "Dark mode"
+    assert "Light mode" not in page_html
 
 
 _LANDMARKS = {"header", "main", "footer", "nav", "aside"}

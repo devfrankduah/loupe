@@ -882,11 +882,9 @@ h1, h2, h3 { text-wrap: balance; }
 :root:has(#theme:focus-visible) .theme-toggle { outline: 2px solid var(--focus); outline-offset: 3px; }
 .theme-toggle svg { width: 1.05rem; height: 1.05rem; fill: none; stroke: currentColor; stroke-width: 1.8;
   stroke-linecap: round; stroke-linejoin: round; }
-.theme-toggle .when-light, .theme-toggle .when-dark { align-items: center; gap: 0.45rem; }
-.theme-toggle .when-light { display: inline-flex; }
-.theme-toggle .when-dark { display: none; }
-:root:has(#theme:checked) .theme-toggle .when-light { display: none; }
-:root:has(#theme:checked) .theme-toggle .when-dark { display: inline-flex; }
+.theme-toggle .theme-label { display: inline-flex; align-items: center; gap: 0.45rem; }
+:root:has(#theme:checked) .theme-toggle { border-color: var(--accent); }
+:root:has(#theme:checked) .theme-toggle svg { fill: currentColor; }
 
 .intro { padding: clamp(2rem, 1rem + 5vw, 4.5rem) 0 clamp(1.5rem, 1rem + 2vw, 2.5rem); }
 h1 { font-size: var(--step-3); line-height: 1.06; letter-spacing: -0.022em; font-weight: 700;
@@ -1013,11 +1011,6 @@ _MOON: Final[str] = (
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
     '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>'
 )
-_SUN: Final[str] = (
-    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/>'
-    '<path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'
-    "</svg>"
-)
 
 
 def _page_count(static_pages: tuple[PageRecord, ...], rendered_pages: tuple[PageRecord, ...]) -> str:
@@ -1061,8 +1054,8 @@ def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | 
 <a class="wordmark" href="{REPOSITORY_URL}">loupe</a>
 <div class="masthead-links">
 <a href="{REPOSITORY_URL}">Code</a>
-<input type="checkbox" id="theme" class="theme-input">
-<label for="theme" class="theme-toggle"><span class="when-light">{_MOON}Dark mode</span><span class="when-dark">{_SUN}Light mode</span></label>
+<input type="checkbox" role="switch" id="theme" class="theme-input">
+<label for="theme" class="theme-toggle"><span class="theme-label">{_MOON}Dark mode</span></label>
 </div>
 </header>
 <main id="main">

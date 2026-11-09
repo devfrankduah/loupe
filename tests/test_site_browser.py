@@ -60,9 +60,20 @@ def test_tab_starts_at_the_skip_link_and_reaches_the_toggle_after_the_header_lin
     assert report.evaluate("getComputedStyle(document.querySelector('label[for=theme]')).outlineStyle") == "solid"
 
 
-def test_the_toggle_switches_to_dark_mode_from_the_keyboard(report: Page) -> None:
+def test_the_switch_keeps_its_name_and_flips_its_state_from_the_keyboard(report: Page) -> None:
+    switch = report.get_by_role("switch", name="Dark mode", exact=True)
+    label = report.locator("label[for=theme]")
+    assert switch.count() == 1
+    assert report.locator("#theme").aria_snapshot() == '- switch "Dark mode"'
+    assert label.inner_text().strip() == "Dark mode"
+
     report.focus("#theme")
     report.keyboard.press("Space")
     assert report.evaluate("getComputedStyle(document.documentElement).colorScheme") == "dark"
+    assert switch.count() == 1 and switch.is_checked()
+    assert report.locator("#theme").aria_snapshot() == '- switch "Dark mode" [checked]'
+    assert label.inner_text().strip() == "Dark mode"
+
     report.keyboard.press("Space")
     assert report.evaluate("getComputedStyle(document.documentElement).colorScheme") == "light"
+    assert not switch.is_checked()
