@@ -6,6 +6,8 @@ Scans web pages for hidden text that reaches AI agents, using Bright Data's Brow
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.10 or newer](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 
+![A terminal running loupe https://frankduah.me --render through Bright Data's Browser API, sped up 5.5 times. After about 56 seconds it prints the results: 13 elements the browser never showed, 9 revealed on scroll, 111 findings in all and none instruction-like.](docs/demo.gif)
+
 ![The loupe report page in light mode on a desktop. Under the headline "A web page can hide text from you and still hand it to the AI reading it", two panels show a real line from github.com: the panel for what a person sees is empty, and the panel for what an AI reads says "You can't perform that action at this time."](docs/screenshot-desktop-2026-11-09.png)
 
 ## What loupe catches

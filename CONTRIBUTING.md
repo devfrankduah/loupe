@@ -53,6 +53,10 @@ Pages change, so the smallest HTML that reproduces it helps a lot.
 
 Never commit `.env`, and never put a Bright Data token or Browser API endpoint in code, tests, results, screenshots, issues or pull requests. The endpoint carries a password. `.gitignore` excludes `.env` and GitHub's push protection is on for this repo, but neither catches a value pasted into a test or a comment. If you commit one by mistake, revoke it in the Bright Data control panel first, then tell me through a [private report](https://github.com/devfrankduah/loupe/security/advisories/new).
 
+## Re-record the demo GIF
+
+`scripts/record-demo.sh` records `docs/demo.gif` with asciinema and agg (`brew install asciinema agg`). It runs one rendered scan of frankduah.me through the Browser API, about 350 KB, so it needs both values in `.env`. The recording stays in a temporary folder and is deleted either way. Before converting it, the script checks it for the token and every part of the endpoint, and stops if it finds one. Never commit a `.cast` file.
+
 ## Pull requests
 
 Keep each pull request to one change, and fill in the checklist in the template. Files in `results/` come from real runs: add new ones as new dated files, run with `--quote-chars 80`, and don't edit existing ones by hand or commit the fetched pages themselves.

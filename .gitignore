@@ -1,6 +1,8 @@
 # Secrets and local environment
 .env
 .env.*
+# Terminal recordings can hold anything the terminal showed
+*.cast
 
 # Local assistant configuration, never committed
 CLAUDE.md
