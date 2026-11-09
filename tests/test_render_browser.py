@@ -20,6 +20,7 @@ from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 
 from loupe.render import (  # noqa: E402
     BLOCKABLE_RESOURCE_TYPES,
+    SUPERSEDED_BY_RENDERING,
     _early_watching_world,
     RenderedPage,
     RenderError,
@@ -31,6 +32,7 @@ from loupe.scan import scan_html  # noqa: E402
 
 from .conftest import FIXTURES  # noqa: E402
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
+from .test_test_page import expected, expected_totals, ground_truth, outcome  # noqa: E402
 
 FAST = RenderSettings(scroll_pause_ms=150, network_idle_timeout_ms=5_000, settle_timeout_ms=2_000)
 MARKER = re.compile(r"CASE-[A-Z-]+")
@@ -317,3 +319,16 @@ def test_the_centring_time_budget_is_noted(chromium: Browser, fixture_site: str)
     assert page.centre_checks == 0
     assert any("stopped at the 0 s budget with 2 left" in note for note in page.notes)
 
+
+def test_the_test_page_matches_its_ground_truth_when_rendered(chromium: Browser, fixture_site: str) -> None:
+    page = render_page(chromium, f"{fixture_site}/test-page/index.html", FAST)
+    # The same findings loupe --render reports: markup checks on the rendered HTML,
+    # less the guesses the browser replaces, plus what the browser never showed.
+    findings = [finding for finding in scan_html(page.html) if finding.kind not in SUPERSEDED_BY_RENDERING]
+    findings += rendered_findings(page)
+    for row in ground_truth():
+        assert outcome(findings, row) == expected(row, row.rendered), row.number
+    found, flagged = expected_totals()["rendered"]
+    assert len(findings) == found
+    assert sum(finding.is_instruction_like for finding in findings) == flagged
+    assert page.revealed_on_scroll == ()
