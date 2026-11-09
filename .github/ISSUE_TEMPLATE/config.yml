@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/devfrankduah/loupe/blob/main/SECURITY.md
+    about: Report it privately, as SECURITY.md describes. Please don't open a public issue for it.

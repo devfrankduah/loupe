@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: If you use loupe in your work, please cite it as below.
+type: software
+title: loupe
+abstract: Scans web pages for hidden text that reaches AI agents, using Bright Data's Browser API and Playwright.
+authors:
+  - given-names: Frank
+    family-names: Duah
+version: 0.1.0
+license: MIT
+repository-code: https://github.com/devfrankduah/loupe
+url: https://devfrankduah.github.io/loupe/
+keywords:
+  - prompt injection
+  - hidden text
+  - AI agents
+  - web scraping

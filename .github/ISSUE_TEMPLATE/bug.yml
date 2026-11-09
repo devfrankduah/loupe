@@ -1,0 +1,52 @@
+name: Bug
+description: loupe crashed, failed a fetch it shouldn't have, or printed something wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: For text loupe flagged or missed by mistake, use the false positive or missed hidden text form instead. Don't paste a Bright Data token or a Browser API endpoint anywhere here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      placeholder: loupe --render https://example.com/page
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The terminal output or traceback.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: loupe version
+      description: The output of `loupe --version`.
+      placeholder: loupe 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version and operating system
+      placeholder: Python 3.12.4 on macOS 15
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - No browser (markup scan only)
+        - Local Chromium (--render)
+        - Bright Data Browser API (--render with BRIGHTDATA_BROWSER_WSS set)
+    validations:
+      required: true

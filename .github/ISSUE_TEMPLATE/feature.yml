@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a new check, option or output.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you're trying to find or do that loupe can't, with a page or example if you have one.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like loupe to do
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything else you tried
+      description: Optional. Workarounds or other tools you looked at.

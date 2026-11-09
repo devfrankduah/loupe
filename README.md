@@ -161,6 +161,10 @@ A rendered scan still misses some things, or counts them as hidden when a reader
 - Animation libraries that hide with `visibility:hidden` as well as opacity (GSAP's autoAlpha, for one) aren't centred, so text they reveal only at one scroll position counts as hidden.
 - The trace checks each flagged element every 250 milliseconds and whenever nodes are added. Text a page shows for less than that by changing a style alone can be missed.
 
-## License
+## Contributing, security and license
 
-MIT. See [LICENSE](LICENSE).
+- [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the tests, adding a fixture and reporting a false positive or missed hidden text.
+- Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
+- Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
+- What changed and when is in [CHANGELOG.md](CHANGELOG.md).
+- loupe is MIT licensed. See [LICENSE](LICENSE).

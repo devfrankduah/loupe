@@ -1,0 +1,60 @@
+name: False positive or missed hidden text
+description: loupe flagged text people can see, or missed text they can't.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Don't paste a Bright Data token or a Browser API endpoint anywhere in this form. The endpoint contains a password.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong
+      options:
+        - loupe flagged text that people can see (false positive)
+        - loupe didn't flag text that people can't see (missed)
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Page URL
+      placeholder: https://example.com/page
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Which text, and whether a person can see it in a browser.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What loupe reported
+      description: The relevant lines from loupe's output.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: loupe version
+      description: The output of `loupe --version`.
+      placeholder: loupe 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The command you ran. With `--render`, say whether the browser was local Chromium or the Browser API.
+      placeholder: loupe --render https://example.com/page
+    validations:
+      required: true
+  - type: textarea
+    id: html
+    attributes:
+      label: Smallest HTML that shows it
+      description: Optional. Pages change, so this lets the case become a test fixture.
+      render: html
