@@ -144,6 +144,8 @@ Each element the markup scan flagged for an inline style is also traced in the b
 
 Measured on 7 November 2026 by running `loupe --quote-chars 80 --json out.json` on these five URLs, once as is and once with `--render` (output in `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`).
 
+To watch loupe catch hidden text planted on purpose, scan [the test page](https://devfrankduah.github.io/loupe/test-page/), a made-up blender listing. Its [ground truth](docs/test-page/ground-truth.md) says what each scan should find, and the 9 November runs are in [results/2026-11-09-test-page.txt](results/2026-11-09-test-page.txt) and [results/2026-11-09-test-page-rendered.txt](results/2026-11-09-test-page-rendered.txt).
+
 ## Limitations
 
 - Phrase matching is a heuristic, and it produces false positives. All five instruction-like findings on 7 November were Wikipedia link titles, such as "You are encouraged to create an account". A real injection worded to avoid the list won't be flagged.
