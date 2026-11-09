@@ -243,6 +243,45 @@ def test_theme_toggle_works_without_javascript() -> None:
     assert "script" not in parsed.tags
 
 
+_LANDMARKS = {"header", "main", "footer", "nav", "aside"}
+_VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+
+class _FocusOrder(HTMLParser):
+    """Each keyboard-focusable element in document order, with the landmark it sits in."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.open: list[str] = []
+        self.stops: list[tuple[str, dict[str, str | None], str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        focusable = (tag == "a" and "href" in attributes) or tag in {"input", "button", "select", "textarea"}
+        if focusable:
+            landmark = next((name for name in reversed(self.open) if name in _LANDMARKS), None)
+            self.stops.append((tag, attributes, landmark))
+        if tag not in _VOID:
+            self.open.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.open:
+            del self.open[len(self.open) - 1 - self.open[::-1].index(tag) :]
+
+
+def test_keyboard_order_starts_at_the_skip_link_and_every_control_sits_in_a_landmark() -> None:
+    page_html = render_report_page(load_results(_results(_page("https://a.test/", []))))
+    order = _FocusOrder()
+    order.feed(page_html)
+    first_tag, first_attributes, _ = order.stops[0]
+    assert (first_tag, first_attributes.get("href")) == ("a", "#main")
+    assert [stop for stop in order.stops[1:] if stop[2] is None] == []
+    # The toggle is drawn at the end of the masthead, so focus should reach it there too.
+    header_stops = [attributes.get("id") or attributes.get("href") for _, attributes, landmark in order.stops if landmark == "header"]
+    assert header_stops[-1] == "theme"
+    assert header_stops.count("theme") == 1
+
+
 @pytest.mark.parametrize(
     ("text", "limit", "expected"),
     [

@@ -1055,13 +1055,13 @@ def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | 
 <style>{style}</style>
 </head>
 <body>
-<input type="checkbox" id="theme" class="theme-input">
 <a class="skip" href="#main">Skip to the results</a>
 <div class="page">
 <header class="masthead">
 <a class="wordmark" href="{REPOSITORY_URL}">loupe</a>
 <div class="masthead-links">
 <a href="{REPOSITORY_URL}">Code</a>
+<input type="checkbox" id="theme" class="theme-input">
 <label for="theme" class="theme-toggle"><span class="when-light">{_MOON}Dark mode</span><span class="when-dark">{_SUN}Light mode</span></label>
 </div>
 </header>
