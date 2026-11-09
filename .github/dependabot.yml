@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # pyproject.toml sets minimum versions only, so this opens a pull request
+    # only when a new release falls outside them.
+    versioning-strategy: increase-if-necessary
   - package-ecosystem: github-actions
     directory: /
     schedule:
