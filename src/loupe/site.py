@@ -749,7 +749,7 @@ def _caveats(pages: tuple[PageRecord, ...], with_rendering: bool = False) -> str
     )
     items = [
         "<li><h3>Sounding like an order isn't the same as being one</h3>"
-        "<p>loupe flags hidden text containing phrases such as &ldquo;you are&rdquo; or &ldquo;assistant&rdquo;. "
+        "<p>loupe flags hidden text containing phrases such as &ldquo;you are&rdquo; or &ldquo;ignore previous&rdquo;. "
         f"That caught {len(matches)} pieces of text in this run. Here they are, so you can judge them:</p>"
         f'<ul class="matches">{match_items}</ul></li>'
     ]
@@ -780,7 +780,7 @@ def _caveats(pages: tuple[PageRecord, ...], with_rendering: bool = False) -> str
     )
     return (
         '<section aria-labelledby="caveats-title">'
-        "<h2 id=\"caveats-title\">What I'm not sure about</h2>"
+        "<h2 id=\"caveats-title\">Limits of these results</h2>"
         f'<ul class="caveats">{"".join(items)}</ul>'
         "</section>"
     )
@@ -1062,7 +1062,7 @@ def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | 
 <div class="intro">
 <h1>A web page can hide text from you and still hand it to the AI reading it.</h1>
 <p class="lede">loupe fetches real pages, finds the text a person looking at them can't see, and checks whether that text is still there in the version an AI agent is given to read.</p>
-<p class="byline">Frank Duah, measured{date_text} across {page_count}</p>
+<p class="byline">Measured{date_text} across {page_count}</p>
 </div>
 {body}
 </main>

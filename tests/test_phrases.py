@@ -38,7 +38,7 @@ def test_text_addressed_to_a_model_still_matches(text: str, expected: tuple[str,
 @pytest.mark.parametrize(
     "text",
     [
-        "Device-Aware RAG Assistant links",
+        "Recipe RAG Assistant links",
         "AI-PR-Assistant links",
         "Tool Description Group ask_brightdata_assistant Ask Sophie, Bright Data's support assistant",
         "Our assistant editor reviewed this recipe.",

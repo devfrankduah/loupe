@@ -165,7 +165,7 @@ def test_report_command_writes_the_page(tmp_path: Path, capsys: pytest.CaptureFi
     output_path = tmp_path / "docs" / "index.html"
 
     assert cli.main(["report", str(results_path), "-o", str(output_path)]) == cli.EXIT_OK
-    assert "measured on 2 November 2026 across one page" in output_path.read_text(encoding="utf-8")
+    assert "Measured on 2 November 2026 across one page" in output_path.read_text(encoding="utf-8")
 
 
 def test_report_command_rejects_a_bad_results_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -232,6 +232,14 @@ def test_every_finding_is_counted_under_exactly_one_hiding_method() -> None:
     assert sum(len(members) for _, members in groups) == len(findings)
     assert [len(members) for _, members in groups] == [2, 1, 1, 1, 1, 1, 1, 1]
     assert len(groups) == len(HIDING_METHODS)
+
+
+def test_byline_gives_the_date_and_page_count_and_nothing_personal() -> None:
+    results = _results(_page("https://a.test/", []), _page("https://b.test/", []))
+    page_html = render_report_page(load_results(results), datetime.date(2026, 11, 19))
+    byline = page_html.split('<p class="byline">', 1)[1].split("</p>", 1)[0]
+    assert byline == "Measured on 19 November 2026 across 2 pages"
+    assert "I'm" not in page_html and "What I" not in page_html
 
 
 def test_theme_toggle_works_without_javascript() -> None:
@@ -418,7 +426,7 @@ def test_markup_only_and_rendered_runs_appear_side_by_side() -> None:
     assert "<b>0</b> not found in the live page" in section
     assert section.count('<q class="page-text">') == 3
     # The trailing slash doesn't make the recipe two pages.
-    assert "measured across one page" in page_html
+    assert "Measured across one page" in page_html
     assert "the rendered scan above traces each of them" in page_html
 
 
@@ -465,7 +473,7 @@ def test_report_command_reads_several_results_files(tmp_path: Path) -> None:
     assert cli.main(["report", str(static_path), str(rendered_path), "-o", str(output_path)]) == cli.EXIT_OK
     page_html = output_path.read_text(encoding="utf-8")
     assert 'id="rendered-title"' in page_html and 'id="result-title"' in page_html
-    assert "measured on 7 November 2026 across one page" in page_html
+    assert "Measured on 7 November 2026 across one page" in page_html
 
 
 @pytest.mark.parametrize(

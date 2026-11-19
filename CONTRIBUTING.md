@@ -55,7 +55,7 @@ Never commit `.env`, and never put a Bright Data token or Browser API endpoint i
 
 ## Re-record the demo GIF
 
-`scripts/record-demo.sh` records `docs/demo.gif` with asciinema and agg (`brew install asciinema agg`). It runs one rendered scan of frankduah.me through the Browser API, about 350 KB, so it needs both values in `.env`. The recording stays in a temporary folder and is deleted either way. Before converting it, the script checks it for the token and every part of the endpoint, and stops if it finds one. Never commit a `.cast` file.
+`scripts/record-demo.sh` records `docs/demo.gif` with asciinema and agg (`brew install asciinema agg`). It runs one rendered scan of the blender test page through the Browser API, a few KB, so it needs both values in `.env`. The recording stays in a temporary folder and is deleted either way. Before converting it, the script checks it for the token and every part of the endpoint, and stops if it finds one. Never commit a `.cast` file.
 
 ## Pull requests
 

@@ -1,6 +1,6 @@
 # How loupe works
 
-This is the detail behind the README's short version: what loupe sends to Bright Data, what each check looks for, how a rendered scan decides what's visible, and what the 7 November runs showed.
+This is the detail behind the README's short version: what loupe sends to Bright Data, what each check looks for, how a rendered scan decides what's visible, and what the 19 November runs showed.
 
 ## How pages are fetched
 
@@ -59,32 +59,30 @@ The browser is local Chromium unless `BRIGHTDATA_BROWSER_WSS` holds a CDP websoc
 
 Each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace. Quoted text is cut to `--quote-chars` characters, and per-request meta values (nonces, CSRF tokens, request IDs and the like) are replaced with a placeholder.
 
-## What the 7 November runs showed
+## What the 19 November runs showed
 
-The runs behind the README's table are `results/2026-11-07-2.json` (markup only) and `results/2026-11-07-2-rendered.json` (`--render` through the Browser API, with images, media and fonts blocked), with `.txt` summaries beside them. Quoted text is cut to 80 characters, and the pages themselves aren't stored. The browser run measured 4,190,724 bytes and refused 101 image, media and font requests. GitHub's network was still busy after 10 seconds, so its first check ran with requests open, and it measured about 2.1 MB against 0.4 MB earlier the same day.
+The runs behind the README's table are `results/2026-11-19.json` (markup only) and `results/2026-11-19-rendered.json` (`--render` through the Browser API, with images, media and fonts blocked), with `.txt` summaries beside them. They cover four public pages and the two test pages. Quoted text is cut to 80 characters, and the pages themselves aren't stored. The browser run measured 2,931,749 bytes and refused 96 image, media and font requests. On the OWASP page the load event hadn't fired after 15 seconds and the network was still busy after 10, so its first check ran with requests open.
 
-The browser finds far more on Wikipedia and GitHub, because most of their hidden text is hidden by stylesheets the markup scan can't read. On Wikipedia, 99 of the 107 findings are `display:none`. GitHub's reasons are more mixed: `display:none`, text too small to see, sections collapsed inside a closed `<details>`, and clipped text.
+The browser finds far more on Wikipedia and GitHub, because most of their hidden text is hidden by stylesheets the markup scan can't read. On Wikipedia, 97 of the 110 findings are `display:none` alone. GitHub's reasons are more mixed: `display:none`, sections collapsed inside a closed `<details>`, text too small to see, and clipped text.
 
-frankduah.me goes the other way. The markup scan flagged 48 elements for inline `opacity:0`. In the browser, 29 showed as the page loaded, 18 showed after scrolling, none stayed hidden, and 1 wasn't found in the live page: a clock that rewrites its own text.
+The animated test page goes the other way. The markup scan flags its headline and four sections for inline `opacity:0`. In the browser, 2 of the 5 showed as the page loaded and 3 showed after scrolling, so none of them stayed hidden. The browser does report 3 things there as hidden: the invisible layout copy behind the headline, the skip link, and the menu inside a closed `<details>`. A reader can't see any of them at that moment, and none of them is aimed at an agent.
 
-All five instruction-like matches are Wikipedia link titles, such as "You are encouraged to create an account" and "Large language model". None of them is an attack.
-
-Rendering the same five pages in local Chromium found the same hidden and revealed text on all five.
+On the four public pages, all five instruction-like matches are Wikipedia link titles, such as "You are encouraged to create an account" and "Large language model". None of them is an attack. The blender test page's matches are the instructions planted in it.
 
 ## What reaches the markdown
 
-For some kinds of hiding, a lot. Across the five pages in the markup-only run:
+For some kinds of hiding, a lot. Across the four public pages in the markup-only run:
 
 | Kind | In markdown | Not in markdown | Not compared |
 |---|---|---|---|
-| `hidden` attribute | 5 | 1 | 0 |
-| Inline style | 27 | 13 | 10 |
-| `aria-hidden` | 11 | 3 | 27 |
-| HTML comment | 0 | 18 | 16 |
-| `<meta>` | 3 | 61 | 47 |
-| `alt`, `title`, `aria-label` | 217 | 221 | 106 |
+| `hidden` attribute | 4 | 0 | 0 |
+| Inline style | 2 | 0 | 0 |
+| `aria-hidden` | 10 | 0 | 11 |
+| HTML comment | 0 | 19 | 8 |
+| `<meta>` | 3 | 52 | 40 |
+| `alt`, `title`, `aria-label` | 214 | 187 | 89 |
 | `<noscript>` | 0 | 0 | 0 |
 
-Text inside elements hidden with the `hidden` attribute or `display:none` reaches the markdown. On the OWASP page, a `display:none` print and email menu and two `hidden` "Share on" labels all show up in it. HTML comments don't: none of the 18 I could compare were in the markdown. Meta content almost never is. So an agent reading this markdown is protected from comments but not from text hidden with markup or inline CSS, which are the easiest places to plant an instruction.
+Text inside elements hidden with the `hidden` attribute or `display:none` reaches the markdown. On the OWASP page, a `display:none` print and email menu and two `hidden` "Share on" labels all show up in it. On the blender test page, the instruction hidden by a stylesheet class and both hidden fake reviews reach it too. HTML comments don't: none of the 19 that could be compared were in the markdown. Meta content almost never is. So an agent reading this markdown is protected from comments but not from text hidden with markup or CSS, which are the easiest places to plant an instruction.
 
 The README's limitations apply here: the HTML and the markdown come from two separate Bright Data services, and "in markdown" means only that the text appears somewhere in the markdown.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Records docs/demo.gif: one rendered scan of frankduah.me through Bright
-# Data's Browser API, which uses about 350 KB of Browser API traffic.
+# Records docs/demo.gif: one rendered scan of the blender test page through
+# Bright Data's Browser API, which uses a few KB of Browser API traffic.
 #
 # Needs asciinema and agg (brew install asciinema agg), the virtual
 # environment from the README with the render extra, and both
@@ -30,8 +30,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-asciinema rec --quiet --headless --return --window-size 150x13 --capture-env TERM \
-  --command 'printf "\$ loupe https://frankduah.me --render\n"; loupe https://frankduah.me --render' \
+asciinema rec --quiet --headless --return --window-size 150x22 --capture-env TERM \
+  --command 'printf "\$ loupe https://devfrankduah.github.io/loupe/test-page/ --render\n"; loupe https://devfrankduah.github.io/loupe/test-page/ --render' \
   "$cast"
 
 # Stops here, through set -e, if the recording holds a secret.

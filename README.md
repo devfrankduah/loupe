@@ -6,10 +6,6 @@ Scans web pages for hidden text that reaches AI agents, using Bright Data's Brow
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.10 or newer](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 
-![A terminal running loupe https://frankduah.me --render through Bright Data's Browser API, sped up 5.5 times. After about 56 seconds it prints the results: 13 elements the browser never showed, 9 revealed on scroll, 111 findings in all and none instruction-like.](docs/demo.gif)
-
-![The loupe report page in light mode on a desktop. Under the headline "A web page can hide text from you and still hand it to the AI reading it", two panels show a real line from github.com: the panel for what a person sees is empty, and the panel for what an AI reads says "You can't perform that action at this time."](docs/screenshot-desktop-2026-11-09.png)
-
 ## What loupe catches
 
 AI agents read web pages as raw HTML, or as markdown converted from it. Anything in the markup that a browser hides from a person (a comment, a `display:none` block, an image's alt text) can still land in the model's context. If that text is written as an instruction, the model may follow it, and the person who asked the agent to read the page never saw it. I wanted to measure how much of this hidden text exists on ordinary pages and how much of it survives the trip to markdown.
@@ -52,7 +48,7 @@ For rendered scans, add the `render` extra, which installs Playwright, and downl
 ```
 pip install -e ".[render]"
 playwright install chromium
-loupe --render https://frankduah.me
+loupe --render https://devfrankduah.github.io/loupe/animated-page/
 ```
 
 Without `BRIGHTDATA_BROWSER_WSS` set, `--render` uses that local Chromium.
@@ -69,17 +65,13 @@ The exit code is 0 when every fetch worked, 1 when any fetch failed, and 2 for u
 
 ### The report page
 
-`loupe report` turns saved runs into one HTML file with no scripts and no external requests, in a light and a dark mode. This rebuilds [the published report page](https://devfrankduah.github.io/loupe/) from the 7 November runs:
+`loupe report` turns saved runs into one HTML file with no scripts and no external requests, in a light and a dark mode. This rebuilds [the published report page](https://devfrankduah.github.io/loupe/) from the 19 November runs:
 
 ```
-loupe report results/2026-11-07-2.json results/2026-11-07-2-rendered.json -o /tmp/loupe-report.html
+loupe report results/2026-11-19.json results/2026-11-19-rendered.json -o /tmp/loupe-report.html
 ```
 
 `docs/index.html` is built from that pair, so `cmp /tmp/loupe-report.html docs/index.html` prints nothing. Given a markup-only run and a `--render` run of the same pages, the report sets them side by side, page by page. One results file works too.
-
-<img src="docs/screenshot-phone-2026-11-09.png" alt="The same report page on a phone, light mode, with the two panels stacked" width="300">
-
-Both screenshots show that page, taken on 9 November 2026.
 
 ### Tests
 
@@ -128,28 +120,29 @@ loupe asks Bright Data for each page twice, with the same two requests Bright Da
 
 With `--render`, loupe loads the page in Chromium at 1280 by 800 and scrolls it from top to bottom, checking whether each element's text is ever visible. Elements a scroll animation hides get centred on screen and checked again. The checks run in an isolated JavaScript world, so the page's own scripts can't fake the answer. Text that never showed becomes a `rendered-hidden` finding. Text that showed only after scrolling is listed as revealed on scroll and isn't counted as hidden.
 
-Each element the markup scan flagged for an inline style is also traced in the browser from the moment its HTML arrives, and frankduah.me is the reason. Its headline is a carousel that shows one of four statements at a time and moves on every 6 seconds, over an invisible copy of all four that keeps its size. The Browser API reached its first check about 11 seconds in, after the first statement had rotated out, so the first 7 November run traced six of its words to that invisible copy and called them never shown. loupe now watches each flagged element from the moment the page arrives, so they count as shown as the page loaded.
+Each element the markup scan flagged for an inline style is also traced in the browser from the moment its HTML arrives. A headline that rotates every few seconds over an invisible copy of all its statements is the reason: if the first check comes after the first statement has rotated out, the only copy left is the invisible one, and the statement looks never shown. Watching from the start, it counts as shown as the page loaded. [The animated test page](https://devfrankduah.github.io/loupe/animated-page/) has a headline like that.
 
-[docs/how-it-works.md](docs/how-it-works.md) has the rest: the exact requests, every check, the visibility test, the JSON fields and what the 7 November runs showed.
+[docs/how-it-works.md](docs/how-it-works.md) has the rest: the exact requests, every check, the visibility test, the JSON fields and what the 19 November runs showed.
 
 ## Results
 
 | Page | Hidden in markup | Hidden in a browser | Revealed on scroll | Instruction-like, markup / browser |
 |---|---|---|---|---|
 | [example.com](https://example.com) | 0 | 0 | 0 | 0 / 0 |
-| [en.wikipedia.org/wiki/Prompt_injection](https://en.wikipedia.org/wiki/Prompt_injection) | 1 | 107 | 0 | 5 / 5 |
-| [genai.owasp.org/llmrisk/llm01-prompt-injection/](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) | 3 | 14 | 1 | 0 / 0 |
-| [github.com/brightdata/brightdata-mcp](https://github.com/brightdata/brightdata-mcp) | 2 | 160 | 0 | 0 / 0 |
-| [frankduah.me](https://frankduah.me) | 50 | 13 | 9 | 0 / 0 |
+| [en.wikipedia.org/wiki/Prompt_injection](https://en.wikipedia.org/wiki/Prompt_injection) | 1 | 110 | 0 | 5 / 5 |
+| [genai.owasp.org/llmrisk/llm01-prompt-injection/](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) | 3 | 11 | 0 | 0 / 0 |
+| [github.com/brightdata/brightdata-mcp](https://github.com/brightdata/brightdata-mcp) | 2 | 158 | 1 | 0 / 0 |
+| [Blender test page](https://devfrankduah.github.io/loupe/test-page/) | 2 | 5 | 0 | 3 / 5 |
+| [Animated test page](https://devfrankduah.github.io/loupe/animated-page/) | 5 | 3 | 3 | 0 / 0 |
 
-Measured on 7 November 2026 by running `loupe --quote-chars 80 --json out.json` on these five URLs, once as is and once with `--render` (output in `results/2026-11-07-2.json` and `results/2026-11-07-2-rendered.json`).
+Measured on 19 November 2026 by running `loupe --quote-chars 80 --json out.json` on these six URLs, once as is and once with `--render` (output in `results/2026-11-19.json` and `results/2026-11-19-rendered.json`).
 
-To watch loupe catch hidden text planted on purpose, scan [the test page](https://devfrankduah.github.io/loupe/test-page/), a made-up blender listing. Its [ground truth](docs/test-page/ground-truth.md) says what each scan should find, and the 9 November runs are in [results/2026-11-09-test-page.txt](results/2026-11-09-test-page.txt) and [results/2026-11-09-test-page-rendered.txt](results/2026-11-09-test-page-rendered.txt).
+The two test pages show both sides. [The blender page](https://devfrankduah.github.io/loupe/test-page/) hides text aimed at AI on purpose, and [the animated page](https://devfrankduah.github.io/loupe/animated-page/) hides nothing but looks full of hidden text to a code-only scan. Their ground truths ([blender](docs/test-page/ground-truth.md), [animated](docs/animated-page/ground-truth.md)) say what each scan should find.
 
 ## Limitations
 
-- Phrase matching is a heuristic, and it produces false positives. All five instruction-like findings on 7 November were Wikipedia link titles, such as "You are encouraged to create an account". A real injection worded to avoid the list won't be flagged.
-- The markup-only scan can't tell real hiding from presentation. All 48 inline-style findings on frankduah.me are `opacity:0`, the starting state of a scroll-reveal animation. JavaScript fades that content in, so people do see it, but nothing in the HTML says so. Any site that animates content in this way will look full of hidden text. `--render` is there to separate the two.
+- Phrase matching is a heuristic, and it produces false positives. On the four public pages measured on 19 November, all five instruction-like findings were Wikipedia link titles, such as "You are encouraged to create an account". A real injection worded to avoid the list won't be flagged.
+- The markup-only scan can't tell real hiding from presentation. All five inline-style findings on the animated test page are `opacity:0`, the starting state of a scroll-reveal animation. JavaScript fades that content in, so people do see it, but nothing in the HTML says so. Any site that animates content in this way will look full of hidden text. `--render` is there to separate the two.
 - The markup-only scan reads inline styles only. An element hidden by a class in a stylesheet isn't detected without `--render`.
 - The markdown comparison is exact word-sequence matching. If the markdown converter splits or reorders a hidden string, it counts as not present.
 - The HTML comes from Web Unlocker and the markdown from the Fetch API, two separate services that could receive different versions of a page. A difference between them can come from either service as well as from the markdown conversion.
