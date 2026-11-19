@@ -4,6 +4,10 @@
 
 The version in `pyproject.toml` has been 0.1.0 since the first commit, and nothing is tagged yet. Each heading below is the day the work landed on `main`.
 
+### 19 November 2026
+
+- A second test page at `docs/animated-page/`: a landing page for a made-up travel pack with scroll fades, a headline that rotates over an invisible layout copy, a live clock, a skip link and a collapsed menu, and nothing planted. Its ground truth says every hidden-text flag from the markup scan is a false alarm and the rendered scan clears all of them, and the tests check both modes against it.
+
 ### 9 November 2026
 
 - A test page at `docs/test-page/`: a product page for a made-up blender that hides six instructions to AI and two fake reviews, modelled on The Guardian's December 2024 test of ChatGPT search. Its ground truth says what loupe should report for each, including the background-coloured line it misses, and the tests check both scan modes against it.

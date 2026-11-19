@@ -7,13 +7,13 @@ half of the check is in test_render_browser.py.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from loupe.scan import Finding, Kind, scan_html
 
 from .conftest import FIXTURES
+from .ground_truth import read_table, read_totals
 
 PUBLISHED = Path(__file__).resolve().parent.parent / "docs" / "test-page"
 FIXTURE = FIXTURES / "test-page"
@@ -31,20 +31,20 @@ class Planted:
 
 
 def ground_truth() -> list[Planted]:
-    rows: list[Planted] = []
-    for line in GROUND_TRUTH.read_text(encoding="utf-8").splitlines():
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) == 7 and cells[0].isdigit():
-            rows.append(Planted(int(cells[0]), cells[3], cells[4], cells[5], {"yes": True, "no": False}[cells[6]]))
-    return rows
+    return [
+        Planted(
+            int(row["#"]),
+            row["Starts with"],
+            row["Markup scan"],
+            row["Rendered scan"],
+            {"yes": True, "no": False}[row["Flagged instruction-like"]],
+        )
+        for row in read_table(GROUND_TRUTH)
+    ]
 
 
 def expected_totals() -> dict[str, tuple[int, int]]:
-    pattern = re.compile(r"^- (Markup|Rendered) scan: (\d+) findings, (\d+) instruction-like\.$", re.MULTILINE)
-    return {
-        mode.lower(): (int(findings), int(flagged))
-        for mode, findings, flagged in pattern.findall(GROUND_TRUTH.read_text(encoding="utf-8"))
-    }
+    return read_totals(GROUND_TRUTH)
 
 
 def describe(finding: Finding) -> str:

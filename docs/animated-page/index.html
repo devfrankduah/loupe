@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Wrenfold 30L travel pack (loupe test page)</title>
+<meta name="description" content="A made-up product landing page that loupe uses to test animated pages.">
+<style>
+  :root { --page: #f4f6f3; --ink: #17211d; --muted: #4c5a54; --rule: #cdd6d1; --panel: #ffffff; --note: #fff3d1; --note-edge: #9a6f08; --accent: #1f5f46; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 17px/1.6 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 60rem; margin: 0 auto; padding: 0 1.25rem; }
+  .skip { position: absolute; left: 1rem; top: -4rem; padding: 0.5rem 0.8rem; background: var(--panel); color: var(--ink); }
+  .skip:focus { top: 1rem; }
+  .test-note { margin: 1.25rem 0 0; padding: 0.8rem 1rem; background: var(--note); border-left: 4px solid var(--note-edge); font-size: 0.95rem; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1.5rem; padding: 1rem 0; border-bottom: 1px solid var(--rule); }
+  .brand { font-weight: 800; font-size: 1.25rem; letter-spacing: 0.02em; }
+  .menu summary { cursor: pointer; min-height: 44px; display: inline-flex; align-items: center; padding: 0 0.9rem; border: 1px solid var(--muted); border-radius: 999px; }
+  .menu ul { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; gap: 1rem; }
+  .hero { padding: 3rem 0 2rem; }
+  h1 { font-size: clamp(2rem, 1.2rem + 3.5vw, 3.4rem); line-height: 1.1; margin: 0 0 1.25rem; max-width: 18em; }
+  .rotator { display: inline-grid; }
+  .rotator > * { grid-area: 1 / 1; }
+  .sizer { display: grid; visibility: hidden; }
+  .sizer > span { grid-area: 1 / 1; }
+  .statement { color: var(--accent); transition: opacity 400ms ease; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.5rem; color: var(--muted); }
+  .pause { min-height: 44px; padding: 0 1rem; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--muted); border-radius: 999px; cursor: pointer; }
+  .pause[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .clock { margin: 0; font-variant-numeric: tabular-nums; }
+  section { min-height: 90vh; padding: 2.5rem 0; border-top: 1px solid var(--rule); transition: opacity 600ms ease, transform 600ms ease; }
+  h2 { font-size: 1.7rem; margin: 0 0 0.75rem; }
+  section p, section li { max-width: 40rem; }
+  blockquote { margin: 1rem 0; padding: 0.75rem 1rem; background: var(--panel); border-left: 4px solid var(--rule); }
+  footer { padding: 2rem 0 3rem; color: var(--muted); border-top: 1px solid var(--rule); }
+  @media (prefers-reduced-motion: reduce) { .statement, section { transition: none; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="wrap">
+<p class="test-note">This is a <a href="https://github.com/devfrankduah/loupe">loupe</a> test page. Wrenfold and its pack are made up, and nothing on the page is hidden from readers on purpose. It uses the scroll fades, rotating headline, live clock, skip link and collapsed menu that make a code-only scan report hidden text. <a href="https://github.com/devfrankduah/loupe/blob/main/docs/animated-page/ground-truth.md">What loupe should report here</a>.</p>
+<div class="bar">
+<span class="brand">Wrenfold</span>
+<details class="menu">
+<summary>Menu</summary>
+<nav>
+<ul>
+<li><a href="#features">Features</a></li>
+<li><a href="#materials">Materials</a></li>
+<li><a href="#sizes">Sizes</a></li>
+<li><a href="#reviews">Reviews</a></li>
+</ul>
+</nav>
+</details>
+</div>
+</header>
+<main id="main" class="wrap">
+<div class="hero">
+<h1>The Wrenfold 30L is the travel pack that <span class="rotator"><span class="sizer"><span>comes with a five-year warranty.</span><span>packs flat for the overhead bin.</span><span>opens all the way like a suitcase.</span><span>weighs 1.1 kg empty.</span></span><span class="statement" style="opacity:0">packs flat for the overhead bin.</span></span></h1>
+<div class="controls">
+<button type="button" class="pause" aria-pressed="false">Pause motion</button>
+<p class="clock">Local time <time class="now">00:00:00</time></p>
+</div>
+</div>
+<section id="features" style="opacity:0; transform:translateY(24px)">
+<h2>Built for one bag</h2>
+<p>Everything for a week fits in one carry-on: a clamshell main compartment, a padded sleeve for a 16-inch laptop, and two quick pockets on the outside for a passport and a phone.</p>
+<p>The hip belt tucks behind the back panel when you don't need it, so the pack slides into overhead bins without catching.</p>
+</section>
+<section id="materials" style="opacity:0; transform:translateY(24px)">
+<h2>Ballistic nylon and recycled lining</h2>
+<p>The shell is 840-denier ballistic nylon with a water-resistant coating. The lining is recycled polyester, and every zip has a locking pull.</p>
+</section>
+<section id="sizes" style="opacity:0; transform:translateY(24px)">
+<h2>Fits under the seat on most airlines</h2>
+<ul>
+<li>55 by 35 by 20 cm when full</li>
+<li>30 litres, expanding to 34 with the side zip open</li>
+<li>1.1 kg empty</li>
+</ul>
+</section>
+<section id="reviews" style="opacity:0; transform:translateY(24px)">
+<h2>What buyers say</h2>
+<blockquote><p>Took it on six flights in two weeks and never had to check it. The laptop sleeve is the best part.</p></blockquote>
+<blockquote><p>The hip belt is thin for anything heavier than about 9 kg, but for a week of clothes it's fine.</p></blockquote>
+</section>
+</main>
+<footer class="wrap">
+<p>Made for testing loupe. Nothing on this page is for sale.</p>
+</footer>
+<script>
+  (function () {
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var statements = ["packs flat for the overhead bin.", "opens all the way like a suitcase.", "weighs 1.1 kg empty.", "comes with a five-year warranty."];
+    var statement = document.querySelector(".statement");
+    var clock = document.querySelector(".now");
+    var pause = document.querySelector(".pause");
+    var paused = false;
+    var index = 0;
+
+    function show(element) {
+      element.style.opacity = "1";
+      element.style.transform = "none";
+    }
+
+    function tick() {
+      clock.textContent = new Date().toLocaleTimeString("en-GB");
+    }
+
+    function rotate() {
+      if (paused || reduced) return;
+      statement.style.opacity = "0";
+      setTimeout(function () {
+        index = (index + 1) % statements.length;
+        statement.textContent = statements[index];
+        statement.style.opacity = "1";
+      }, 400);
+    }
+
+    pause.addEventListener("click", function () {
+      paused = !paused;
+      pause.setAttribute("aria-pressed", String(paused));
+    });
+
+    var sections = document.querySelectorAll("section");
+    if (reduced || !("IntersectionObserver" in window)) {
+      sections.forEach(show);
+    } else {
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            show(entry.target);
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.1 });
+      sections.forEach(function (section) { observer.observe(section); });
+    }
+
+    tick();
+    setInterval(function () { if (!paused) tick(); }, 1000);
+    requestAnimationFrame(function () { statement.style.opacity = "1"; });
+    setInterval(rotate, 3000);
+  })();
+</script>
+</body>
+</html>
