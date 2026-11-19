@@ -1,6 +1,6 @@
 # Contributing to loupe
 
-Bug reports, false positives, missed hidden text and fixes are all welcome. For anything bigger than a small fix, open an issue first so we can agree on the approach before you write it.
+Bug reports, false positives, missed hidden text and fixes are all welcome. For anything bigger than a small fix, open an issue first to agree on the approach before writing it.
 
 ## Set up
 
@@ -51,7 +51,7 @@ Pages change, so the smallest HTML that reproduces it helps a lot.
 
 ## Secrets
 
-Never commit `.env`, and never put a Bright Data token or Browser API endpoint in code, tests, results, screenshots, issues or pull requests. The endpoint carries a password. `.gitignore` excludes `.env` and GitHub's push protection is on for this repo, but neither catches a value pasted into a test or a comment. If you commit one by mistake, revoke it in the Bright Data control panel first, then tell me through a [private report](https://github.com/devfrankduah/loupe/security/advisories/new).
+Never commit `.env`, and never put a Bright Data token or Browser API endpoint in code, tests, results, screenshots, issues or pull requests. The endpoint carries a password. `.gitignore` excludes `.env` and GitHub's push protection is on for this repo, but neither catches a value pasted into a test or a comment. If you commit one by mistake, revoke it in the Bright Data control panel first, then say so in a [private report](https://github.com/devfrankduah/loupe/security/advisories/new).
 
 ## Re-record the demo GIF
 

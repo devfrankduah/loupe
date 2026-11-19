@@ -4,7 +4,7 @@ This is the detail behind the README's short version: what loupe sends to Bright
 
 ## How pages are fetched
 
-I send the same requests that Bright Data's own MCP server ([brightdata-mcp](https://github.com/brightdata/brightdata-mcp), version 4.3.0) sends for its two scraping tools:
+loupe sends the same requests that Bright Data's own MCP server ([brightdata-mcp](https://github.com/brightdata/brightdata-mcp), version 4.3.0) sends for its two scraping tools:
 
 - HTML, like `scrape_as_html`: `POST https://api.brightdata.com/request` with `{"url", "zone": "mcp_unlocker", "format": "raw"}`. That's Web Unlocker. The MCP server creates the `mcp_unlocker` zone the first time it starts, so on an account that has never run it you need to create that zone first. `--zone` picks a different one.
 - Markdown, like `scrape_as_markdown`: `POST https://api.brightdata.com/datasets/v3/scrape?dataset_id=gd_m6gjtfmeh43we6cqc&format=json&include_errors=true` with `[{"url"}]`, reading the `markdown` field of the first record. That's the Fetch API, which the MCP server switched to on 2026-11-01.
@@ -15,7 +15,7 @@ In the HTML:
 
 - HTML comments.
 - Elements with the `hidden` attribute.
-- Elements with `aria-hidden="true"`. Screen readers skip them but sighted readers still see them, so I report them separately.
+- Elements with `aria-hidden="true"`. Screen readers skip them but sighted readers still see them, so loupe reports them separately.
 - Elements whose inline `style` sets `display:none`, `visibility:hidden` or `collapse`, `font-size:0`, `opacity:0`, or pushes them off-screen (`position:absolute` or `fixed` with an offset of 1000px or more to the negative side, or a `text-indent` that far).
 - `alt`, `title` and `aria-label` attributes.
 - `<meta>` tags that have a name, property, http-equiv or itemprop.
