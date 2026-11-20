@@ -12,6 +12,7 @@ Two of these break existing scripts: `--json PATH` is now `--json-output PATH`, 
 - A GitHub Action, `action.yml`, installs loupe at the ref a workflow names, scans the `urls` input, uploads the JSON as an artifact and fails the step by `fail-on`. `docs/ci.md` has a workflow for scanning a site after each deploy, and CI runs the action against the test pages.
 - `python -m loupe_scan` runs the command, and the version lives in one place, `src/loupe_scan/_version.py`.
 - New test dependency: jsonschema, with types-jsonschema for the type check.
+- `docs/social-preview.png` carries the repository's new description: loupe runs locally, with Bright Data as an option for sites that block bots.
 
 ## 0.1.0
 
