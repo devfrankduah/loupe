@@ -26,7 +26,7 @@ mypy --strict src tests
 
 The tests run on the local backend against fixtures served from 127.0.0.1 and never need a Bright Data token. `tests/conftest.py` removes `BRIGHTDATA_API_TOKEN` and `BRIGHTDATA_BROWSER_WSS` from every test's environment, so a token in your shell can't reach a test run, and it fails any test that tries to connect beyond this machine.
 
-CI runs both commands on Python 3.10 and 3.13 for every push to `main` and every pull request. It installs Chromium, which adds about 15 seconds, so the rendered tests run there too, and it fails if any test is skipped.
+CI runs both commands on Python 3.10 and 3.13 for every push to `main` and every pull request. It installs Chromium, which adds about 15 seconds, so the rendered tests run there too, and it fails if any test is skipped. Another job runs the GitHub Action in `action.yml` against the test pages, served inside the job, in five ways: passing, failing with 1, failing with 2, with a URL built to run a shell command, and with an input it refuses. A last job checks the artifacts it uploaded. Changing `action.yml` means changing that job in `.github/workflows/tests.yml` too.
 
 ## Add a fixture
 

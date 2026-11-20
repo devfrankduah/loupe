@@ -34,7 +34,7 @@ On the local backend loupe scans one page at a time, so it never has two request
 
 With `--render`, robots.txt and Crawl-delay are checked the same way before the browser loads each page. The browser then loads the page's images, styles and scripts the way any browser does, so one rendered page can mean several requests to the site at once.
 
-On the Bright Data backend the requests go through Bright Data's network, not from this machine. loupe doesn't read robots.txt there, and still scans one page at a time.
+On the Bright Data backend the requests go out through Bright Data's network. loupe doesn't read robots.txt there, and still scans one page at a time.
 
 ## From Python
 

@@ -69,7 +69,7 @@ To keep the job going when loupe fails the step, so a later step can read the re
 
 ## Sites that block bots
 
-Sites behind bot protection turn the runner away, and those pages exit 2 as blocked. The Bright Data backend can reach them. Store the token as a repository secret and pass it in the step's `env`, never in `with`:
+Sites behind bot protection turn the runner away, and those pages exit 2 as blocked. The Bright Data backend can reach them. Store the token as a repository secret and set it in the step's `env`, where loupe reads it:
 
 ```yaml
       - uses: devfrankduah/loupe@main
@@ -89,4 +89,4 @@ loupe never prints or saves the token, and never prints any part of a Browser AP
 3. Runs `loupe --urls-file` on the URLs with `--json-output`, printing the usual report and summary table to the log. Text quoted from the pages can't act as a workflow command, because the runner stops reading commands while loupe runs.
 4. Uploads the results file as the artifact, even when the scan failed the step.
 
-Inputs reach the action's scripts as environment variables and never as part of the script, so nothing in a URL can run as a shell command. This repository's CI runs the action against the test pages, served inside the job, on every push, including a URL built to run a command if that ever stopped being true.
+Inputs reach the action's scripts only as environment variables, so nothing in a URL can run as a shell command. This repository's CI runs the action on every push against the test pages, served inside the job. One of its inputs is a URL built to run a command if that ever stopped being true, and a later job checks the artifacts the action uploaded.

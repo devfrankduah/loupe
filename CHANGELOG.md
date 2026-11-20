@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Two of these break existing scripts: `--json PATH` is now `--json-output PATH`, and exit code 1 now means a finding `--fail-on` counts, where it used to mean a failed fetch.
+
+- The package is `loupe-scan`, imported as `loupe_scan`, and the command is still `loupe`. It installs from this repository until it's on PyPI, and a test fails if any file tells people to install `loupe` or `loupe-scan` from PyPI before then.
+- `--json` prints the results as a JSON array instead of the text report, and `--json-output PATH` writes the same array to a file, in place of `--json PATH`. Each page carries `schema_version` 1 and an `error` object with a `kind`, which replaces `html_error`. `docs/json.md` describes the format and `docs/schema/results-v1.json` is its JSON Schema, which the tests check the output against in both scan modes. `loupe report` still reads the older files.
+- Exit codes: 0 when every page was scanned and none had a finding `--fail-on` counts, 1 when one did, and 2 when a page couldn't be scanned in full or loupe couldn't run. 1 used to mean a failed fetch. `--fail-on` takes `instructions`, the default, `hidden` or `never`, and a nonzero exit says why on stderr.
+- A typed Python API: `scan()`, `Scanner` for several pages, `ScanResult` with `to_json()`, and `ScanError`, raised for a page that couldn't be scanned so it can't pass for a clean one. The package ships `py.typed`. `docs/python.md` has an example of checking a page before handing it to a model, and the tests run it.
+- `--urls-file` reads URLs from a file or standard input. Each URL is scanned once, one page at a time, reading each site's robots.txt once and waiting out its Crawl-delay, and several pages end with a summary table.
+- A GitHub Action, `action.yml`, installs loupe at the ref a workflow names, scans the `urls` input, uploads the JSON as an artifact and fails the step by `fail-on`. `docs/ci.md` has a workflow for scanning a site after each deploy, and CI runs the action against the test pages.
+- `python -m loupe_scan` runs the command, and the version lives in one place, `src/loupe_scan/_version.py`.
+- New test dependency: jsonschema, with types-jsonschema for the type check.
+
 ## 0.1.0
 
 The version in `pyproject.toml` has been 0.1.0 since the first commit, and nothing is tagged yet. Each heading below is the day the work landed on `main`.

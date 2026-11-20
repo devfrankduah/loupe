@@ -1,6 +1,6 @@
 # Use loupe from Python
 
-Install loupe from this repository as the README's quickstart does. The package is `loupe-scan`, imported as `loupe_scan`. It's typed, and it ships a `py.typed` marker, so mypy and other type checkers read its annotations.
+`scan()` runs loupe's checks on a page from Python and returns what the page hides from people. Install loupe from this repository as the README's quickstart does. The package is `loupe-scan`, imported as `loupe_scan`. It's typed, and it ships a `py.typed` marker, so mypy and other type checkers read its annotations.
 
 ```
 from loupe_scan import scan
@@ -9,11 +9,11 @@ result = scan("https://devfrankduah.github.io/loupe/test-page/")
 print(result.verdict)
 ```
 
-`scan()` runs the same checks as the `loupe` command, with the same backends, robots.txt rules and credentials from the environment.
+It runs the same checks as the `loupe` command, with the same backends and robots.txt rules, and reads credentials from the same environment variables.
 
 ## Check a page before handing it to a model
 
-An agent that reads web pages can ask loupe first, and leave out a page that hides instructions from the person using the agent. If loupe can't check a page, because the site blocked it or robots.txt keeps loupe out, `scan()` raises `ScanError` rather than returning an empty result, so a page that wasn't checked is never mistaken for a clean one.
+An agent that reads web pages can ask loupe first, and leave out a page that hides instructions from the person using the agent. If loupe can't check a page, because the site blocked it or robots.txt keeps loupe out, `scan()` raises `ScanError`, so a page that wasn't checked can't pass for a clean one.
 
 ```python
 from loupe_scan import ScanError, scan
@@ -40,7 +40,7 @@ if safe_to_hand_over(url):
     messages.append({"role": "user", "content": page_markdown})
 ```
 
-loupe fetches the page itself, so it checks what the site sent loupe. A site can send different visitors different pages, so this is a check on the page, not on the exact copy your agent received. The markdown loupe compares against is made with markdownify, an approximation of what agent tools produce.
+loupe fetches the page itself, so it checks what the site sent loupe. A site can send different visitors different pages, so the copy your agent received may differ from the one loupe checked. The markdown loupe compares against is made with markdownify, an approximation of what agent tools produce.
 
 ## Several pages
 

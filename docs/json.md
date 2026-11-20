@@ -10,7 +10,7 @@ Every page object carries `schema_version`, which is `1`. Within version 1, fiel
 
 The JSON Schema is [`schema/results-v1.json`](schema/results-v1.json), also served at `https://devfrankduah.github.io/loupe/schema/results-v1.json`. The tests check loupe's output against it in both scan modes, and fail if loupe writes a field the schema doesn't describe.
 
-`verdict`, `error.message`, `markdown_error` and the rendering `notes` are written for people, and their wording can change between releases. Code should read the counts, kinds and true-or-false fields instead.
+`verdict`, `error.message`, `markdown_error` and the rendering `notes` are written for people, and their wording can change between releases. Code should read the other fields.
 
 On the terminal the JSON is escaped to ASCII, so text from a page can't reach it as a control or direction-changing character. The file is UTF-8. Both decode to the same values.
 

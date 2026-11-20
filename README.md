@@ -119,6 +119,12 @@ set -a; source .env; set +a
 loupe --render https://devfrankduah.github.io/loupe/test-page/
 ```
 
+## Other ways to run it
+
+- [Use in CI](docs/ci.md): the GitHub Action, with a workflow that scans your site after each deploy and fails when a page hides instructions.
+- [Use from Python](docs/python.md): `scan()` and `Scanner`, typed, with an example of checking a page before handing it to a model.
+- [Scan many pages](docs/many-pages.md): `--urls-file`, the summary table, and how loupe paces its requests to each site.
+
 ## Options
 
 - `--render` loads each page in a browser and checks what actually shows.
@@ -175,7 +181,7 @@ With `--render`, loupe loads the page in Chromium at 1280 by 800 and scrolls it 
 
 Each element the markup scan flagged for an inline style is also traced in the browser from the moment its HTML arrives, checked every 250 milliseconds and whenever nodes are added. A headline that rotates every few seconds over an invisible copy of all its statements is the reason: if the first check came after the first statement had rotated out, the only copy left would be the invisible one, and the statement would look never shown. The animated test page has a headline like that.
 
-[docs/how-it-works.md](docs/how-it-works.md) has the rest: both backends' requests, every check, the visibility test, the JSON fields, and how the local backend compared with Bright Data.
+[docs/how-it-works.md](docs/how-it-works.md) has the rest: both backends' requests, every check, the visibility test, and how the local backend compared with Bright Data. [docs/json.md](docs/json.md) describes the JSON.
 
 ## Results on real pages
 
@@ -222,7 +228,7 @@ pip install -e ".[test,render]"
 pytest
 ```
 
-The browser tests are skipped when Playwright or its Chromium isn't installed.
+The browser tests are skipped when Playwright or its Chromium isn't installed. CI also runs the GitHub Action against the test pages, served inside the job.
 
 ## Contributing, security and license
 
