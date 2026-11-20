@@ -1,0 +1,126 @@
+name: loupe scan
+description: Scan web pages for hidden text that reaches AI agents, and fail the job when loupe finds it.
+branding:
+  icon: search
+  color: gray-dark
+
+inputs:
+  urls:
+    description: The pages to scan, separated by spaces or new lines.
+    required: true
+  render:
+    description: true to load each page in Chromium and check what actually shows, false to read the markup only.
+    default: "false"
+  fail-on:
+    description: >-
+      Which findings fail the step: instructions (hidden text worded like an instruction to an AI),
+      hidden (any hidden text) or never. A page that couldn't be scanned always fails it.
+    default: instructions
+  backend:
+    description: >-
+      local, brightdata, or auto, which uses Bright Data when BRIGHTDATA_API_TOKEN or BRIGHTDATA_BROWSER_WSS
+      is set in the step's env and this runner otherwise.
+    default: auto
+  artifact-name:
+    description: The name of the artifact the JSON results are uploaded as. Give each loupe step in a job its own.
+    default: loupe-results
+
+outputs:
+  exit-code:
+    description: loupe's exit code, 0, 1 or 2, as the README's exit codes section describes. Empty if loupe didn't run.
+    value: ${{ steps.scan.outputs.exit-code }}
+  results:
+    description: The path of the JSON results on the runner.
+    value: ${{ steps.scan.outputs.results }}
+
+runs:
+  using: composite
+  steps:
+    # Inputs reach every script through env, never pasted into its text, so
+    # nothing in them runs as shell code.
+    - name: Check the inputs
+      shell: bash
+      env:
+        LOUPE_RENDER: ${{ inputs.render }}
+        LOUPE_FAIL_ON: ${{ inputs.fail-on }}
+        LOUPE_BACKEND: ${{ inputs.backend }}
+      run: |
+        problems=0
+        case "$RUNNER_OS" in
+          Linux | macOS) ;;
+          *) echo "::error title=loupe::loupe's action runs on Linux and macOS runners."; problems=1 ;;
+        esac
+        case "$LOUPE_RENDER" in
+          true | false) ;;
+          *) echo "::error title=loupe::render must be true or false."; problems=1 ;;
+        esac
+        case "$LOUPE_FAIL_ON" in
+          instructions | hidden | never) ;;
+          *) echo "::error title=loupe::fail-on must be instructions, hidden or never."; problems=1 ;;
+        esac
+        case "$LOUPE_BACKEND" in
+          auto | local | brightdata) ;;
+          *) echo "::error title=loupe::backend must be auto, local or brightdata."; problems=1 ;;
+        esac
+        exit "$problems"
+
+    - name: Set up Python for loupe
+      id: python
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.13"
+        # Leaves the job's own Python and PATH as they were.
+        update-environment: false
+
+    # From this action's own checkout, so it's the same ref the workflow asked for.
+    - name: Install loupe
+      shell: bash
+      env:
+        LOUPE_PYTHON: ${{ steps.python.outputs.python-path }}
+        LOUPE_RENDER: ${{ inputs.render }}
+      run: |
+        set -euo pipefail
+        venv="$RUNNER_TEMP/loupe-venv"
+        "$LOUPE_PYTHON" -m venv "$venv"
+        extras=""
+        if [ "$LOUPE_RENDER" = true ]; then extras="[render]"; fi
+        "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "$GITHUB_ACTION_PATH$extras"
+        if [ "$LOUPE_RENDER" = true ]; then
+          "$venv/bin/python" -m playwright install --with-deps chromium
+        fi
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        LOUPE_URLS: ${{ inputs.urls }}
+        LOUPE_RENDER: ${{ inputs.render }}
+        LOUPE_FAIL_ON: ${{ inputs.fail-on }}
+        LOUPE_BACKEND: ${{ inputs.backend }}
+      run: |
+        set -uo pipefail
+        python="$RUNNER_TEMP/loupe-venv/bin/python"
+        # A folder of its own, so a second loupe step in the job keeps its own results.
+        out="$(mktemp -d "$RUNNER_TEMP/loupe-XXXXXXXX")"
+        printf '%s\n' "$LOUPE_URLS" | tr ' \t\r' '\n\n\n' > "$out/urls.txt"
+        arguments=(--urls-file "$out/urls.txt" --json-output "$out/results.json" --fail-on "$LOUPE_FAIL_ON")
+        if [ "$LOUPE_RENDER" = true ]; then arguments+=(--render); fi
+        if [ "$LOUPE_BACKEND" != auto ]; then arguments+=(--backend "$LOUPE_BACKEND"); fi
+        echo "results=$out/results.json" >> "$GITHUB_OUTPUT"
+        # The output quotes text from the pages, so the runner stops reading
+        # workflow commands in it until loupe is done.
+        resume="$("$python" -c 'import secrets; print(secrets.token_hex(16))')"
+        echo "::stop-commands::$resume"
+        code=0
+        "$python" -m loupe_scan "${arguments[@]}" || code=$?
+        echo "::$resume::"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit "$code"
+
+    - name: Upload the results
+      if: ${{ !cancelled() && steps.scan.outcome != 'skipped' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.scan.outputs.results }}
+        if-no-files-found: warn
