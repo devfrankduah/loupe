@@ -35,8 +35,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# loupe exits 1 when it finds hidden instructions, as it does on the test
+# page, so only 2, a failed scan, stops the script.
 asciinema rec --quiet --headless --return --window-size 150x24 --capture-env TERM \
-  --command 'printf "\$ loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/\n"; env -u BRIGHTDATA_API_TOKEN -u BRIGHTDATA_BROWSER_WSS loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/' \
+  --command 'printf "\$ loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/\n"; env -u BRIGHTDATA_API_TOKEN -u BRIGHTDATA_BROWSER_WSS loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/ || [ $? -eq 1 ]' \
   "$cast"
 
 # Stops here, through set -e, if the recording holds a secret.

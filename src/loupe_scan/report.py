@@ -96,6 +96,25 @@ class PageReport:
         }
 
 
+class FailOn(str, Enum):
+    """Which findings make loupe exit 1, so a CI job fails."""
+
+    # Hidden text worded like an instruction to an AI, whether or not it reaches the markdown.
+    INSTRUCTIONS = "instructions"
+    # Any hidden text at all.
+    HIDDEN = "hidden"
+    NEVER = "never"
+
+
+def findings_counted(page: PageReport, fail_on: FailOn) -> list[CheckedFinding]:
+    """The page's findings that fail_on counts."""
+    if fail_on is FailOn.INSTRUCTIONS:
+        return page.instruction_like
+    if fail_on is FailOn.HIDDEN:
+        return list(page.findings)
+    return []
+
+
 def check_findings(findings: list[Finding], markdown: str | None) -> list[CheckedFinding]:
     if markdown is None:
         return [CheckedFinding(finding, None) for finding in findings]

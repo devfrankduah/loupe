@@ -37,18 +37,26 @@ from loupe_scan.render import (
 )
 from loupe_scan.report import (
     DEFAULT_QUOTE_CHARACTERS,
+    FailOn,
     FailureKind,
     PageReport,
     check_findings,
+    findings_counted,
     page_to_dict,
     render_text,
 )
 from loupe_scan.scan import ScanMode, scan_html
 from loupe_scan.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
 
+# Every page was scanned in full and none had a finding --fail-on counts.
 EXIT_OK = 0
-EXIT_FETCH_FAILED = 1
-EXIT_USAGE = 2
+# Every page was scanned in full and at least one had a finding --fail-on counts.
+EXIT_FINDINGS = 1
+# A page couldn't be scanned in full (blocked, stopped by robots.txt, not
+# fetched or loaded, or its markdown not compared), or loupe couldn't run.
+# It wins over EXIT_FINDINGS, since the results are incomplete.
+EXIT_ERROR = 2
+EXIT_USAGE = EXIT_ERROR
 
 # The README section on the Bright Data backend, for sites that turn loupe away.
 BRIGHT_DATA_SECTION: Final[str] = "sites-that-block-bots-and-scanning-at-scale"
@@ -131,6 +139,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_QUOTE_CHARACTERS,
         metavar="N",
         help=f"cut quoted hidden text to N characters, 0 for no limit (default: {DEFAULT_QUOTE_CHARACTERS})",
+    )
+    parser.add_argument(
+        "--fail-on",
+        type=FailOn,
+        choices=list(FailOn),
+        default=FailOn.INSTRUCTIONS,
+        metavar="{instructions,hidden,never}",
+        help=(
+            "which findings make loupe exit 1: instructions (hidden text worded like an instruction to an AI), "
+            "hidden (any hidden text) or never (default: instructions). A page that couldn't be scanned "
+            "always exits 2"
+        ),
     )
     parser.add_argument("--version", action="version", version=f"loupe {__version__}")
     return parser
@@ -371,8 +391,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"loupe: could not write {arguments.json_output}: {error.strerror}", file=sys.stderr)
             return EXIT_USAGE
 
-    failed = any(page.html_error is not None or page.markdown_error is not None for page in pages)
-    return EXIT_FETCH_FAILED if failed else EXIT_OK
+    return _finish(pages, arguments.fail_on)
+
+
+def _count_pages(number: int) -> str:
+    return "1 page" if number == 1 else f"{number:,} pages"
+
+
+def _finish(pages: Sequence[PageReport], fail_on: FailOn) -> int:
+    """The exit code for the run, explained on stderr when it isn't 0."""
+    incomplete = [page for page in pages if page.html_error is not None or page.markdown_error is not None]
+    if incomplete:
+        _note(f"exit {EXIT_ERROR}: {_count_pages(len(incomplete))} couldn't be scanned in full")
+        return EXIT_ERROR
+    counted = [page for page in pages if findings_counted(page, fail_on)]
+    if counted:
+        what = "hidden text" if fail_on is FailOn.HIDDEN else "hidden text worded like instructions to an AI"
+        _note(f"exit {EXIT_FINDINGS}: {_count_pages(len(counted))} with {what} (--fail-on {fail_on.value})")
+        return EXIT_FINDINGS
+    return EXIT_OK
 
 
 if __name__ == "__main__":

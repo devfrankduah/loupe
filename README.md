@@ -126,12 +126,29 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 - `--backend local` or `--backend brightdata` picks where pages come from. Without it, loupe uses Bright Data when either of its values is set, and your machine otherwise.
 - `--ignore-robots` fetches pages even where robots.txt asks loupe not to. Use it only for pages you own or have permission to scan.
 - `--json` prints the results as JSON instead of text, and `--json-output PATH` writes the same JSON to a file. [docs/json.md](docs/json.md) describes every field, and each page carries a `schema_version`.
+- `--fail-on instructions`, `hidden` or `never` picks which findings make loupe exit 1 (see [Exit codes](#exit-codes)).
 - `--quote-chars N` cuts quoted hidden text to N characters (default 160, 0 for no limit).
 - `--zone NAME` picks the Web Unlocker zone on the Bright Data backend (default `mcp_unlocker`).
 
 On the local backend loupe asks politely. Its user agent names loupe and this repository, and it obeys robots.txt and any Crawl-delay. It gives up on a page after about 60 seconds or more than 5 redirects. It also stops reading at 10 MB.
 
-The exit code is 0 when every fetch worked, 1 when any fetch failed, and 2 for usage errors such as a missing token. loupe reads the token from `BRIGHTDATA_API_TOKEN` and never prints or saves it, and it never prints any part of the Browser API endpoint.
+### Exit codes
+
+| Code | When |
+| --- | --- |
+| 0 | Every page was scanned in full, and none had a finding `--fail-on` counts. |
+| 1 | Every page was scanned in full, and at least one had a finding `--fail-on` counts. |
+| 2 | At least one page couldn't be scanned in full, or loupe couldn't run. That covers a page the site blocked (403, 429 or a challenge page), one robots.txt kept loupe from, one that couldn't be fetched or loaded, and one whose markdown couldn't be compared. It also covers bad options, a missing token, a missing browser, and a JSON file that couldn't be written. 2 wins over 1, because the results are incomplete. |
+
+`--fail-on` decides what counts:
+
+- `instructions`, the default, counts hidden text worded like an instruction to an AI, whether or not it reaches the markdown. That's each page's `instruction_like_count` in the JSON.
+- `hidden` counts any hidden text at all, which is strict: most real pages have some, such as HTML comments, meta descriptions and image `alt` text.
+- `never` counts nothing, so loupe exits 0 or 2.
+
+Text that a rendered scan finds revealed on scroll isn't hidden, and never counts. When the exit code isn't 0, the last line on stderr says why.
+
+loupe reads the token from `BRIGHTDATA_API_TOKEN` and never prints or saves it, and it never prints any part of the Browser API endpoint.
 
 ## The report page
 

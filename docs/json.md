@@ -32,7 +32,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 | `markdown_source` | object or null | Where the markdown came from: `name`, `version` and `license` (each a string or null), and `approximation`, true when loupe made the markdown itself with markdownify. |
 | `markdown_error` | string or null | Why the markdown couldn't be compared. The page was still scanned. |
 | `counts_by_kind` | object | Findings per kind, leaving out kinds with none. |
-| `instruction_like_count` | integer | Findings worded like an instruction to an AI. |
+| `instruction_like_count` | integer | Findings worded like an instruction to an AI. These are what `--fail-on instructions` counts. |
 | `survival` | object | How many findings reached the markdown (`survived`), didn't (`dropped`), or weren't compared (`not_compared`). |
 | `rendering` | object or null | How the browser loaded the page, for rendered scans that loaded it. |
 | `findings` | array | Each piece of hidden text. |

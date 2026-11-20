@@ -57,7 +57,7 @@ def test_render_flag_end_to_end(
     url = f"{fixture_site}/rendered.html"
 
     # No Bright Data token is set: with --skip-markdown a rendered scan needs none.
-    assert cli.main([url, "--render", "--skip-markdown", "--json-output", str(output_path)]) == cli.EXIT_OK
+    assert cli.main([url, "--render", "--skip-markdown", "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert page["scan_mode"] == "rendered"
@@ -98,7 +98,7 @@ def test_the_animated_page_matches_its_ground_truth_rendered_on_the_local_backen
 def test_rendered_results_fit_the_published_schema(
     chromium_installed: None, fixture_site: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main([f"{fixture_site}/test-page/index.html", "--render", "--json"]) == cli.EXIT_OK
+    assert cli.main([f"{fixture_site}/test-page/index.html", "--render", "--json"]) == cli.EXIT_FINDINGS
 
     results = json.loads(capsys.readouterr().out)
     check_results(results)

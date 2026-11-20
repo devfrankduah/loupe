@@ -26,7 +26,7 @@ def test_with_no_credentials_a_markup_scan_runs_on_this_machine(
 ) -> None:
     output_path = tmp_path / "local.json"
     with serve_routes({"/cake": html_route(planted_html)}) as site:
-        assert cli.main([site.url("/cake"), "--skip-markdown", "--json-output", str(output_path)]) == cli.EXIT_OK
+        assert cli.main([site.url("/cake"), "--skip-markdown", "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     report = json.loads(output_path.read_text(encoding="utf-8"))
     (page,) = report
@@ -38,7 +38,7 @@ def test_with_no_credentials_a_markup_scan_runs_on_this_machine(
 
 def test_a_page_that_turns_loupe_away_points_to_the_bright_data_backend(capsys: pytest.CaptureFixture[str]) -> None:
     with serve_routes({"/cake": html_route("<p>Forbidden</p>", status=403)}) as site:
-        assert cli.main([site.url("/cake"), "--skip-markdown"]) == cli.EXIT_FETCH_FAILED
+        assert cli.main([site.url("/cake"), "--skip-markdown"]) == cli.EXIT_ERROR
 
     printed = capsys.readouterr().out
     assert "the site turned loupe away (HTTP 403, forbidden). Sites that block automated visitors" in printed
@@ -57,7 +57,7 @@ def test_the_bright_data_hint_links_to_a_real_readme_section() -> None:
 def test_robots_txt_is_obeyed_unless_the_user_says_the_page_is_theirs(capsys: pytest.CaptureFixture[str]) -> None:
     routes = {"/robots.txt": _robots("User-agent: *\nDisallow: /\n"), "/cake": html_route("<p>Cake</p>")}
     with serve_routes(routes) as site:
-        assert cli.main([site.url("/cake"), "--skip-markdown"]) == cli.EXIT_FETCH_FAILED
+        assert cli.main([site.url("/cake"), "--skip-markdown"]) == cli.EXIT_ERROR
         assert "its robots.txt asks loupe not to" in capsys.readouterr().out
         assert cli.main([site.url("/cake"), "--skip-markdown", "--ignore-robots"]) == cli.EXIT_OK
     assert site.requested() == ["/robots.txt", "/cake"]
@@ -68,7 +68,7 @@ def test_the_local_markdown_is_made_from_the_html_and_labelled_an_approximation(
 ) -> None:
     output_path = tmp_path / "local.json"
     with serve_routes({"/cake": html_route(planted_html)}) as site:
-        assert cli.main([site.url("/cake"), "--json-output", str(output_path)]) == cli.EXIT_OK
+        assert cli.main([site.url("/cake"), "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
     assert site.requested() == ["/robots.txt", "/cake"]
 
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))

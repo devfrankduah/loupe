@@ -80,7 +80,7 @@ def test_report_records_which_hidden_findings_reach_markdown(
     _install_fake_client(monkeypatch, FakeClient(planted_html, markdown))
     output_path = tmp_path / "report.json"
 
-    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     report = json.loads(output_path.read_text(encoding="utf-8"))
     (page,) = report
@@ -99,7 +99,7 @@ def test_markdown_failure_still_reports_html_findings_and_exits_nonzero(
 ) -> None:
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
 
-    assert cli.main(["https://example.com/cake"]) == cli.EXIT_FETCH_FAILED
+    assert cli.main(["https://example.com/cake"]) == cli.EXIT_ERROR
 
     printed = capsys.readouterr().out
     assert "markdown error" in printed
@@ -111,7 +111,7 @@ def test_skip_markdown_never_requests_markdown(
     monkeypatch: pytest.MonkeyPatch, planted_html: str
 ) -> None:
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
-    assert cli.main(["https://example.com/cake", "--skip-markdown"]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--skip-markdown"]) == cli.EXIT_FINDINGS
 
 
 def test_quoted_text_is_cut_to_the_requested_length(
@@ -216,7 +216,7 @@ def test_render_needs_no_token_when_markdown_is_skipped(
     output_path = tmp_path / "rendered.json"
 
     arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
-    assert cli.main([*arguments, "--json-output", str(output_path)]) == 0
+    assert cli.main([*arguments, "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert page["scan_mode"] == "rendered"
@@ -244,7 +244,7 @@ def test_rendered_findings_are_compared_with_the_markdown(monkeypatch: pytest.Mo
     _install_fake_client(monkeypatch, FakeClient("<p>unused</p>", markdown))
     output_path = tmp_path / "rendered.json"
 
-    assert cli.main(["https://example.com/cake", "--render", "--json-output", str(output_path)]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--render", "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     marked = _marked(json.loads(output_path.read_text(encoding="utf-8"))[0]["findings"])
     assert marked["CASE-CLIPPED"]["in_markdown"] is True
@@ -277,7 +277,7 @@ def test_a_page_that_fails_to_render_is_reported_and_exits_nonzero(
     output_path = tmp_path / "rendered.json"
 
     arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
-    assert cli.main([*arguments, "--json-output", str(output_path)]) == 1
+    assert cli.main([*arguments, "--json-output", str(output_path)]) == cli.EXIT_ERROR
 
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert page["error"] == {"kind": "render", "message": str(failure)}
@@ -325,7 +325,7 @@ def test_the_brightdata_backend_renders_through_the_endpoint(
     _install_fake_renderer(monkeypatch, renderer)
     output_path = tmp_path / "rendered.json"
 
-    assert cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json-output", str(output_path)]) == 0
+    assert cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     assert renderer.opened_with == [FAKE_ENDPOINT]
     assert [page["backend"] for page in json.loads(output_path.read_text(encoding="utf-8"))] == ["brightdata"]
@@ -342,7 +342,7 @@ def test_the_local_backend_never_uses_a_set_endpoint(
     output_path = tmp_path / "rendered.json"
 
     arguments = ["https://example.com/cake", "--backend", "local", "--render", "--skip-markdown", "--ignore-robots"]
-    assert cli.main([*arguments, "--json-output", str(output_path)]) == 0
+    assert cli.main([*arguments, "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     assert renderer.opened_with == [None]
     report = json.loads(output_path.read_text(encoding="utf-8"))
@@ -362,7 +362,7 @@ def test_an_endpoint_in_a_markup_scan_error_is_never_printed_or_saved(
     _install_fake_client(monkeypatch, LeakyClient("", None))
     output_path = tmp_path / "static.json"
 
-    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_FETCH_FAILED
+    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_ERROR
 
     printed = capsys.readouterr()
     saved = output_path.read_text(encoding="utf-8")
@@ -374,7 +374,7 @@ def test_ignore_robots_says_it_does_nothing_for_bright_data(
     monkeypatch: pytest.MonkeyPatch, planted_html: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
-    assert cli.main(["https://example.com/cake", "--skip-markdown", "--ignore-robots"]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--skip-markdown", "--ignore-robots"]) == cli.EXIT_FINDINGS
     assert "--ignore-robots only changes the local backend" in capsys.readouterr().err
 
 
@@ -385,10 +385,10 @@ def test_a_local_render_checks_robots_txt_before_the_browser_loads_the_page(
     _install_fake_renderer(monkeypatch, renderer)
     robots = Route(body=b"User-agent: *\nDisallow: /private\n", headers={"content-type": "text/plain"})
     with serve_routes({"/robots.txt": robots}) as site:
-        assert cli.main([site.url("/private/cake"), "--render", "--skip-markdown"]) == cli.EXIT_FETCH_FAILED
+        assert cli.main([site.url("/private/cake"), "--render", "--skip-markdown"]) == cli.EXIT_ERROR
         assert "its robots.txt asks loupe not to" in capsys.readouterr().out
         assert renderer.urls == []
-        assert cli.main([site.url("/private/cake"), "--render", "--skip-markdown", "--ignore-robots"]) == cli.EXIT_OK
+        assert cli.main([site.url("/private/cake"), "--render", "--skip-markdown", "--ignore-robots"]) == cli.EXIT_FINDINGS
     assert renderer.urls == [site.url("/private/cake")]
     assert site.requested() == ["/robots.txt"]
 
@@ -400,11 +400,11 @@ def test_a_blocked_render_points_to_bright_data_only_on_the_local_backend(
     _install_fake_renderer(monkeypatch, FakeRenderer(failure=blocked))
     arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
 
-    assert cli.main([*arguments, "--backend", "local"]) == cli.EXIT_FETCH_FAILED
+    assert cli.main([*arguments, "--backend", "local"]) == cli.EXIT_ERROR
     assert f"(HTTP 403, forbidden). {cli.BLOCKED_HINT}" in capsys.readouterr().out
 
     monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
-    assert cli.main([*arguments, "--backend", "brightdata"]) == cli.EXIT_FETCH_FAILED
+    assert cli.main([*arguments, "--backend", "brightdata"]) == cli.EXIT_ERROR
     printed = capsys.readouterr().out
     assert "(HTTP 403, forbidden)" in printed and cli.BLOCKED_HINT not in printed
 
@@ -415,7 +415,7 @@ def test_the_bright_data_render_path_is_unchanged_and_never_reads_robots_txt(mon
     _install_fake_renderer(monkeypatch, renderer)
     robots = Route(body=b"User-agent: *\nDisallow: /\n", headers={"content-type": "text/plain"})
     with serve_routes({"/robots.txt": robots}) as site:
-        assert cli.main([site.url("/cake"), "--render", "--skip-markdown"]) == cli.EXIT_OK
+        assert cli.main([site.url("/cake"), "--render", "--skip-markdown"]) == cli.EXIT_FINDINGS
     assert site.requested() == []
     assert renderer.urls == [site.url("/cake")]
 
@@ -426,7 +426,7 @@ def test_bright_data_markdown_is_labelled_with_its_source(
     _install_fake_client(monkeypatch, FakeClient(planted_html, "# Lemon cake"))
     output_path = tmp_path / "report.json"
 
-    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_FINDINGS
 
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert page["markdown_source"] == {
