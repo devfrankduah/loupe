@@ -107,10 +107,6 @@ jobs:
           render: sometimes
           artifact-name: loupe-invalid
 
-      - name: Download the uploaded results
-        uses: actions/download-artifact@v8
-        with:
-          path: downloaded
       - name: Check each outcome, exit code and results file
         env:
           OUTCOMES: >-
@@ -120,8 +116,8 @@ jobs:
             ${{ steps.invalid.outcome }} [${{ steps.invalid.outputs.exit-code }}]
           NEVER_RESULTS: ${{ steps.never.outputs.results }}
           RENDERED_RESULTS: ${{ steps.rendered.outputs.results }}
+          MISSING_RESULTS: ${{ steps.missing.outputs.results }}
         run: |
-          set -euo pipefail
           expected="success 0 failure 1 failure 2 failure []"
           if [ "$OUTCOMES" != "$expected" ]; then
             echo "Expected outcomes and exit codes '$expected', got '$OUTCOMES'."
@@ -131,23 +127,27 @@ jobs:
             echo "An input ran as a shell command."
             exit 1
           fi
-          cmp "$NEVER_RESULTS" downloaded/loupe-never/results.json
-          cmp "$RENDERED_RESULTS" downloaded/loupe-rendered/results.json
-          test -f downloaded/loupe-missing/results.json
-          test ! -e downloaded/loupe-invalid
-          python3 -I - "$NEVER_RESULTS" "$RENDERED_RESULTS" downloaded/loupe-missing/results.json <<'PY'
-          import json
-          import sys
+          python3 -I .github/scripts/check_action_results.py "$NEVER_RESULTS" "$RENDERED_RESULTS" "$MISSING_RESULTS"
 
-          never, rendered, missing = (json.load(open(path, encoding="utf-8")) for path in sys.argv[1:])
-          assert [(page["url"], page["scan_mode"], page["backend"]) for page in never] == [
-              ("http://127.0.0.1:8000/test-page/", "static", "local"),
-              ("http://127.0.0.1:8000/animated-page/", "static", "local"),
-          ], never
-          assert [page["instruction_like_count"] for page in never] == [3, 0]
-          (blender,) = rendered
-          assert (blender["scan_mode"], blender["instruction_like_count"]) == ("rendered", 5)
-          assert [page["error"]["kind"] for page in missing] == ["fetch", "fetch"]
-          assert all(page["schema_version"] == 1 for page in never + rendered + missing)
-          print("The action's results match the test pages.")
-          PY
+  # A separate job, because an artifact can take a moment to be listed after
+  # its upload finishes, and a download in the same job can miss it.
+  action-artifacts:
+    name: GitHub Action, the uploaded results
+    needs: action
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the uploaded results
+        uses: actions/download-artifact@v8
+        with:
+          path: downloaded
+      - name: Check one artifact per scan, with the results in it
+        run: |
+          found="$(cd downloaded && ls | tr '\n' ' ')"
+          if [ "$found" != "loupe-missing loupe-never loupe-rendered " ]; then
+            echo "Expected the loupe-missing, loupe-never and loupe-rendered artifacts, found: $found"
+            exit 1
+          fi
+          python3 -I .github/scripts/check_action_results.py \
+            downloaded/loupe-never/results.json downloaded/loupe-rendered/results.json downloaded/loupe-missing/results.json
