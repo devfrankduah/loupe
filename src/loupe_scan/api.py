@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Literal
+from urllib.parse import urlsplit
 
 from loupe_scan.backend import Backend
 from loupe_scan.report import (
@@ -29,8 +30,9 @@ from loupe_scan.report import (
     page_to_dict,
     verdict,
 )
+from loupe_scan.render import open_renderer
 from loupe_scan.scan import Kind, ScanMode
-from loupe_scan.session import ScanSession, ScanSettings, scrub_strings
+from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scan_supplied_html, scrub_strings
 
 BackendName = Literal["local", "brightdata"]
 FailOnName = Literal["instructions", "hidden", "never"]
@@ -208,3 +210,39 @@ def scan(
     """
     with Scanner(render=render, backend=backend, markdown=markdown, respect_robots=respect_robots) as scanner:
         return scanner.scan(url)
+
+
+def scan_html(html: str, url: str, *, render: bool = False, markdown: bool = True) -> ScanResult:
+    """Scan HTML you already have, as the page at url, without fetching anything.
+
+    Scan the HTML you're about to hand to a model, and a site that serves
+    agents something different from what loupe would have fetched can't slip
+    past. The markdown compared is made here from the same HTML.
+
+    url must be an http(s) URL. Without render it only names the page. With
+    render, local Chromium is given the HTML as the page at url, so relative
+    links resolve against it, and its stylesheets and scripts load from the
+    network; docs/python.md says how that can differ from a live load. It
+    needs the render extra and playwright install chromium.
+
+    Raises ScanError when the browser couldn't load it, SetupError when
+    rendering can't run here, and ValueError for a url that isn't http(s).
+    """
+    if not isinstance(html, str):
+        raise TypeError("html must be a str; decode bytes first, for example with the page's charset")
+    _require_web_url(url)
+    redact = endpoint_redactor(os.environ)
+    if not render:
+        return _result(scan_supplied_html(html, url, backend=Backend.LOCAL, markdown=markdown), redact)
+    with open_renderer(None) as renderer:
+        report = scan_supplied_html(html, url, backend=Backend.LOCAL, markdown=markdown, renderer=renderer)
+    return _result(report, redact)
+
+
+def _require_web_url(url: str) -> None:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        raise ValueError(f"not a valid URL: {url!r}") from None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError(f"url must be an http(s) URL with a host, not {url!r}")

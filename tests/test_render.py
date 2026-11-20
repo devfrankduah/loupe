@@ -166,10 +166,18 @@ class RecordingRender:
     browsers: list[FakeBrowser] = field(default_factory=list)
     redactors: list[Callable[[str], str]] = field(default_factory=list)
 
+    html: list[str | None] = field(default_factory=list)
+
     def __call__(
-        self, browser: FakeBrowser, url: str, settings: RenderSettings, redact: Callable[[str], str]
+        self,
+        browser: FakeBrowser,
+        url: str,
+        settings: RenderSettings,
+        redact: Callable[[str], str],
+        html: str | None,
     ) -> RenderedPage:
         self.browsers.append(browser)
+        self.html.append(html)
         self.redactors.append(redact)
         if self.failure is not None:
             raise self.failure
@@ -195,6 +203,22 @@ def test_the_browser_is_closed_when_rendering_fails() -> None:
     with pytest.raises(RenderError, match="HTTP 500"):
         Renderer(FakeLauncher(), None, RenderSettings(), render).render("https://a.test/")
     assert render.browsers[0].closed
+
+
+def test_the_renderer_passes_supplied_html_through_and_none_for_a_live_load() -> None:
+    render = RecordingRender()
+    renderer = Renderer(FakeLauncher(), None, RenderSettings(), render)
+    renderer.render_html("https://a.test/", "<p>Given.</p>")
+    renderer.render("https://a.test/")
+    assert render.html == ["<p>Given.</p>", None]
+
+
+def test_supplied_html_is_never_sent_to_a_remote_browser() -> None:
+    launcher = FakeLauncher()
+    render = RecordingRender()
+    with pytest.raises(RenderSetupError, match="local Chromium only"):
+        Renderer(launcher, ENDPOINT, RenderSettings(), render).render_html("https://a.test/", "<p>Given.</p>")
+    assert launcher.calls == [] and render.html == []
 
 
 def test_the_renderer_refuses_a_non_http_url_before_starting_a_browser() -> None:

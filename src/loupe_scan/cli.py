@@ -8,12 +8,14 @@ import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from loupe_scan._version import __version__
 from loupe_scan.backend import Backend
 from loupe_scan.errors import SetupError
 from loupe_scan.fetch import DEFAULT_UNLOCKER_ZONE, TOKEN_ENVIRONMENT_VARIABLE
-from loupe_scan.render import BROWSER_ENDPOINT_VARIABLE
+from loupe_scan.local_fetch import decode_html
+from loupe_scan.render import BROWSER_ENDPOINT_VARIABLE, open_renderer
 from loupe_scan.report import (
     DEFAULT_QUOTE_CHARACTERS,
     FailOn,
@@ -25,7 +27,7 @@ from loupe_scan.report import (
     summary_markdown,
     summary_table,
 )
-from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scrub_strings
+from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scan_supplied_html, scrub_strings
 from loupe_scan.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
 
 
@@ -68,6 +70,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "also scan the URLs in PATH, one per line, after any given above; blank lines and lines "
             "starting with # are skipped, and - reads standard input"
+        ),
+    )
+    parser.add_argument(
+        "--html-file",
+        metavar="PATH",
+        help=(
+            "scan the HTML saved in PATH as the page at the one URL given, without fetching it; - reads "
+            "standard input. With --render, local Chromium is given the HTML as the page at that URL"
         ),
     )
     parser.add_argument(
@@ -221,13 +231,59 @@ def _urls_to_scan(arguments: argparse.Namespace) -> list[str] | None:
     return unique
 
 
+def _html_file_url(arguments: argparse.Namespace) -> list[str] | None:
+    """The one URL a saved HTML file is scanned as, or None after explaining why the arguments don't give one."""
+    if arguments.urls_file is not None or len(arguments.urls) != 1:
+        _note("--html-file scans one page: give the one URL its HTML came from, and no --urls-file")
+        return None
+    (url,) = arguments.urls
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        parts = urlsplit("")
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        _note(f"--html-file needs the http(s) URL its HTML came from, not {url!r}")
+        return None
+    for given, option in ((arguments.backend is not None, "--backend"), (arguments.ignore_robots, "--ignore-robots")):
+        if given:
+            _note(f"{option} has no effect with --html-file, which fetches nothing")
+    return [url]
+
+
+def _read_html_file(name: str) -> str | None:
+    """The HTML in the file called name, or on standard input for -, or None after explaining why it can't be read."""
+    try:
+        body = sys.stdin.buffer.read() if name == "-" else Path(name).read_bytes()
+    except OSError as error:
+        _note(f"could not read {name}: {error.strerror or error}")
+        return None
+    # A saved page has no Content-Type header, so its charset comes from a byte order mark or the page itself.
+    return decode_html(body, "")
+
+
+def _scan_html_file(html: str, url: str, arguments: argparse.Namespace) -> PageReport:
+    markdown = not arguments.skip_markdown
+    if not arguments.render:
+        return scan_supplied_html(html, url, backend=Backend.LOCAL, markdown=markdown)
+    with open_renderer(None) as renderer:
+        return scan_supplied_html(html, url, backend=Backend.LOCAL, markdown=markdown, renderer=renderer)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     # A page URL always starts with a scheme, so a bare "report" can only be the subcommand.
     if raw_arguments[:1] == ["report"]:
         return report_main(raw_arguments[1:])
     arguments = _build_parser().parse_args(raw_arguments)
-    urls = _urls_to_scan(arguments)
+    html: str | None = None
+    if arguments.html_file is not None:
+        urls = _html_file_url(arguments)
+        if urls is not None:
+            html = _read_html_file(arguments.html_file)
+            if html is None:
+                return EXIT_USAGE
+    else:
+        urls = _urls_to_scan(arguments)
     if urls is None:
         return EXIT_USAGE
     # Everything printed or saved passes through this, a second guard after
@@ -241,17 +297,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         zone=arguments.zone,
     )
     pages: list[PageReport] = []
+
+    def report(page: PageReport) -> None:
+        pages.append(page)
+        if not arguments.json:
+            print(scrub(render_text(page, arguments.quote_chars)), flush=True)
+            print()
+
     try:
-        session = ScanSession(settings, environment=os.environ, on_note=_note)
-        if session.backend is Backend.BRIGHTDATA and arguments.ignore_robots:
-            _note("--ignore-robots only changes the local backend, so it has no effect here")
-        with session:
-            for url in urls:
-                page = session.scan(url)
-                pages.append(page)
-                if not arguments.json:
-                    print(scrub(render_text(page, arguments.quote_chars)), flush=True)
-                    print()
+        if html is not None:
+            report(_scan_html_file(html, urls[0], arguments))
+        else:
+            session = ScanSession(settings, environment=os.environ, on_note=_note)
+            if session.backend is Backend.BRIGHTDATA and arguments.ignore_robots:
+                _note("--ignore-robots only changes the local backend, so it has no effect here")
+            with session:
+                for url in urls:
+                    report(session.scan(url))
     except SetupError as error:
         message = scrub(f"loupe couldn't scan: {error}")
         print(scrub(f"loupe: {error}"), file=sys.stderr)

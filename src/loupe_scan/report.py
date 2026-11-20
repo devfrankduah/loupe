@@ -80,6 +80,8 @@ class PageReport:
     # Set for rendered scans that loaded the page.
     browser: BrowserSource | None = None
     rendered: RenderedPage | None = None
+    # True when loupe was given the HTML (scan_html, --html-file) rather than fetching the page itself.
+    supplied_html: bool = False
 
     @property
     def instruction_like(self) -> list[CheckedFinding]:
@@ -203,6 +205,7 @@ def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) 
         "verdict": verdict(page),
         "scan_mode": page.mode.value,
         "backend": page.backend.value,
+        "supplied_html": page.supplied_html,
         "error": _error_to_dict(page),
         "html_characters": page.html_characters,
         "markdown_characters": page.markdown_characters,
@@ -376,7 +379,8 @@ def _text_lines(page: PageReport, quote_limit: int) -> list[str]:
     markdown_size = "not fetched" if page.markdown_characters is None else f"{page.markdown_characters} chars"
     if page.markdown_source is not None:
         markdown_size += f" ({page.markdown_source.description})"
-    lines.append(f"  html: {page.html_characters} chars, markdown: {markdown_size}")
+    given = " given to loupe, not fetched" if page.supplied_html else ""
+    lines.append(f"  html: {page.html_characters} chars{given}, markdown: {markdown_size}")
     if page.markdown_error is not None:
         lines.append(f"  markdown error: {page.markdown_error}")
     if page.rendered is not None:

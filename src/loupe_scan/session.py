@@ -30,6 +30,7 @@ from loupe_scan.render import (
     SUPERSEDED_BY_RENDERING,
     EndpointRedactor,
     PageRenderer,
+    RenderedPage,
     RenderError,
     open_renderer,
     read_browser_endpoint,
@@ -105,6 +106,24 @@ def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, b
     return page
 
 
+def _check_rendered(page: PageReport, rendered: RenderedPage, markdown: MarkdownMaker | None) -> PageReport:
+    page.html_characters = len(rendered.html)
+    page.rendered = rendered
+    markdown_text = _markdown_for(markdown, page.url, rendered.html, page)
+    browser_findings = rendered_findings(rendered)
+    # When a given page tried to navigate, the browser may not have read all
+    # of its HTML, so the markup checks' guesses stay, except where the
+    # browser reported the same text itself.
+    judged = {finding.text for finding in browser_findings} if rendered.stopped_navigations else None
+    markup_findings = [
+        finding
+        for finding in scan_html(rendered.html)
+        if finding.kind not in SUPERSEDED_BY_RENDERING or (judged is not None and finding.text not in judged)
+    ]
+    page.findings = check_findings(markup_findings + browser_findings, markdown_text)
+    return page
+
+
 def scan_rendered_page(
     renderer: PageRenderer,
     markdown: MarkdownMaker | None,
@@ -127,12 +146,32 @@ def scan_rendered_page(
     except (PageFetchError, RenderError) as error:
         _record_failure(page, error, otherwise=FailureKind.RENDER)
         return page
-    page.html_characters = len(rendered.html)
-    page.rendered = rendered
-    markdown_text = _markdown_for(markdown, url, rendered.html, page)
-    markup_findings = [finding for finding in scan_html(rendered.html) if finding.kind not in SUPERSEDED_BY_RENDERING]
-    page.findings = check_findings(markup_findings + rendered_findings(rendered), markdown_text)
-    return page
+    return _check_rendered(page, rendered, markdown)
+
+
+def scan_supplied_html(
+    html: str, url: str, *, backend: Backend, markdown: bool, renderer: PageRenderer | None = None
+) -> PageReport:
+    """Scan HTML the caller already has, as the page at url, without fetching url.
+
+    The markdown is always made here from that same HTML, so what's compared
+    is what was scanned. With a renderer, the browser is given the HTML as the
+    page at url and loads its stylesheets and scripts from the network.
+    backend records where the HTML came from.
+    """
+    maker = local_markdown() if markdown else None
+    if renderer is None:
+        page = PageReport(url=url, backend=backend, supplied_html=True)
+        page.html_characters = len(html)
+        page.findings = check_findings(scan_html(html), _markdown_for(maker, url, html, page))
+        return page
+    page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source, supplied_html=True)
+    try:
+        rendered = renderer.render_html(url, html)
+    except RenderError as error:
+        _record_failure(page, error, otherwise=FailureKind.RENDER)
+        return page
+    return _check_rendered(page, rendered, maker)
 
 
 def scrub_strings(value: object, scrub: Callable[[str], str]) -> object:

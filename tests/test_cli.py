@@ -183,6 +183,9 @@ class FakeRenderer:
             raise self.failure
         return RENDERED_PAGE
 
+    def render_html(self, url: str, html: str) -> RenderedPage:
+        raise AssertionError("the command line scans fetched pages through render()")
+
     def redact(self, text: str) -> str:
         return EndpointRedactor(self.endpoint)(text)
 

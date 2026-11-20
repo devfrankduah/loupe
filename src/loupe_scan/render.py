@@ -77,6 +77,8 @@ _LABELLED_USERNAME_PART: Final[re.Pattern[str]] = re.compile(r"(?:^|-)(?:custome
 _WHOLE_TOKEN_BELOW: Final[int] = 8
 _ERROR_MESSAGE_LIMIT: Final[int] = 300
 _SCANNER: Final[str] = "loupeScanner"
+# How often to check a given page's readyState while waiting for it to load.
+_READY_POLL_MS: Final[float] = 100
 
 # Playwright resource types a remote run may skip to save bandwidth. They never
 # change whether text shows. Stylesheets do, so they can never be blocked.
@@ -236,6 +238,10 @@ class RenderedPage:
     static_comparison: tuple[StaticComparison, ...] = ()
     # The viewport the page reported (innerWidth, innerHeight), to confirm the requested size took effect.
     viewport: tuple[int, int] | None = None
+    # Navigations away from HTML loupe was given that it stopped. A page that
+    # navigates while it loads stops being parsed there, so the browser may
+    # not have drawn the rest of the HTML.
+    stopped_navigations: int = 0
 
 
 class PageRenderer(Protocol):
@@ -243,6 +249,10 @@ class PageRenderer(Protocol):
     def source(self) -> BrowserSource: ...
 
     def render(self, url: str) -> RenderedPage: ...
+
+    def render_html(self, url: str, html: str) -> RenderedPage:
+        """Load html in the browser as the page at url, without fetching url itself."""
+        ...
 
     def redact(self, text: str) -> str:
         """text with any part of the browser endpoint replaced by ENDPOINT_PLACEHOLDER."""
@@ -430,6 +440,34 @@ class _IsolatedWorld:
         # JSON is a valid JavaScript literal, so page text passes through as data, never as code.
         return self.evaluate(f"{_SCANNER}.{method}({json.dumps(data)})")
 
+
+
+class _SuppliedDocument:
+    """Serves the page's first navigation from HTML the caller already has, and holds the page on it.
+
+    Every later navigation of the main frame, from a script, a meta refresh
+    or a form, is answered 204 No Content, which a browser treats as "stay
+    on the current document". So the scan always reads the HTML it was given.
+    Subresources load from the network as usual.
+    """
+
+    def __init__(self, page: Page, html: str) -> None:
+        # Encoded once, replacing any lone surrogate a Python string can carry but UTF-8 can't.
+        self._body = html.encode("utf-8", errors="replace")
+        self.served = False
+        self.stopped_navigations = 0
+        page.route("**/*", self._route)
+
+    def _route(self, route: Route) -> None:
+        request = route.request
+        if not request.is_navigation_request() or request.frame.parent_frame is not None:
+            route.fallback()
+        elif not self.served:
+            self.served = True
+            route.fulfill(status=200, headers={"content-type": "text/html; charset=utf-8"}, body=self._body)
+        else:
+            self.stopped_navigations += 1
+            route.fulfill(status=204)
 
 
 class _PageTraffic:
@@ -653,6 +691,16 @@ def _wait_for(page: Page, state: Literal["load", "networkidle"], timeout_ms: flo
     return True
 
 
+def _wait_for_complete_document(page: Page, timeout_ms: float) -> bool:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    try:
+        page.wait_for_function("document.readyState === 'complete'", polling=_READY_POLL_MS, timeout=timeout_ms)
+    except PlaywrightTimeoutError:
+        return False
+    return True
+
+
 def _watching_world(session: CdpSender, candidates: Sequence[Finding]) -> _IsolatedWorld:
     world = _IsolatedWorld(session)
     world.evaluate(_scanner_source())
@@ -673,22 +721,20 @@ def _early_watching_world(session: CdpSender, candidates: Sequence[Finding]) -> 
         return None
 
 
-def _scan_loaded_page(page: Page, url: str, settings: RenderSettings, browser_version: str) -> RenderedPage:
+def _scan_loaded_page(
+    page: Page, url: str, settings: RenderSettings, browser_version: str, supplied_html: str | None
+) -> RenderedPage:
     # One CDP session, opened before navigation so that blocking and the
     # transfer count cover every request, also hosts the isolated world.
     session = page.context.new_cdp_session(page)
     try:
-        return _scan_with_session(page, session, url, settings, browser_version)
+        return _scan_with_session(page, session, url, settings, browser_version, supplied_html)
     finally:
         _detach_quietly(session)
 
 
-def _scan_with_session(
-    page: Page, session: CDPSession, url: str, settings: RenderSettings, browser_version: str
-) -> RenderedPage:
-    traffic = _PageTraffic(page, settings)
-
-    notes: list[str] = []
+def _served_html(page: Page, url: str, settings: RenderSettings) -> str:
+    """Load url and return the HTML the site served, raising PageBlockedError when it turned the browser away."""
     response = page.goto(url, wait_until="domcontentloaded", timeout=settings.navigation_timeout_ms)
     if response is None:
         raise RenderError("the browser got no response")
@@ -702,11 +748,44 @@ def _scan_with_session(
     challenge = blocked_by_content(html) if settings.stop_at_challenges else None
     if challenge is not None:
         raise PageBlockedError(f"the site turned loupe away ({challenge})")
+    return html
+
+
+def _scan_with_session(
+    page: Page,
+    session: CDPSession,
+    url: str,
+    settings: RenderSettings,
+    browser_version: str,
+    supplied_html: str | None,
+) -> RenderedPage:
+    traffic = _PageTraffic(page, settings)
+    # Registered after the traffic route, so it sees each request first.
+    supplied = None if supplied_html is None else _SuppliedDocument(page, supplied_html)
+
+    notes: list[str] = []
+    if supplied_html is None:
+        html = _served_html(page, url, settings)
+    else:
+        # A page that starts another navigation while it loads never fires
+        # its load event, even once that navigation is stopped, and Playwright
+        # then never reports the page as loaded. So a given page is waited on
+        # through its document's own readyState.
+        page.goto(url, wait_until="commit", timeout=settings.navigation_timeout_ms)
+        page.wait_for_function(
+            "document.readyState !== 'loading'", polling=_READY_POLL_MS, timeout=settings.navigation_timeout_ms
+        )
+        # The markup checks read exactly the HTML given, and it isn't checked
+        # for a challenge page, just as a markup-only scan of it isn't.
+        html = supplied_html
     candidates = static_candidates(html)
     # Watching starts before the page has finished loading, because text a
     # carousel shows and takes away again may be gone by the first check.
     early_world = _early_watching_world(session, candidates)
-    if not _wait_for(page, "load", settings.load_timeout_ms):
+    if supplied is not None:
+        if not _wait_for_complete_document(page, settings.load_timeout_ms):
+            notes.append(f"the page hadn't finished loading after {_seconds(settings.load_timeout_ms)}")
+    elif not _wait_for(page, "load", settings.load_timeout_ms):
         notes.append(f"the load event hadn't fired after {_seconds(settings.load_timeout_ms)}")
     if not _wait_for(page, "networkidle", settings.network_idle_timeout_ms):
         notes.append(
@@ -783,6 +862,13 @@ def _scan_with_session(
     )
     if problem is not None:
         raise RenderError(problem)
+    if supplied is not None and supplied.stopped_navigations:
+        times = "once" if supplied.stopped_navigations == 1 else f"{supplied.stopped_navigations} times"
+        notes.append(
+            f"the page tried to load another document {times}, and loupe kept it on the HTML it was given. "
+            "The browser may have stopped reading the HTML there, so the markup checks' findings are kept "
+            "where the browser didn't report the same text"
+        )
 
     return RenderedPage(
         final_url=page.url,
@@ -799,6 +885,7 @@ def _scan_with_session(
         centre_checks=centre_checks,
         static_comparison=comparison,
         viewport=result.viewport,
+        stopped_navigations=0 if supplied is None else supplied.stopped_navigations,
     )
 
 
@@ -817,7 +904,9 @@ def render_page(
     url: str,
     settings: RenderSettings,
     redact: Callable[[str], str] = EndpointRedactor(None),
+    supplied_html: str | None = None,
 ) -> RenderedPage:
+    """Load url in a new tab and scan it. With supplied_html, the tab is given that HTML as the page at url instead."""
     from playwright.sync_api import Error as PlaywrightError
 
     _require_http_url(url)
@@ -826,7 +915,7 @@ def render_page(
     except PlaywrightError as error:
         raise RenderError(redact(f"Rendering {url} failed: couldn't open a tab: {_first_line(error)}")) from None
     try:
-        return _scan_loaded_page(page, url, settings, browser.version)
+        return _scan_loaded_page(page, url, settings, browser.version, supplied_html)
     except PageBlockedError as error:
         raise PageBlockedError(redact(f"Rendering {url} failed: {_first_line(error)}")) from None
     except (PlaywrightError, RenderError) as error:
@@ -843,7 +932,7 @@ class Renderer(Generic[BrowserT]):
         launcher: BrowserLauncher[BrowserT],
         endpoint: str | None,
         settings: RenderSettings,
-        render_in: Callable[[BrowserT, str, RenderSettings, Callable[[str], str]], RenderedPage],
+        render_in: Callable[[BrowserT, str, RenderSettings, Callable[[str], str], str | None], RenderedPage],
     ) -> None:
         self._launcher = launcher
         self._endpoint = endpoint
@@ -862,13 +951,23 @@ class Renderer(Generic[BrowserT]):
         return self._redact(text)
 
     def render(self, url: str) -> RenderedPage:
+        return self._render(url, None)
+
+    def render_html(self, url: str, html: str) -> RenderedPage:
+        if self._endpoint is not None:
+            # Serving a page from here needs request interception, which
+            # hasn't been tried against a remote browser.
+            raise RenderSetupError("HTML loupe is given renders in local Chromium only")
+        return self._render(url, html)
+
+    def _render(self, url: str, html: str | None) -> RenderedPage:
         _require_http_url(url)
         # A fresh browser per page keeps one site's state from reaching the
         # next, and doesn't rely on a remote session allowing more than one
         # navigation.
         browser = acquire_browser(self._launcher, self._endpoint, self._settings)
         try:
-            return self._render_in(browser, url, self._settings, self._redact)
+            return self._render_in(browser, url, self._settings, self._redact, html)
         finally:
             _close_quietly(browser)
 

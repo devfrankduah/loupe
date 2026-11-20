@@ -122,13 +122,14 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 ## Other ways to run it
 
 - [Use in CI](docs/ci.md): the GitHub Action, with a workflow that scans your site after each deploy and fails when a page hides instructions.
-- [Use from Python](docs/python.md): `scan()` and `Scanner`, typed, with an example of checking a page before handing it to a model.
+- [Use from Python](docs/python.md): `scan()`, `scan_html()` and `Scanner`, typed, with an example of checking a page before handing it to a model.
 - [Scan many pages](docs/many-pages.md): `--urls-file`, the summary table, and how loupe paces its requests to each site.
 
 ## Options
 
 - `--render` loads each page in a browser and checks what actually shows.
 - `--urls-file PATH` scans the URLs listed in PATH too, one per line, and `-` reads them from standard input. Several pages end with a summary table, and [docs/many-pages.md](docs/many-pages.md) has the rest.
+- `--html-file PATH URL` scans the HTML saved in PATH as the page at URL and fetches nothing, so it checks the exact copy an agent got. `-` reads it from standard input. [docs/python.md](docs/python.md#scan-html-you-already-have) says how a rendered scan of it can differ from a live load.
 - `--skip-markdown` scans the HTML only and skips the markdown comparison.
 - `--backend local` or `--backend brightdata` picks where pages come from. Without it, loupe uses Bright Data when either of its values is set, and your machine otherwise.
 - `--ignore-robots` fetches pages even where robots.txt asks loupe not to. Use it only for pages you own or have permission to scan.

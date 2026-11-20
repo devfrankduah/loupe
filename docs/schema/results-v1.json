@@ -52,6 +52,10 @@
           "description": "static: the markup only. rendered: loaded in a browser with --render."
         },
         "backend": { "enum": ["local", "brightdata"] },
+        "supplied_html": {
+          "type": "boolean",
+          "description": "true when loupe was given the HTML (scan_html in Python, or --html-file) instead of fetching the page. Added in version 1, so a reader should treat it as false when it's missing."
+        },
         "error": {
           "description": "Why the page wasn't scanned, or null when it was. A page with an error has no findings.",
           "oneOf": [

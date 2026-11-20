@@ -24,6 +24,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 | `verdict` | string | The plain-English first line of the text output. |
 | `scan_mode` | `"static"` or `"rendered"` | `static` read the markup only; `rendered` loaded the page in a browser with `--render`. |
 | `backend` | `"local"` or `"brightdata"` | Where the page was loaded from. |
+| `supplied_html` | boolean | true when loupe was given the HTML (`scan_html()` in Python, or `--html-file`) and fetched nothing. Treat it as false when it's missing. |
 | `error` | object or null | Why the page wasn't scanned, or null when it was. A page with an error has no findings. |
 | `error.kind` | string | `blocked`: the site answered 403 or 429, or served a challenge page. `robots`: robots.txt asked loupe not to fetch the page, or couldn't be read. `fetch`: any other failure to fetch it. `render`: any other failure to load it in the browser. |
 | `error.message` | string | What went wrong, in detail. |

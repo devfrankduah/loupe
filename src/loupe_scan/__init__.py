@@ -9,7 +9,7 @@ docs/python.md describes the API.
 """
 
 from loupe_scan._version import __version__
-from loupe_scan.api import HiddenText, Scanner, ScanError, ScanResult, scan
+from loupe_scan.api import HiddenText, Scanner, ScanError, ScanResult, scan, scan_html
 from loupe_scan.backend import Backend
 from loupe_scan.errors import SetupError
 from loupe_scan.report import FailOn, FailureKind
@@ -28,4 +28,5 @@ __all__ = [
     "SetupError",
     "__version__",
     "scan",
+    "scan_html",
 ]
