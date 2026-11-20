@@ -21,6 +21,7 @@ from loupe_scan.report import (
     findings_counted,
     page_to_dict,
     render_text,
+    summary_table,
 )
 from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scrub_strings
 from loupe_scan.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
@@ -58,7 +59,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "See loupe report --help."
         ),
     )
-    parser.add_argument("urls", nargs="+", metavar="url", help="page to fetch and scan")
+    parser.add_argument("urls", nargs="*", metavar="url", help="page to fetch and scan")
+    parser.add_argument(
+        "--urls-file",
+        metavar="PATH",
+        help=(
+            "also scan the URLs in PATH, one per line, after any given above; blank lines and lines "
+            "starting with # are skipped, and - reads standard input"
+        ),
+    )
     parser.add_argument(
         "--backend",
         type=Backend,
@@ -168,12 +177,48 @@ def _note(message: str) -> None:
     print(f"loupe: {message}", file=sys.stderr, flush=True)
 
 
+def _read_urls_file(name: str) -> list[str]:
+    """The URLs listed in the file called name, or on standard input for -. Raises OSError or UnicodeDecodeError."""
+    if name == "-":
+        text = sys.stdin.read()
+    else:
+        # utf-8-sig, so a file saved with a byte order mark reads the same as one without.
+        text = Path(name).read_text(encoding="utf-8-sig")
+    lines = (line.strip() for line in text.splitlines())
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def _urls_to_scan(arguments: argparse.Namespace) -> list[str] | None:
+    """Every URL to scan, each once, in the order given, or None after explaining why there are none."""
+    urls: list[str] = list(arguments.urls)
+    if arguments.urls_file is not None:
+        try:
+            urls.extend(_read_urls_file(arguments.urls_file))
+        except OSError as error:
+            _note(f"could not read {arguments.urls_file}: {error.strerror or error}")
+            return None
+        except UnicodeDecodeError:
+            _note(f"could not read {arguments.urls_file}: it isn't UTF-8 text")
+            return None
+    if not urls:
+        _note("give at least one URL to scan, or a file of them with --urls-file")
+        return None
+    unique = list(dict.fromkeys(urls))
+    if len(unique) < len(urls):
+        repeats = len(urls) - len(unique)
+        _note(f"scanning each URL once: {repeats:,} {'repeat was' if repeats == 1 else 'repeats were'} left out")
+    return unique
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     # A page URL always starts with a scheme, so a bare "report" can only be the subcommand.
     if raw_arguments[:1] == ["report"]:
         return report_main(raw_arguments[1:])
     arguments = _build_parser().parse_args(raw_arguments)
+    urls = _urls_to_scan(arguments)
+    if urls is None:
+        return EXIT_USAGE
     # Everything printed or saved passes through this, a second guard after
     # the one around each error, so no part of the endpoint gets out.
     scrub = endpoint_redactor(os.environ)
@@ -190,7 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if session.backend is Backend.BRIGHTDATA and arguments.ignore_robots:
             _note("--ignore-robots only changes the local backend, so it has no effect here")
         with session:
-            for url in arguments.urls:
+            for url in urls:
                 page = session.scan(url)
                 pages.append(page)
                 if not arguments.json:
@@ -199,6 +244,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SetupError as error:
         print(scrub(f"loupe: {error}"), file=sys.stderr)
         return EXIT_USAGE
+    if len(pages) > 1 and not arguments.json:
+        print(scrub(summary_table(pages)), flush=True)
 
     results = scrub_strings([page_to_dict(page, arguments.quote_chars) for page in pages], scrub)
     if arguments.json:

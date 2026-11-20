@@ -122,6 +122,7 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 ## Options
 
 - `--render` loads each page in a browser and checks what actually shows.
+- `--urls-file PATH` scans the URLs listed in PATH too, one per line, and `-` reads them from standard input. Several pages end with a summary table, and [docs/many-pages.md](docs/many-pages.md) has the rest.
 - `--skip-markdown` scans the HTML only and skips the markdown comparison.
 - `--backend local` or `--backend brightdata` picks where pages come from. Without it, loupe uses Bright Data when either of its values is set, and your machine otherwise.
 - `--ignore-robots` fetches pages even where robots.txt asks loupe not to. Use it only for pages you own or have permission to scan.

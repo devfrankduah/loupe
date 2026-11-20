@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -38,6 +38,12 @@ class RouteSite:
     routes: dict[str, Route]
     # (path, request headers) for every request, in order.
     requests: list[tuple[str, dict[str, str]]] = field(default_factory=list)
+    # The most requests the server was answering at the same moment. A
+    # request counts until just before its last byte is sent, so a client
+    # can't start its next request while the last one still counts.
+    most_at_once: int = 0
+    _answering: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def url(self, path: str) -> str:
         return f"{self.base_url}{path}"
@@ -53,7 +59,24 @@ def serve_routes(routes: dict[str, Route]) -> Iterator[RouteSite]:
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            site.requests.append((self.path, {key.lower(): value for key, value in self.headers.items()}))
+            with site._lock:
+                site.requests.append((self.path, {key.lower(): value for key, value in self.headers.items()}))
+                site._answering += 1
+                site.most_at_once = max(site.most_at_once, site._answering)
+            answering = [True]
+
+            def finished() -> None:
+                with site._lock:
+                    if answering[0]:
+                        site._answering -= 1
+                        answering[0] = False
+
+            try:
+                self._answer(finished)
+            finally:
+                finished()
+
+        def _answer(self, finished: Callable[[], None]) -> None:
             route = site.routes.get(self.path, Route(status=404, body=b"not found"))
             if route.delay_seconds:
                 time.sleep(route.delay_seconds)
@@ -65,11 +88,16 @@ def serve_routes(routes: dict[str, Route]) -> Iterator[RouteSite]:
             self.end_headers()
             try:
                 if route.drip_bytes:
-                    for start in range(0, len(route.body), route.drip_bytes):
+                    starts = range(0, len(route.body), route.drip_bytes)
+                    for index, start in enumerate(starts):
+                        if index:
+                            time.sleep(route.drip_seconds)
+                        if index == len(starts) - 1:
+                            finished()
                         self.wfile.write(route.body[start : start + route.drip_bytes])
                         self.wfile.flush()
-                        time.sleep(route.drip_seconds)
                 else:
+                    finished()
                     self.wfile.write(route.body)
             except (BrokenPipeError, ConnectionResetError):
                 # The client gave up part way, which is what some tests check for.

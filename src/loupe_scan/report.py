@@ -306,6 +306,36 @@ def verdict(page: PageReport) -> str:
     return f"{_instruction_sentence(page)} {total}"
 
 
+_UNSCANNED_RESULTS: Final[dict[FailureKind, str]] = {
+    FailureKind.BLOCKED: "blocked",
+    FailureKind.ROBOTS: "robots.txt",
+    FailureKind.FETCH: "not fetched",
+    FailureKind.RENDER: "not loaded",
+}
+_SUMMARY_HEADER: Final[tuple[str, ...]] = ("result", "hidden", "instructions", "instructions in markdown", "url")
+
+
+def _summary_row(page: PageReport) -> tuple[str, ...]:
+    if page.html_error is not None:
+        result = _UNSCANNED_RESULTS[FailureKind.FETCH if page.failure is None else page.failure]
+        return (result, "-", "-", "-", page.url)
+    flagged = page.instruction_like
+    result = "instructions" if flagged else "hidden text" if page.findings else "clean"
+    reached = "-" if page.markdown_characters is None else f"{sum(item.in_markdown is True for item in flagged):,}"
+    return (result, f"{len(page.findings):,}", f"{len(flagged):,}", reached, page.url)
+
+
+def summary_table(pages: list[PageReport]) -> str:
+    """One line per page: what was found, as counts, then the URL. Safe to print to a terminal."""
+    rows = [_SUMMARY_HEADER, *(_summary_row(page) for page in pages)]
+    widths = [max(len(row[column]) for row in rows) for column in range(len(_SUMMARY_HEADER) - 1)]
+    lines = [f"Summary of {len(pages):,} pages:"]
+    for row in rows:
+        cells = [row[0].ljust(widths[0]), *(row[column].rjust(widths[column]) for column in range(1, len(widths)))]
+        lines.append("  " + "  ".join([*cells, row[-1]]))
+    return "\n".join(printable(line) for line in lines)
+
+
 def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> str:
     """The plain-text summary of one page, safe to print to a terminal."""
     return "\n".join(printable(line) for line in _text_lines(page, quote_limit))
