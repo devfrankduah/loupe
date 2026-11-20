@@ -1,0 +1,92 @@
+"""A small HTTP server on 127.0.0.1 whose answer for each path is set by the test."""
+
+from __future__ import annotations
+
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+@dataclass(frozen=True)
+class Route:
+    status: int = 200
+    body: bytes = b""
+    headers: dict[str, str] = field(default_factory=lambda: {"content-type": "text/html; charset=utf-8"})
+    # Send Content-Length. Without it the body ends when the connection closes.
+    declare_length: bool = True
+    # Wait this long before answering at all.
+    delay_seconds: float = 0.0
+    # Send the body in pieces of this many bytes with this pause between them.
+    drip_bytes: int = 0
+    drip_seconds: float = 0.0
+
+
+def html_route(html: str, *, status: int = 200, headers: dict[str, str] | None = None) -> Route:
+    return Route(
+        status=status,
+        body=html.encode("utf-8"),
+        headers={"content-type": "text/html; charset=utf-8"} if headers is None else headers,
+    )
+
+
+@dataclass
+class RouteSite:
+    base_url: str
+    routes: dict[str, Route]
+    # (path, request headers) for every request, in order.
+    requests: list[tuple[str, dict[str, str]]] = field(default_factory=list)
+
+    def url(self, path: str) -> str:
+        return f"{self.base_url}{path}"
+
+    def requested(self) -> list[str]:
+        return [path for path, _ in self.requests]
+
+
+@contextmanager
+def serve_routes(routes: dict[str, Route]) -> Iterator[RouteSite]:
+    """Serve routes until the block ends. Any other path answers 404."""
+    site = RouteSite(base_url="", routes=routes)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            site.requests.append((self.path, {key.lower(): value for key, value in self.headers.items()}))
+            route = site.routes.get(self.path, Route(status=404, body=b"not found"))
+            if route.delay_seconds:
+                time.sleep(route.delay_seconds)
+            self.send_response(route.status)
+            for name, value in route.headers.items():
+                self.send_header(name, value)
+            if route.declare_length:
+                self.send_header("content-length", str(len(route.body)))
+            self.end_headers()
+            try:
+                if route.drip_bytes:
+                    for start in range(0, len(route.body), route.drip_bytes):
+                        self.wfile.write(route.body[start : start + route.drip_bytes])
+                        self.wfile.flush()
+                        time.sleep(route.drip_seconds)
+                else:
+                    self.wfile.write(route.body)
+            except (BrokenPipeError, ConnectionResetError):
+                # The client gave up part way, which is what some tests check for.
+                pass
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    site.base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    # A short poll interval keeps each test from waiting half a second to shut the server down.
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+    thread.start()
+    try:
+        yield site
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()

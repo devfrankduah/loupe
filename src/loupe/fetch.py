@@ -21,6 +21,7 @@ from typing import Final, Protocol, Union
 import requests
 
 from loupe import __version__
+from loupe.errors import PageFetchError
 
 TOKEN_ENVIRONMENT_VARIABLE: Final[str] = "BRIGHTDATA_API_TOKEN"
 API_BASE_URL: Final[str] = "https://api.brightdata.com"
@@ -54,8 +55,8 @@ class HttpSession(Protocol):
     ) -> requests.Response: ...
 
 
-class BrightDataError(RuntimeError):
-    """A fetch failed. The message is safe to print."""
+class BrightDataError(PageFetchError):
+    """A Bright Data request failed. The message is safe to print."""
 
 
 class MissingTokenError(BrightDataError):

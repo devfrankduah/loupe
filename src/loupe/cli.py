@@ -8,10 +8,11 @@ import os
 import sys
 from pathlib import Path
 from collections.abc import Callable, Mapping
-from typing import Sequence
+from typing import Final, Protocol, Sequence
 
 from loupe import __version__
 from loupe.backend import Backend, choose_backend
+from loupe.errors import BlockedError, PageFetchError
 from loupe.fetch import (
     DEFAULT_UNLOCKER_ZONE,
     TOKEN_ENVIRONMENT_VARIABLE,
@@ -20,6 +21,7 @@ from loupe.fetch import (
     MissingTokenError,
     read_token_from_environment,
 )
+from loupe.local_fetch import REPOSITORY_URL, LocalFetcher
 from loupe.render import (
     BROWSER_ENDPOINT_VARIABLE,
     ENDPOINT_PLACEHOLDER,
@@ -39,6 +41,13 @@ from loupe.site import PageRecord, ReportFormatError, load_results, render_repor
 EXIT_OK = 0
 EXIT_FETCH_FAILED = 1
 EXIT_USAGE = 2
+
+# The README section on the Bright Data backend, for sites that turn loupe away.
+BRIGHT_DATA_SECTION: Final[str] = "sites-that-block-bots-and-scanning-at-scale"
+BLOCKED_HINT: Final[str] = (
+    "Sites that block automated visitors can be scanned through the Bright Data backend: "
+    f"{REPOSITORY_URL}#{BRIGHT_DATA_SECTION}"
+)
 
 
 def _non_negative_int(value: str) -> int:
@@ -94,6 +103,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--ignore-robots",
+        action="store_true",
+        help=(
+            "fetch pages even where robots.txt asks loupe not to, for pages you own or have permission "
+            "to scan (local backend only)"
+        ),
+    )
+    parser.add_argument(
         "--quote-chars",
         type=_non_negative_int,
         default=DEFAULT_QUOTE_CHARACTERS,
@@ -116,15 +133,29 @@ def _fetch_markdown(client: BrightDataClient | None, url: str, page: PageReport)
     return markdown
 
 
-def scan_page(client: BrightDataClient, url: str, *, fetch_markdown: bool) -> PageReport:
-    page = PageReport(url=url, backend=Backend.BRIGHTDATA)
+class HtmlSource(Protocol):
+    def fetch_html(self, url: str) -> str: ...
+
+
+def _fetch_failure(error: PageFetchError, backend: Backend) -> str:
+    """The error to report, pointing to Bright Data when a site blocked the local backend."""
+    if isinstance(error, BlockedError) and backend is Backend.LOCAL:
+        return f"{error}. {BLOCKED_HINT}"
+    return str(error)
+
+
+def scan_page(
+    source: HtmlSource, markdown_client: BrightDataClient | None, url: str, *, backend: Backend
+) -> PageReport:
+    """Fetch url's HTML from source and scan the markup. Markdown is compared only when a client is given."""
+    page = PageReport(url=url, backend=backend)
     try:
-        html = client.fetch_html(url)
-    except BrightDataError as error:
-        page.html_error = str(error)
+        html = source.fetch_html(url)
+    except PageFetchError as error:
+        page.html_error = _fetch_failure(error, backend)
         return page
     page.html_characters = len(html)
-    markdown = _fetch_markdown(client if fetch_markdown else None, url, page)
+    markdown = _fetch_markdown(markdown_client, url, page)
     page.findings = check_findings(scan_html(html), markdown)
     return page
 
@@ -211,6 +242,10 @@ def _client_from_environment(zone: str) -> BrightDataClient | None:
     return None
 
 
+def _note(message: str) -> None:
+    print(f"loupe: {message}", file=sys.stderr, flush=True)
+
+
 def _endpoint_redactor(environment: Mapping[str, str]) -> Callable[[str], str]:
     """Hides any part of the Browser API endpoint, if one is set, whichever backend runs."""
     value = environment.get(BROWSER_ENDPOINT_VARIABLE, "").strip()
@@ -232,13 +267,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     # the one around each error, so no part of the endpoint gets out.
     scrub = _endpoint_redactor(os.environ)
 
-    if backend is Backend.LOCAL and not arguments.render:
-        print(
-            "loupe: the local backend can't fetch HTML in this version; run a rendered scan with --render "
-            f"--skip-markdown, or set {TOKEN_ENVIRONMENT_VARIABLE} to use Bright Data",
-            file=sys.stderr,
-        )
-        return EXIT_USAGE
     if backend is Backend.LOCAL and not arguments.skip_markdown:
         print(
             "loupe: the local backend can't make markdown in this version; add --skip-markdown, or set "
@@ -253,6 +281,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         client = _client_from_environment(arguments.zone)
         if client is None:
             return EXIT_USAGE
+    if backend is Backend.BRIGHTDATA and arguments.ignore_robots:
+        print("loupe: --ignore-robots only changes the local backend, so it has no effect here", file=sys.stderr)
 
     pages: list[PageReport] = []
 
@@ -270,9 +300,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         except RenderSetupError as error:
             print(scrub(f"loupe: {error}"), file=sys.stderr)
             return EXIT_USAGE
-    elif client is not None:
+    elif backend is Backend.LOCAL:
+        fetcher = LocalFetcher(respect_robots=not arguments.ignore_robots, on_wait=_note)
         for url in arguments.urls:
-            record(scan_page(client, url, fetch_markdown=not arguments.skip_markdown))
+            record(scan_page(fetcher, None, url, backend=backend))
+    elif client is not None:
+        markdown_client = None if arguments.skip_markdown else client
+        for url in arguments.urls:
+            record(scan_page(client, markdown_client, url, backend=backend))
 
     if arguments.json is not None:
         report = {

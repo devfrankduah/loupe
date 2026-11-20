@@ -26,7 +26,7 @@ playwright install chromium
 loupe --render --skip-markdown https://devfrankduah.github.io/loupe/test-page/
 ```
 
-That loads the test page in a local Chromium and reports the text that never showed. To check what reaches the markdown as well, add a Bright Data API token as [Credentials](#credentials) describes and drop `--skip-markdown`. Pages that turn away automated browsers need the Browser API endpoint too. Without `--render`, loupe fetches the HTML through Bright Data and reads the markup only, which is faster and needs no browser.
+That loads the test page in a local Chromium and reports the text that never showed. To check what reaches the markdown as well, add a Bright Data API token as [Sites that block bots and scanning at scale](#sites-that-block-bots-and-scanning-at-scale) describes and drop `--skip-markdown`. Pages that turn away automated browsers need the Browser API endpoint too. Without `--render`, loupe fetches the HTML and reads the markup only, which is faster and needs no browser.
 
 In each new terminal, run `source .venv/bin/activate` again before using loupe.
 
@@ -79,9 +79,9 @@ The kinds of finding:
 
 A long list of findings is normal. Most are menus, link titles and meta tags. Start with the instruction-like ones, then look at hidden text that reaches the markdown, since an agent reading the markdown gets all of it. Pages that fade content in as you scroll look full of hidden text to the markup scan. [The animated test page](https://devfrankduah.github.io/loupe/animated-page/) is made of those false alarms, and `--render` clears every one.
 
-## Credentials
+## Sites that block bots and scanning at scale
 
-loupe reads two values from the environment. Every scan that fetches through Bright Data needs an API token. Rendered scans through Bright Data's Browser API also need its endpoint; without it, `--render` uses local Chromium.
+Some sites turn automated visitors away, and loupe says so when one does. For those, and for scanning many pages, loupe can fetch through Bright Data instead. loupe reads two values from the environment. Every scan that fetches through Bright Data needs an API token. Rendered scans through Bright Data's Browser API also need its endpoint; without it, `--render` uses local Chromium.
 
 To get an API token (Bright Data's guide: [Authentication](https://docs.brightdata.com/api-reference/authentication)):
 
@@ -117,6 +117,8 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 - `--quote-chars N` cuts quoted hidden text to N characters (default 160, 0 for no limit).
 - `--skip-markdown` scans the HTML only and skips the markdown comparison.
 - `--zone NAME` picks the Web Unlocker zone (default `mcp_unlocker`).
+- `--backend local` or `--backend brightdata` picks where pages come from. Without it, loupe uses Bright Data when either of its values is set, and this machine otherwise.
+- `--ignore-robots` fetches pages even where robots.txt asks loupe not to. Use it only for pages you own or have permission to scan.
 - `--render` loads each page in a browser and checks what actually shows. With `--skip-markdown` as well, it needs no Bright Data token at all.
 
 The exit code is 0 when every fetch worked, 1 when any fetch failed, and 2 for usage errors such as a missing token. loupe reads the token from `BRIGHTDATA_API_TOKEN` and never prints or saves it, and it never prints any part of the Browser API endpoint.

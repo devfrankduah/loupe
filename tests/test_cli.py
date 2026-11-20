@@ -40,11 +40,10 @@ def test_the_brightdata_backend_without_a_token_is_a_usage_error(capsys: pytest.
     assert "BRIGHTDATA_API_TOKEN" in error and "--backend local" in error
 
 
-def test_with_no_credentials_the_local_backend_runs_rendered_scans_only(capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.main(["https://example.com/"]) == cli.EXIT_USAGE
-    assert "the local backend can't fetch HTML" in capsys.readouterr().err
-    assert cli.main(["https://example.com/", "--render"]) == cli.EXIT_USAGE
-    assert "the local backend can't make markdown" in capsys.readouterr().err
+def test_with_no_credentials_the_local_backend_needs_skip_markdown(capsys: pytest.CaptureFixture[str]) -> None:
+    for arguments in (["https://example.com/"], ["https://example.com/", "--render"]):
+        assert cli.main(arguments) == cli.EXIT_USAGE
+        assert "the local backend can't make markdown" in capsys.readouterr().err
 
 
 def test_an_unknown_backend_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
@@ -363,3 +362,11 @@ def test_an_endpoint_in_a_markup_scan_error_is_never_printed_or_saved(
     saved = output_path.read_text(encoding="utf-8")
     for part in ("browser.invalid", "hl_0000fake", "not-a-real-password", "brd-customer"):
         assert part not in printed.out and part not in printed.err and part not in saved
+
+
+def test_ignore_robots_says_it_does_nothing_for_bright_data(
+    monkeypatch: pytest.MonkeyPatch, planted_html: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _install_fake_client(monkeypatch, FakeClient(planted_html, None))
+    assert cli.main(["https://example.com/cake", "--skip-markdown", "--ignore-robots"]) == cli.EXIT_OK
+    assert "--ignore-robots only changes the local backend" in capsys.readouterr().err

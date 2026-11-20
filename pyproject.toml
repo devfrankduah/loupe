@@ -12,7 +12,11 @@ authors = [{ name = "Frank Duah" }]
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.31",
+    # read1, which the local fetch uses to enforce its time limit, arrived in urllib3 2.2.
+    "urllib3>=2.2",
     "beautifulsoup4>=4.12",
+    # robots.txt for the local backend, with RFC 9309 wildcards.
+    "protego>=0.4",
 ]
 
 [project.optional-dependencies]

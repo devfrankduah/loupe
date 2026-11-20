@@ -4,7 +4,17 @@ This is the detail behind the README's short version: what loupe sends to Bright
 
 ## How pages are fetched
 
-loupe has two backends. The local backend loads pages from this machine and needs no account. The Bright Data backend uses Bright Data's APIs. Without `--backend`, loupe uses Bright Data when `BRIGHTDATA_API_TOKEN` or `BRIGHTDATA_BROWSER_WSS` is set and the local backend when neither is, and every page's output and JSON say which one ran. In this version the local backend runs rendered scans with `--skip-markdown` only.
+loupe has two backends. The local backend loads pages from this machine and needs no account. The Bright Data backend uses Bright Data's APIs. Without `--backend`, loupe uses Bright Data when `BRIGHTDATA_API_TOKEN` or `BRIGHTDATA_BROWSER_WSS` is set and the local backend when neither is, and every page's output and JSON say which one ran. In this version the local backend doesn't make markdown, so it needs `--skip-markdown`.
+
+### The local backend
+
+A markup scan on the local backend fetches the HTML with one GET per page, sent as `loupe/0.1.0 (+https://github.com/devfrankduah/loupe)` so a site can see who's asking. It gives up after 10 seconds connecting, 30 seconds without data or about 60 seconds in all, follows at most 5 redirects and stops reading at 10 MB. A page that isn't HTML, such as a PDF, is an error.
+
+Before each request, including each redirect, loupe reads the site's robots.txt (once per site per run) and obeys it, using [Protego](https://github.com/scrapy/protego) for the `*` and `$` patterns of RFC 9309. Following RFC 9309, a robots.txt that's missing or answers with a 4xx allows everything, and one that can't be read (a 5xx, a 429 or a network error) disallows everything. A `Crawl-delay` is waited out between requests to the same site, up to 30 seconds; a longer one stops the second page from that site. `--ignore-robots` skips all of this, for pages you own or have permission to scan.
+
+A 403, a 429, Cloudflare's `cf-mitigated: challenge` header or a page titled like Cloudflare's challenge pages counts as the site turning loupe away. The error then points to the Bright Data backend, which gets past most of those blocks.
+
+### The Bright Data backend
 
 For the Bright Data backend, loupe sends the same requests that Bright Data's own MCP server ([brightdata-mcp](https://github.com/brightdata/brightdata-mcp), version 4.3.0) sends for its two scraping tools:
 
