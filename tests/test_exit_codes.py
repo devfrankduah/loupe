@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from loupe_scan import cli
+from loupe_scan import cli, session
 from loupe_scan.convert import ConversionError
 
 from .route_site import Route, RouteSite, html_route, serve_routes
@@ -72,7 +72,7 @@ def test_a_markdown_failure_exits_2_though_the_page_itself_was_scanned(
     def fail(url: str, html: str) -> str:
         raise ConversionError(f"Converting {url} to markdown failed (RecursionError)")
 
-    monkeypatch.setattr(cli, "html_to_markdown", fail)
+    monkeypatch.setattr(session, "html_to_markdown", fail)
     assert cli.main([site.url("/comment"), "--fail-on", "never", "--json"]) == cli.EXIT_ERROR
     (page,) = json.loads(capsys.readouterr().out)
     assert page["error"] is None and page["markdown_error"] is not None

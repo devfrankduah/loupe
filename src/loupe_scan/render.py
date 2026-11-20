@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING, Final, Generic, Literal, Protocol, TypeVar
 from urllib.parse import unquote, urlsplit
 
 from loupe_scan.blocking import blocked_by_answer, blocked_by_content
-from loupe_scan.errors import BlockedError
+from loupe_scan.errors import BlockedError, SetupError
 from loupe_scan.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
 
 if TYPE_CHECKING:
@@ -91,7 +91,7 @@ class PageBlockedError(RenderError, BlockedError):
     """The site turned the browser away: a 403, a 429 or a challenge page."""
 
 
-class RenderSetupError(RuntimeError):
+class RenderSetupError(SetupError):
     """Rendering can't run at all here: Playwright or Chromium is missing, or the endpoint is malformed."""
 
 

@@ -18,7 +18,7 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
-from loupe_scan import cli  # noqa: E402
+from loupe_scan import ScanMode, Scanner, cli, scan  # noqa: E402
 
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 from . import test_animated_page as animated  # noqa: E402
@@ -105,3 +105,27 @@ def test_rendered_results_fit_the_published_schema(
     (page,) = results
     assert page["scan_mode"] == "rendered" and page["rendering"]["static_comparison"]
     assert {finding["mode"] for finding in page["findings"]} == {"static", "rendered"}
+
+
+def test_the_python_api_renders_the_blender_page_like_the_command_does(
+    chromium_installed: None, fixture_site: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url = f"{fixture_site}/test-page/index.html"
+    result = scan(url, render=True)
+    cli.main([url, "--render", "--json"])
+    (printed,) = json.loads(capsys.readouterr().out)
+
+    assert result.mode is ScanMode.RENDERED
+    assert len(result.instruction_like) == printed["instruction_like_count"] == 5
+    findings = result.to_dict()["findings"]
+    assert isinstance(findings, list)
+    assert [item["text"] for item in findings] == [item["text"] for item in printed["findings"]]
+    check_results([result.to_dict()])
+
+
+def test_a_rendering_scanner_scans_only_inside_its_with_block(chromium_installed: None, fixture_site: str) -> None:
+    scanner = Scanner(render=True)
+    with pytest.raises(RuntimeError, match="with block"):
+        scanner.scan(f"{fixture_site}/test-page/index.html")
+    with scanner:
+        assert scanner.scan(f"{fixture_site}/test-page/index.html").fails()

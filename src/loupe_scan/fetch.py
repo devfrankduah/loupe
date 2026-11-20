@@ -20,7 +20,7 @@ from typing import Final, Protocol, Union
 
 import requests
 
-from loupe_scan import __version__
+from loupe_scan._version import __version__
 from loupe_scan.errors import PageFetchError
 
 TOKEN_ENVIRONMENT_VARIABLE: Final[str] = "BRIGHTDATA_API_TOKEN"
@@ -63,8 +63,8 @@ class MissingTokenError(BrightDataError):
     pass
 
 
-def read_token_from_environment() -> str:
-    token = os.environ.get(TOKEN_ENVIRONMENT_VARIABLE, "").strip()
+def read_token_from_environment(environment: Mapping[str, str] = os.environ) -> str:
+    token = environment.get(TOKEN_ENVIRONMENT_VARIABLE, "").strip()
     if not token:
         raise MissingTokenError(f"{TOKEN_ENVIRONMENT_VARIABLE} is not set")
     return token

@@ -2,7 +2,7 @@
 
 `loupe --json URL...` prints the results as JSON on stdout instead of the text report. `--json-output PATH` writes the same JSON to a file and keeps the text report on the terminal. Either way, notes such as a Crawl-delay wait go to stderr, so stdout holds nothing but the JSON.
 
-The output is always an array with one object per page, in the order the URLs were given, even for a single URL.
+The output is always an array with one object per page, in the order the URLs were given, even for a single URL. In Python, `ScanResult.to_json()` gives the object for one page ([python.md](python.md)).
 
 ## Stability
 

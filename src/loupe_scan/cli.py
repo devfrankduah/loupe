@@ -6,47 +6,25 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import dataclass
+from collections.abc import Sequence
 from pathlib import Path
-from collections.abc import Callable, Mapping
-from typing import Final, Protocol, Sequence
 
-from loupe_scan import __version__
-from loupe_scan.backend import Backend, choose_backend
-from loupe_scan.convert import BRIGHT_DATA_MARKDOWN, MarkdownSource, html_to_markdown, local_markdown_source
-from loupe_scan.errors import BlockedError, PageFetchError
-from loupe_scan.fetch import (
-    DEFAULT_UNLOCKER_ZONE,
-    TOKEN_ENVIRONMENT_VARIABLE,
-    BrightDataClient,
-    MissingTokenError,
-    read_token_from_environment,
-)
-from loupe_scan.local_fetch import REPOSITORY_URL, LocalFetcher, RobotsDisallowedError
-from loupe_scan.render import (
-    BROWSER_ENDPOINT_VARIABLE,
-    ENDPOINT_PLACEHOLDER,
-    SUPERSEDED_BY_RENDERING,
-    EndpointRedactor,
-    PageRenderer,
-    RenderError,
-    RenderSetupError,
-    open_renderer,
-    read_browser_endpoint,
-    rendered_findings,
-)
+from loupe_scan._version import __version__
+from loupe_scan.backend import Backend
+from loupe_scan.errors import SetupError
+from loupe_scan.fetch import DEFAULT_UNLOCKER_ZONE, TOKEN_ENVIRONMENT_VARIABLE
+from loupe_scan.render import BROWSER_ENDPOINT_VARIABLE
 from loupe_scan.report import (
     DEFAULT_QUOTE_CHARACTERS,
     FailOn,
-    FailureKind,
     PageReport,
-    check_findings,
     findings_counted,
     page_to_dict,
     render_text,
 )
-from loupe_scan.scan import ScanMode, scan_html
+from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scrub_strings
 from loupe_scan.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
+
 
 # Every page was scanned in full and none had a finding --fail-on counts.
 EXIT_OK = 0
@@ -57,14 +35,6 @@ EXIT_FINDINGS = 1
 # It wins over EXIT_FINDINGS, since the results are incomplete.
 EXIT_ERROR = 2
 EXIT_USAGE = EXIT_ERROR
-
-# The README section on the Bright Data backend, for sites that turn loupe away.
-BRIGHT_DATA_SECTION: Final[str] = "sites-that-block-bots-and-scanning-at-scale"
-BLOCKED_HINT: Final[str] = (
-    "Sites that block automated visitors can be scanned through the Bright Data backend: "
-    f"{REPOSITORY_URL}#{BRIGHT_DATA_SECTION}"
-)
-
 
 def _non_negative_int(value: str) -> int:
     try:
@@ -156,95 +126,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-@dataclass(frozen=True)
-class MarkdownMaker:
-    """Gets a page's markdown, from its URL or its HTML, and says where it came from."""
-
-    source: MarkdownSource
-    make: Callable[[str, str], str]
-
-
-def bright_data_markdown(client: BrightDataClient) -> MarkdownMaker:
-    return MarkdownMaker(BRIGHT_DATA_MARKDOWN, lambda url, html: client.fetch_markdown(url))
-
-
-def local_markdown() -> MarkdownMaker:
-    return MarkdownMaker(local_markdown_source(), html_to_markdown)
-
-
-def _markdown_for(maker: MarkdownMaker | None, url: str, html: str, page: PageReport) -> str | None:
-    if maker is None:
-        return None
-    try:
-        markdown = maker.make(url, html)
-    except PageFetchError as error:
-        page.markdown_error = str(error)
-        return None
-    page.markdown_characters = len(markdown)
-    page.markdown_source = maker.source
-    return markdown
-
-
-class HtmlSource(Protocol):
-    def fetch_html(self, url: str) -> str: ...
-
-
-def _record_failure(page: PageReport, error: PageFetchError | RenderError, *, otherwise: FailureKind) -> None:
-    """Record why page wasn't scanned, pointing to Bright Data when a site blocked the local backend."""
-    page.html_error = str(error)
-    if isinstance(error, BlockedError):
-        page.failure = FailureKind.BLOCKED
-        if page.backend is Backend.LOCAL:
-            page.html_error = f"{error}. {BLOCKED_HINT}"
-    elif isinstance(error, RobotsDisallowedError):
-        page.failure = FailureKind.ROBOTS
-    else:
-        page.failure = otherwise
-
-
-def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, backend: Backend) -> PageReport:
-    """Fetch url's HTML from source and scan the markup. Markdown is compared only when a maker is given."""
-    page = PageReport(url=url, backend=backend)
-    try:
-        html = source.fetch_html(url)
-    except PageFetchError as error:
-        _record_failure(page, error, otherwise=FailureKind.FETCH)
-        return page
-    page.html_characters = len(html)
-    page.findings = check_findings(scan_html(html), _markdown_for(markdown, url, html, page))
-    return page
-
-
-def scan_rendered_page(
-    renderer: PageRenderer,
-    markdown: MarkdownMaker | None,
-    url: str,
-    *,
-    backend: Backend,
-    fetcher: LocalFetcher | None = None,
-) -> PageReport:
-    """Render url, then check what never showed. Markdown is compared only when a maker is given.
-
-    The local backend's markdown is made from the HTML the site served, the same HTML the markup checks read.
-
-    A local fetcher, when given, checks robots.txt and waits out any Crawl-delay before the browser loads url.
-    """
-    page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source)
-    try:
-        if fetcher is not None:
-            fetcher.admit(url)
-        rendered = renderer.render(url)
-    except (PageFetchError, RenderError) as error:
-        _record_failure(page, error, otherwise=FailureKind.RENDER)
-        return page
-    page.html_characters = len(rendered.html)
-    page.rendered = rendered
-    markdown_text = _markdown_for(markdown, url, rendered.html, page)
-    markup_findings = [finding for finding in scan_html(rendered.html) if finding.kind not in SUPERSEDED_BY_RENDERING]
-    page.findings = check_findings(markup_findings + rendered_findings(rendered), markdown_text)
-    return page
-
-
 def _build_report_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="loupe report",
@@ -283,48 +164,8 @@ def report_main(argv: Sequence[str]) -> int:
     return EXIT_OK
 
 
-def _scrub_strings(value: object, scrub: Callable[[str], str]) -> object:
-    """value with scrub applied to every string in it, keys included."""
-    if isinstance(value, str):
-        return scrub(value)
-    if isinstance(value, dict):
-        return {scrub(str(key)): _scrub_strings(item, scrub) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_scrub_strings(item, scrub) for item in value]
-    return value
-
-
-def _client_from_environment(zone: str) -> BrightDataClient | None:
-    """The Bright Data client, or None after explaining on stderr why there isn't one."""
-    try:
-        return BrightDataClient(read_token_from_environment(), unlocker_zone=zone)
-    except MissingTokenError:
-        print(
-            f"loupe: the brightdata backend needs {TOKEN_ENVIRONMENT_VARIABLE} set to a Bright Data API token; "
-            "set it, or use --backend local",
-            file=sys.stderr,
-        )
-    except ValueError as error:
-        print(f"loupe: {error}", file=sys.stderr)
-    return None
-
-
 def _note(message: str) -> None:
     print(f"loupe: {message}", file=sys.stderr, flush=True)
-
-
-def _local_fetcher(ignore_robots: bool) -> LocalFetcher:
-    return LocalFetcher(respect_robots=not ignore_robots, on_wait=_note)
-
-
-def _endpoint_redactor(environment: Mapping[str, str]) -> Callable[[str], str]:
-    """Hides any part of the Browser API endpoint, if one is set, whichever backend runs."""
-    value = environment.get(BROWSER_ENDPOINT_VARIABLE, "").strip()
-    try:
-        return EndpointRedactor(value or None)
-    except ValueError:
-        # A value too malformed to split into parts can still be hidden whole.
-        return lambda text: text.replace(value, ENDPOINT_PLACEHOLDER)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -333,52 +174,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     if raw_arguments[:1] == ["report"]:
         return report_main(raw_arguments[1:])
     arguments = _build_parser().parse_args(raw_arguments)
-    backend = choose_backend(arguments.backend, os.environ)
     # Everything printed or saved passes through this, a second guard after
     # the one around each error, so no part of the endpoint gets out.
-    scrub = _endpoint_redactor(os.environ)
-
-    # A rendered scan loads pages itself, so it needs Bright Data only for markdown.
-    client: BrightDataClient | None = None
-    if backend is Backend.BRIGHTDATA and not (arguments.render and arguments.skip_markdown):
-        client = _client_from_environment(arguments.zone)
-        if client is None:
-            return EXIT_USAGE
-    markdown: MarkdownMaker | None = None
-    if not arguments.skip_markdown and backend is Backend.LOCAL:
-        markdown = local_markdown()
-    elif not arguments.skip_markdown and client is not None:
-        markdown = bright_data_markdown(client)
-    if backend is Backend.BRIGHTDATA and arguments.ignore_robots:
-        print("loupe: --ignore-robots only changes the local backend, so it has no effect here", file=sys.stderr)
-
+    scrub = endpoint_redactor(os.environ)
+    settings = ScanSettings(
+        render=arguments.render,
+        backend=arguments.backend,
+        markdown=not arguments.skip_markdown,
+        respect_robots=not arguments.ignore_robots,
+        zone=arguments.zone,
+    )
     pages: list[PageReport] = []
+    try:
+        session = ScanSession(settings, environment=os.environ, on_note=_note)
+        if session.backend is Backend.BRIGHTDATA and arguments.ignore_robots:
+            _note("--ignore-robots only changes the local backend, so it has no effect here")
+        with session:
+            for url in arguments.urls:
+                page = session.scan(url)
+                pages.append(page)
+                if not arguments.json:
+                    print(scrub(render_text(page, arguments.quote_chars)), flush=True)
+                    print()
+    except SetupError as error:
+        print(scrub(f"loupe: {error}"), file=sys.stderr)
+        return EXIT_USAGE
 
-    def record(page: PageReport) -> None:
-        pages.append(page)
-        if not arguments.json:
-            print(scrub(render_text(page, arguments.quote_chars)), flush=True)
-            print()
-
-    if arguments.render:
-        try:
-            endpoint = read_browser_endpoint(os.environ) if backend is Backend.BRIGHTDATA else None
-            fetcher = _local_fetcher(arguments.ignore_robots) if backend is Backend.LOCAL else None
-            with open_renderer(endpoint) as renderer:
-                for url in arguments.urls:
-                    record(scan_rendered_page(renderer, markdown, url, backend=backend, fetcher=fetcher))
-        except RenderSetupError as error:
-            print(scrub(f"loupe: {error}"), file=sys.stderr)
-            return EXIT_USAGE
-    elif backend is Backend.LOCAL:
-        local_fetcher = _local_fetcher(arguments.ignore_robots)
-        for url in arguments.urls:
-            record(scan_page(local_fetcher, markdown, url, backend=backend))
-    elif client is not None:
-        for url in arguments.urls:
-            record(scan_page(client, markdown, url, backend=backend))
-
-    results = _scrub_strings([page_to_dict(page, arguments.quote_chars) for page in pages], scrub)
+    results = scrub_strings([page_to_dict(page, arguments.quote_chars) for page in pages], scrub)
     if arguments.json:
         # Escaped to ASCII, so text from a page can't reach the terminal as a
         # control or direction-changing character; any JSON reader decodes it.

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from loupe_scan import cli
+from loupe_scan import cli, session
 from loupe_scan.convert import html_to_markdown, local_markdown_source
 from loupe_scan.scan import scan_html
 
@@ -42,7 +42,7 @@ def test_a_page_that_turns_loupe_away_points_to_the_bright_data_backend(capsys: 
 
     printed = capsys.readouterr().out
     assert "the site turned loupe away (HTTP 403, forbidden). Sites that block automated visitors" in printed
-    assert f"https://github.com/devfrankduah/loupe#{cli.BRIGHT_DATA_SECTION}" in printed
+    assert f"https://github.com/devfrankduah/loupe#{session.BRIGHT_DATA_SECTION}" in printed
 
 
 def _github_anchor(heading: str) -> str:
@@ -51,7 +51,7 @@ def _github_anchor(heading: str) -> str:
 
 def test_the_bright_data_hint_links_to_a_real_readme_section() -> None:
     headings = re.findall(r"^#{1,6} (.+)$", (ROOT / "README.md").read_text(encoding="utf-8"), re.MULTILINE)
-    assert cli.BRIGHT_DATA_SECTION in {_github_anchor(heading) for heading in headings}
+    assert session.BRIGHT_DATA_SECTION in {_github_anchor(heading) for heading in headings}
 
 
 def test_robots_txt_is_obeyed_unless_the_user_says_the_page_is_theirs(capsys: pytest.CaptureFixture[str]) -> None:

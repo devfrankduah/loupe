@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final
 
-from loupe_scan import __version__
+from loupe_scan._version import __version__
 from loupe_scan.backend import Backend
 from loupe_scan.convert import MarkdownSource
 from loupe_scan.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from loupe_scan import cli
+from loupe_scan import cli, session
 from loupe_scan.fetch import BrightDataError
 from loupe_scan.render import (
     BrowserSource,
@@ -41,7 +41,7 @@ class FakeClient:
 
 def _install_fake_client(monkeypatch: pytest.MonkeyPatch, client: FakeClient) -> None:
     monkeypatch.setenv("BRIGHTDATA_API_TOKEN", TOKEN)
-    monkeypatch.setattr(cli, "BrightDataClient", lambda token, unlocker_zone: client)
+    monkeypatch.setattr(session, "BrightDataClient", lambda token, unlocker_zone: client)
 
 
 def test_the_brightdata_backend_without_a_token_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
@@ -195,7 +195,7 @@ def _install_fake_renderer(monkeypatch: pytest.MonkeyPatch, renderer: FakeRender
         renderer.opened_with.append(endpoint)
         yield renderer
 
-    monkeypatch.setattr(cli, "open_renderer", fake_open_renderer)
+    monkeypatch.setattr(session, "open_renderer", fake_open_renderer)
 
 
 def _marked(findings: list[dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -401,12 +401,12 @@ def test_a_blocked_render_points_to_bright_data_only_on_the_local_backend(
     arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
 
     assert cli.main([*arguments, "--backend", "local"]) == cli.EXIT_ERROR
-    assert f"(HTTP 403, forbidden). {cli.BLOCKED_HINT}" in capsys.readouterr().out
+    assert f"(HTTP 403, forbidden). {session.BLOCKED_HINT}" in capsys.readouterr().out
 
     monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
     assert cli.main([*arguments, "--backend", "brightdata"]) == cli.EXIT_ERROR
     printed = capsys.readouterr().out
-    assert "(HTTP 403, forbidden)" in printed and cli.BLOCKED_HINT not in printed
+    assert "(HTTP 403, forbidden)" in printed and session.BLOCKED_HINT not in printed
 
 
 def test_the_bright_data_render_path_is_unchanged_and_never_reads_robots_txt(monkeypatch: pytest.MonkeyPatch) -> None:

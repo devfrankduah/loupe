@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loupe-scan"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Find text on web pages that human readers can't see but AI agents can."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -29,11 +29,15 @@ render = ["playwright>=1.64"]
 [project.scripts]
 loupe = "loupe_scan.cli:main"
 
+[tool.setuptools.dynamic]
+version = { attr = "loupe_scan._version.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-loupe_scan = ["visibility.js"]
+# py.typed tells type checkers the package ships its own types (PEP 561).
+loupe_scan = ["visibility.js", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -35,7 +35,7 @@ from bs4.dammit import EncodingDetector
 from protego import Protego
 from urllib3.response import BaseHTTPResponse
 
-from loupe_scan import __version__
+from loupe_scan._version import __version__
 from loupe_scan.blocking import blocked_by_answer, blocked_by_content
 from loupe_scan.errors import BlockedError, PageFetchError
 
