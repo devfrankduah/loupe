@@ -137,7 +137,7 @@ class HtmlSource(Protocol):
     def fetch_html(self, url: str) -> str: ...
 
 
-def _fetch_failure(error: PageFetchError, backend: Backend) -> str:
+def _fetch_failure(error: PageFetchError | RenderError, backend: Backend) -> str:
     """The error to report, pointing to Bright Data when a site blocked the local backend."""
     if isinstance(error, BlockedError) and backend is Backend.LOCAL:
         return f"{error}. {BLOCKED_HINT}"
@@ -161,14 +161,24 @@ def scan_page(
 
 
 def scan_rendered_page(
-    renderer: PageRenderer, markdown_client: BrightDataClient | None, url: str, *, backend: Backend
+    renderer: PageRenderer,
+    markdown_client: BrightDataClient | None,
+    url: str,
+    *,
+    backend: Backend,
+    fetcher: LocalFetcher | None = None,
 ) -> PageReport:
-    """Render url, then check what never showed. Markdown is compared only when a client is given."""
+    """Render url, then check what never showed. Markdown is compared only when a client is given.
+
+    A local fetcher, when given, checks robots.txt and waits out any Crawl-delay before the browser loads url.
+    """
     page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source)
     try:
+        if fetcher is not None:
+            fetcher.admit(url)
         rendered = renderer.render(url)
-    except RenderError as error:
-        page.html_error = str(error)
+    except (PageFetchError, RenderError) as error:
+        page.html_error = _fetch_failure(error, backend)
         return page
     page.html_characters = len(rendered.html)
     page.rendered = rendered
@@ -246,6 +256,10 @@ def _note(message: str) -> None:
     print(f"loupe: {message}", file=sys.stderr, flush=True)
 
 
+def _local_fetcher(ignore_robots: bool) -> LocalFetcher:
+    return LocalFetcher(respect_robots=not ignore_robots, on_wait=_note)
+
+
 def _endpoint_redactor(environment: Mapping[str, str]) -> Callable[[str], str]:
     """Hides any part of the Browser API endpoint, if one is set, whichever backend runs."""
     value = environment.get(BROWSER_ENDPOINT_VARIABLE, "").strip()
@@ -294,16 +308,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.render:
         try:
             endpoint = read_browser_endpoint(os.environ) if backend is Backend.BRIGHTDATA else None
+            fetcher = _local_fetcher(arguments.ignore_robots) if backend is Backend.LOCAL else None
             with open_renderer(endpoint) as renderer:
                 for url in arguments.urls:
-                    record(scan_rendered_page(renderer, client, url, backend=backend))
+                    record(scan_rendered_page(renderer, client, url, backend=backend, fetcher=fetcher))
         except RenderSetupError as error:
             print(scrub(f"loupe: {error}"), file=sys.stderr)
             return EXIT_USAGE
     elif backend is Backend.LOCAL:
-        fetcher = LocalFetcher(respect_robots=not arguments.ignore_robots, on_wait=_note)
+        local_fetcher = _local_fetcher(arguments.ignore_robots)
         for url in arguments.urls:
-            record(scan_page(fetcher, None, url, backend=backend))
+            record(scan_page(local_fetcher, None, url, backend=backend))
     elif client is not None:
         markdown_client = None if arguments.skip_markdown else client
         for url in arguments.urls:

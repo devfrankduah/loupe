@@ -14,6 +14,8 @@ Before each request, including each redirect, loupe reads the site's robots.txt 
 
 A 403, a 429, Cloudflare's `cf-mitigated: challenge` header or a page titled like Cloudflare's challenge pages counts as the site turning loupe away. The error then points to the Bright Data backend, which gets past most of those blocks.
 
+A rendered scan on the local backend loads the page in local Chromium and runs exactly the checks the Browser API path runs; the tests render both test pages with each path's settings and compare the results. robots.txt is checked, and any Crawl-delay waited out, before the browser loads each page. A 403, a 429 or a challenge stops the scan with the same pointer to Bright Data. The Browser API path still stops at a 403 or 429 but renders a challenge page as it arrives, since the Browser API solves challenges itself.
+
 ### The Bright Data backend
 
 For the Bright Data backend, loupe sends the same requests that Bright Data's own MCP server ([brightdata-mcp](https://github.com/brightdata/brightdata-mcp), version 4.3.0) sends for its two scraping tools:

@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 import pytest
 
 from loupe.render import (
+    CHROMIUM_INSTALL_HINT,
+    PLAYWRIGHT_INSTALL_HINT,
     BROWSER_ENDPOINT_VARIABLE,
     BrowserSource,
     EndpointRedactor,
@@ -395,3 +397,8 @@ def test_a_watch_that_broke_off_says_so_and_why() -> None:
 def test_a_page_that_never_painted_says_the_trace_saw_two_moments_only() -> None:
     (note,) = watch_notes(WatchStatus(samples=0, error=None), candidates=2)
     assert "never reported a first paint" in note
+
+
+def test_the_install_hints_install_from_the_repository() -> None:
+    assert PLAYWRIGHT_INSTALL_HINT == "from the loupe folder, run pip install -e '.[render]' && playwright install chromium"
+    assert CHROMIUM_INSTALL_HINT == "playwright install chromium"

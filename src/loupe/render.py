@@ -52,6 +52,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Final, Generic, Literal, Protocol, TypeVar
 from urllib.parse import unquote, urlsplit
 
+from loupe.blocking import blocked_by_answer, blocked_by_content
+from loupe.errors import BlockedError
 from loupe.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
 
 if TYPE_CHECKING:
@@ -63,7 +65,9 @@ BROWSER_ENDPOINT_VARIABLE: Final[str] = "BRIGHTDATA_BROWSER_WSS"
 # rendered scan drops the static guesses about them and keeps its own result.
 SUPERSEDED_BY_RENDERING: Final[frozenset[Kind]] = frozenset({Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE})
 
-INSTALL_HINT: Final[str] = "pip install 'loupe[render]' && playwright install chromium"
+# loupe installs from its repository until it's published, and "loupe" on PyPI is a different package.
+PLAYWRIGHT_INSTALL_HINT: Final[str] = "from the loupe folder, run pip install -e '.[render]' && playwright install chromium"
+CHROMIUM_INSTALL_HINT: Final[str] = "playwright install chromium"
 ENDPOINT_PLACEHOLDER: Final[str] = "[endpoint]"
 # Bright Data's browser usernames read brd-customer-<id>-zone-<zone>, and the
 # customer id or zone name can turn up on its own in an error.
@@ -81,6 +85,10 @@ BLOCKABLE_RESOURCE_TYPES: Final[frozenset[str]] = frozenset({"image", "media", "
 
 class RenderError(RuntimeError):
     """Rendering one page failed. The message is safe to print and to save."""
+
+
+class PageBlockedError(RenderError, BlockedError):
+    """The site turned the browser away: a 403, a 429 or a challenge page."""
 
 
 class RenderSetupError(RuntimeError):
@@ -118,6 +126,9 @@ class RenderSettings:
     blocked_resource_types: frozenset[str] = frozenset()
     # Add up the bytes received over the network for each page.
     measure_transfer: bool = False
+    # Stop at a challenge page, and at a challenge header whatever the
+    # status, as a block. Off for the Browser API, which solves challenges.
+    stop_at_challenges: bool = False
 
     def __post_init__(self) -> None:
         unknown = self.blocked_resource_types - BLOCKABLE_RESOURCE_TYPES
@@ -142,7 +153,7 @@ class RenderSettings:
                 raise ValueError(f"{name} must not be negative")
 
 
-LOCAL_SETTINGS: Final[RenderSettings] = RenderSettings()
+LOCAL_SETTINGS: Final[RenderSettings] = RenderSettings(stop_at_challenges=True)
 
 # A remote browser is billed by the byte and sits further away: Bright Data
 # allows up to two minutes for a navigation, images, media and fonts are
@@ -339,7 +350,7 @@ def acquire_browser(launcher: BrowserLauncher[BrowserT], endpoint: str | None, s
         except Exception as error:
             message = _first_line(error)
             if "Executable doesn't exist" in message:
-                raise RenderSetupError(f"Chromium for Playwright isn't installed. Run: {INSTALL_HINT}") from None
+                raise RenderSetupError(f"Chromium for Playwright isn't installed. Run: {CHROMIUM_INSTALL_HINT}") from None
             raise RenderSetupError(f"Chromium didn't start: {message}") from None
     try:
         return launcher.connect_over_cdp(endpoint, timeout=settings.connect_timeout_ms)
@@ -681,9 +692,16 @@ def _scan_with_session(
     response = page.goto(url, wait_until="domcontentloaded", timeout=settings.navigation_timeout_ms)
     if response is None:
         raise RenderError("the browser got no response")
+    if response.status >= 400 or settings.stop_at_challenges:
+        blocked = blocked_by_answer(response.status, response.headers)
+        if blocked is not None:
+            raise PageBlockedError(f"the site turned loupe away ({blocked})")
     if response.status >= 400:
         raise RenderError(f"HTTP {response.status}")
     html = response.text()
+    challenge = blocked_by_content(html) if settings.stop_at_challenges else None
+    if challenge is not None:
+        raise PageBlockedError(f"the site turned loupe away ({challenge})")
     candidates = static_candidates(html)
     # Watching starts before the page has finished loading, because text a
     # carousel shows and takes away again may be gone by the first check.
@@ -809,6 +827,8 @@ def render_page(
         raise RenderError(redact(f"Rendering {url} failed: couldn't open a tab: {_first_line(error)}")) from None
     try:
         return _scan_loaded_page(page, url, settings, browser.version)
+    except PageBlockedError as error:
+        raise PageBlockedError(redact(f"Rendering {url} failed: {_first_line(error)}")) from None
     except (PlaywrightError, RenderError) as error:
         raise RenderError(redact(f"Rendering {url} failed: {_first_line(error)}")) from None
     finally:
@@ -857,7 +877,7 @@ def _start_playwright() -> Playwright:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        raise RenderSetupError(f"Rendered scans need Playwright. Install it with: {INSTALL_HINT}") from None
+        raise RenderSetupError(f"Rendered scans need Playwright: {PLAYWRIGHT_INSTALL_HINT}") from None
     try:
         return sync_playwright().start()
     except Exception as error:

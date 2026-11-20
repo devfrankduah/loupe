@@ -10,7 +10,17 @@ import pytest
 
 from loupe import cli
 from loupe.fetch import BrightDataError
-from loupe.render import BrowserSource, EndpointRedactor, RenderedPage, RenderedText, RenderError, RenderSetupError
+from loupe.render import (
+    BrowserSource,
+    EndpointRedactor,
+    PageBlockedError,
+    RenderedPage,
+    RenderedText,
+    RenderError,
+    RenderSetupError,
+)
+
+from .route_site import Route, serve_routes
 
 TOKEN = "cli-test-token-0987654321"
 
@@ -370,3 +380,45 @@ def test_ignore_robots_says_it_does_nothing_for_bright_data(
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
     assert cli.main(["https://example.com/cake", "--skip-markdown", "--ignore-robots"]) == cli.EXIT_OK
     assert "--ignore-robots only changes the local backend" in capsys.readouterr().err
+
+
+def test_a_local_render_checks_robots_txt_before_the_browser_loads_the_page(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    renderer = FakeRenderer()
+    _install_fake_renderer(monkeypatch, renderer)
+    robots = Route(body=b"User-agent: *\nDisallow: /private\n", headers={"content-type": "text/plain"})
+    with serve_routes({"/robots.txt": robots}) as site:
+        assert cli.main([site.url("/private/cake"), "--render", "--skip-markdown"]) == cli.EXIT_FETCH_FAILED
+        assert "its robots.txt asks loupe not to" in capsys.readouterr().out
+        assert renderer.urls == []
+        assert cli.main([site.url("/private/cake"), "--render", "--skip-markdown", "--ignore-robots"]) == cli.EXIT_OK
+    assert renderer.urls == [site.url("/private/cake")]
+    assert site.requested() == ["/robots.txt"]
+
+
+def test_a_blocked_render_points_to_bright_data_only_on_the_local_backend(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    blocked = PageBlockedError("Rendering https://example.com/cake failed: the site turned loupe away (HTTP 403, forbidden)")
+    _install_fake_renderer(monkeypatch, FakeRenderer(failure=blocked))
+    arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
+
+    assert cli.main([*arguments, "--backend", "local"]) == cli.EXIT_FETCH_FAILED
+    assert f"(HTTP 403, forbidden). {cli.BLOCKED_HINT}" in capsys.readouterr().out
+
+    monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
+    assert cli.main([*arguments, "--backend", "brightdata"]) == cli.EXIT_FETCH_FAILED
+    printed = capsys.readouterr().out
+    assert "(HTTP 403, forbidden)" in printed and cli.BLOCKED_HINT not in printed
+
+
+def test_the_bright_data_render_path_is_unchanged_and_never_reads_robots_txt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
+    renderer = FakeRenderer(source=BrowserSource.REMOTE, endpoint=FAKE_ENDPOINT)
+    _install_fake_renderer(monkeypatch, renderer)
+    robots = Route(body=b"User-agent: *\nDisallow: /\n", headers={"content-type": "text/plain"})
+    with serve_routes({"/robots.txt": robots}) as site:
+        assert cli.main([site.url("/cake"), "--render", "--skip-markdown"]) == cli.EXIT_OK
+    assert site.requested() == []
+    assert renderer.urls == [site.url("/cake")]

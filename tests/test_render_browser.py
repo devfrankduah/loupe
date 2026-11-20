@@ -20,6 +20,9 @@ from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 
 from loupe.render import (  # noqa: E402
     BLOCKABLE_RESOURCE_TYPES,
+    LOCAL_SETTINGS,
+    REMOTE_SETTINGS,
+    PageBlockedError,
     SUPERSEDED_BY_RENDERING,
     _early_watching_world,
     RenderedPage,
@@ -32,6 +35,7 @@ from loupe.scan import Finding, scan_html  # noqa: E402
 
 from .conftest import FIXTURES  # noqa: E402
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
+from .route_site import html_route, serve_routes  # noqa: E402
 from .test_test_page import expected, expected_totals, ground_truth, outcome  # noqa: E402
 from . import test_animated_page as animated  # noqa: E402
 
@@ -361,3 +365,56 @@ def test_the_animated_page_clears_every_false_alarm_when_rendered(chromium: Brow
     assert len(landed) == trace["candidates"]
     for outcome_name in ("visible at load", "revealed on scroll", "still hidden", "not matched"):
         assert landed.count(outcome_name) == trace[outcome_name], outcome_name
+
+
+# The two settings differ in timeouts, blocking and measuring, never in the checks.
+LOCAL_LIKE = replace(FAST, stop_at_challenges=LOCAL_SETTINGS.stop_at_challenges)
+REMOTE_LIKE = replace(
+    FAST,
+    blocked_resource_types=REMOTE_SETTINGS.blocked_resource_types,
+    measure_transfer=REMOTE_SETTINGS.measure_transfer,
+    stop_at_challenges=REMOTE_SETTINGS.stop_at_challenges,
+)
+
+
+def _what_the_checks_found(page: RenderedPage) -> tuple[object, ...]:
+    return (
+        sorted((item.tag, item.text, item.reasons) for item in page.hidden),
+        sorted((item.tag, item.text) for item in page.revealed_on_scroll),
+        sorted((item.tag, item.text, item.landed) for item in page.static_comparison),
+        page.text_elements,
+        page.reached_bottom,
+    )
+
+
+@pytest.mark.parametrize("path", ["test-page/index.html", "animated-page/index.html", "rendered.html"])
+def test_local_chromium_runs_the_same_checks_as_the_remote_path(chromium: Browser, fixture_site: str, path: str) -> None:
+    local = render_page(chromium, f"{fixture_site}/{path}", LOCAL_LIKE)
+    remote = render_page(chromium, f"{fixture_site}/{path}", REMOTE_LIKE)
+    assert _what_the_checks_found(local) == _what_the_checks_found(remote)
+    assert local.transfer_bytes is None and remote.transfer_bytes is not None
+
+
+CHALLENGE = "<html><head><title>Just a moment...</title></head><body><p>Checking your browser.</p></body></html>"
+
+
+def test_a_site_that_turns_the_browser_away_is_a_block_on_either_path(chromium: Browser) -> None:
+    with serve_routes({"/cake": html_route("<p>Forbidden</p>", status=403)}) as site:
+        for settings in (LOCAL_LIKE, REMOTE_LIKE):
+            with pytest.raises(PageBlockedError, match="the site turned loupe away \\(HTTP 403, forbidden\\)"):
+                render_page(chromium, site.url("/cake"), settings)
+
+
+def test_a_challenge_page_stops_a_local_render_but_not_a_remote_one(chromium: Browser) -> None:
+    with serve_routes({"/cake": html_route(CHALLENGE)}) as site:
+        with pytest.raises(PageBlockedError, match="a Cloudflare challenge page"):
+            render_page(chromium, site.url("/cake"), LOCAL_LIKE)
+        # The Browser API solves challenges itself, so its path renders whatever arrives, as before.
+        render_page(chromium, site.url("/cake"), REMOTE_LIKE)
+
+
+def test_a_challenge_header_stops_a_local_render_whatever_the_status(chromium: Browser) -> None:
+    route = html_route("<p>Checking</p>", headers={"content-type": "text/html", "cf-mitigated": "challenge"})
+    with serve_routes({"/cake": route}) as site:
+        with pytest.raises(PageBlockedError, match="a Cloudflare challenge\\)"):
+            render_page(chromium, site.url("/cake"), LOCAL_LIKE)
