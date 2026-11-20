@@ -22,7 +22,7 @@ from loupe.fetch import (
     MissingTokenError,
     read_token_from_environment,
 )
-from loupe.local_fetch import REPOSITORY_URL, LocalFetcher
+from loupe.local_fetch import REPOSITORY_URL, LocalFetcher, RobotsDisallowedError
 from loupe.render import (
     BROWSER_ENDPOINT_VARIABLE,
     ENDPOINT_PLACEHOLDER,
@@ -155,11 +155,17 @@ class HtmlSource(Protocol):
     def fetch_html(self, url: str) -> str: ...
 
 
-def _fetch_failure(error: PageFetchError | RenderError, backend: Backend) -> str:
-    """The error to report, pointing to Bright Data when a site blocked the local backend."""
-    if isinstance(error, BlockedError) and backend is Backend.LOCAL:
-        return f"{error}. {BLOCKED_HINT}"
-    return str(error)
+def _record_failure(page: PageReport, error: PageFetchError | RenderError, *, loading: str) -> None:
+    """Record why page wasn't scanned, pointing to Bright Data when a site blocked the local backend."""
+    page.html_error = str(error)
+    if isinstance(error, BlockedError):
+        page.failure = "the site turned loupe away"
+        if page.backend is Backend.LOCAL:
+            page.html_error = f"{error}. {BLOCKED_HINT}"
+    elif isinstance(error, RobotsDisallowedError):
+        page.failure = "the site's robots.txt stopped loupe"
+    else:
+        page.failure = f"the page couldn't be {loading}"
 
 
 def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, backend: Backend) -> PageReport:
@@ -168,7 +174,7 @@ def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, b
     try:
         html = source.fetch_html(url)
     except PageFetchError as error:
-        page.html_error = _fetch_failure(error, backend)
+        _record_failure(page, error, loading="fetched")
         return page
     page.html_characters = len(html)
     page.findings = check_findings(scan_html(html), _markdown_for(markdown, url, html, page))
@@ -195,7 +201,7 @@ def scan_rendered_page(
             fetcher.admit(url)
         rendered = renderer.render(url)
     except (PageFetchError, RenderError) as error:
-        page.html_error = _fetch_failure(error, backend)
+        _record_failure(page, error, loading="loaded in the browser")
         return page
     page.html_characters = len(rendered.html)
     page.rendered = rendered

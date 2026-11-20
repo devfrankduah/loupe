@@ -41,6 +41,8 @@ class PageReport:
     # Set when markdown was fetched or made.
     markdown_source: MarkdownSource | None = None
     html_error: str | None = None
+    # Why the page wasn't scanned, in plain words, when html_error is set.
+    failure: str | None = None
     markdown_error: str | None = None
     mode: ScanMode = ScanMode.STATIC
     # Set for rendered scans that loaded the page.
@@ -137,6 +139,7 @@ def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] 
 def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> dict[str, object]:
     return {
         "url": page.url,
+        "verdict": verdict(page),
         "scan_mode": page.mode.value,
         "backend": page.backend.value,
         "html_characters": page.html_characters,
@@ -195,13 +198,60 @@ def printable(text: str) -> str:
     return _UNPRINTABLE.sub(_escape_character, text)
 
 
+def _count(number: int, singular: str, plural: str) -> str:
+    return f"{number:,} {singular if number == 1 else plural}"
+
+
+def _instruction_sentence(page: PageReport) -> str:
+    flagged = page.instruction_like
+    if not flagged:
+        return "No hidden text reads like an instruction to an AI."
+    if len(flagged) == 1:
+        sentence = "1 piece of hidden text reads like an instruction to an AI"
+    else:
+        sentence = f"{len(flagged):,} pieces of hidden text read like instructions to an AI"
+    reached = sum(item.in_markdown is True for item in flagged)
+    compared = sum(item.in_markdown is not None for item in flagged)
+    target = "the markdown an agent would read"
+    # Without markdown nothing is compared, and text too short to compare can't be counted either way.
+    if compared == 0:
+        return f"{sentence}."
+    if compared < len(flagged):
+        return f"{sentence}, and {reached:,} of the {compared:,} long enough to check reach {target}."
+    if len(flagged) == 1:
+        return f"{sentence}, and it reaches {target}." if reached else f"{sentence}, but it doesn't reach {target}."
+    if reached == len(flagged):
+        return f"{sentence}, and all {reached:,} reach {target}."
+    if reached == 0:
+        return f"{sentence}, and none of them reach {target}."
+    return f"{sentence}, and {reached:,} of them reach {target}."
+
+
+def verdict(page: PageReport) -> str:
+    """One plain sentence or two on what the page hides from people and hands to an AI."""
+    if page.html_error is not None:
+        return f"Not scanned: {page.failure or 'the page could not be fetched'}. The details are below."
+    if not page.findings:
+        return "No hidden text found."
+    characters = sum(len(item.finding.text) for item in page.findings)
+    total = (
+        f"{_count(len(page.findings), 'piece', 'pieces')} of hidden text in all, "
+        f"{_count(characters, 'character', 'characters')}"
+    )
+    if page.markdown_characters is None:
+        total += ". The markdown wasn't checked."
+    else:
+        total += f", {page.survival_counts()['survived']:,} of them in the markdown."
+    return f"{_instruction_sentence(page)} {total}"
+
+
 def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> str:
     """The plain-text summary of one page, safe to print to a terminal."""
     return "\n".join(printable(line) for line in _text_lines(page, quote_limit))
 
 
 def _text_lines(page: PageReport, quote_limit: int) -> list[str]:
-    lines = [page.url, f"  backend: {page.backend.description}"]
+    lines = [verdict(page), page.url, f"  backend: {page.backend.description}"]
     if page.html_error is not None:
         lines.append(f"  error: {page.html_error}")
         return lines

@@ -82,3 +82,19 @@ def test_the_local_markdown_is_made_from_the_html_and_labelled_an_approximation(
     printed = capsys.readouterr().out
     expected = f"chars (converted here by markdownify {source['version']}, an approximation of what agent tools produce)"
     assert expected in printed
+
+
+@pytest.mark.parametrize(
+    ("routes", "reason"),
+    [
+        ({"/cake": html_route("<p>Forbidden</p>", status=403)}, "the site turned loupe away"),
+        ({"/robots.txt": _robots("User-agent: *\nDisallow: /\n"), "/cake": html_route("<p>x</p>")}, "the site's robots.txt stopped loupe"),
+        ({"/cake": html_route("<p>Broken</p>", status=500)}, "the page couldn't be fetched"),
+    ],
+)
+def test_a_page_that_wasnt_scanned_says_why_in_its_first_line(
+    routes: dict[str, Route], reason: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with serve_routes(routes) as site:
+        cli.main([site.url("/cake")])
+    assert capsys.readouterr().out.splitlines()[0] == f"Not scanned: {reason}. The details are below."

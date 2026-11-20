@@ -71,7 +71,7 @@ The browser is local Chromium unless the Bright Data backend runs with `BRIGHTDA
 
 ## The JSON
 
-The report and each page record the `backend` (`local` or `brightdata`), and each page with markdown records its `markdown_source`: the converter's `name`, `version` and `license`, and `approximation`, which is true for markdown made locally. Each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace. Quoted text is cut to `--quote-chars` characters, and per-request meta values (nonces, CSRF tokens, request IDs and the like) are replaced with a placeholder.
+Each page starts with a `verdict`, the plain-English line the terminal output opens with: how many pieces of hidden text read like instructions to an AI and how many of those reach the markdown, then how much hidden text there is in all. The report and each page record the `backend` (`local` or `brightdata`), and each page with markdown records its `markdown_source`: the converter's `name`, `version` and `license`, and `approximation`, which is true for markdown made locally. Each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace. Quoted text is cut to `--quote-chars` characters, and per-request meta values (nonces, CSRF tokens, request IDs and the like) are replaced with a placeholder.
 
 ## What the 19 November runs showed
 
