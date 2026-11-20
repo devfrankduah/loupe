@@ -34,6 +34,14 @@ jobs:
         run: python -m playwright install --with-deps chromium
       - name: Type check
         run: mypy --strict src tests
+      # The tests run on the local backend against pages served from 127.0.0.1,
+      # in both scan modes, and refuse any other connection. They need no secrets.
+      - name: Check that no Bright Data credentials are set
+        run: |
+          if [ -n "${BRIGHTDATA_API_TOKEN:-}${BRIGHTDATA_BROWSER_WSS:-}" ]; then
+            echo "Bright Data credentials are set, but the tests must run without them."
+            exit 1
+          fi
       - name: Run the tests, failing if any are skipped
         run: |
           pytest -q -rs | tee pytest-output.txt

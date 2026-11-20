@@ -21,6 +21,9 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 from loupe import cli  # noqa: E402
 
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
+from . import test_animated_page as animated  # noqa: E402
+from .local_results import findings_of, scan_locally, traced_of  # noqa: E402
+from .test_test_page import check_scan  # noqa: E402
 
 MARKER = re.compile(r"CASE-[A-Z-]+")
 
@@ -74,3 +77,18 @@ def test_render_flag_end_to_end(
     printed = capsys.readouterr().out
     assert "rendered in local Chromium" in printed
     assert "revealed on scroll: 3 (not counted as hidden)" in printed
+
+
+def test_the_blender_page_matches_its_ground_truth_rendered_on_the_local_backend(
+    chromium_installed: None, fixture_site: str, tmp_path: Path
+) -> None:
+    page = scan_locally(f"{fixture_site}/test-page/index.html", tmp_path / "local.json", "--render")
+    assert page["rendering"]["browser"] == "local-chromium"
+    check_scan(findings_of(page), "rendered")
+
+
+def test_the_animated_page_matches_its_ground_truth_rendered_on_the_local_backend(
+    chromium_installed: None, fixture_site: str, tmp_path: Path
+) -> None:
+    page = scan_locally(f"{fixture_site}/animated-page/index.html", tmp_path / "local.json", "--render")
+    animated.check_rendered_scan(findings_of(page), traced_of(page))

@@ -36,7 +36,7 @@ from loupe.scan import Finding, scan_html  # noqa: E402
 from .conftest import FIXTURES  # noqa: E402
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 from .route_site import html_route, serve_routes  # noqa: E402
-from .test_test_page import expected, expected_totals, ground_truth, outcome  # noqa: E402
+from .test_test_page import check_scan  # noqa: E402
 from . import test_animated_page as animated  # noqa: E402
 
 FAST = RenderSettings(scroll_pause_ms=150, network_idle_timeout_ms=5_000, settle_timeout_ms=2_000)
@@ -331,11 +331,7 @@ def test_the_test_page_matches_its_ground_truth_when_rendered(chromium: Browser,
     # less the guesses the browser replaces, plus what the browser never showed.
     findings = [finding for finding in scan_html(page.html) if finding.kind not in SUPERSEDED_BY_RENDERING]
     findings += rendered_findings(page)
-    for row in ground_truth():
-        assert outcome(findings, row) == expected(row, row.rendered), row.number
-    found, flagged = expected_totals()["rendered"]
-    assert len(findings) == found
-    assert sum(finding.is_instruction_like for finding in findings) == flagged
+    check_scan(findings, "rendered")
     assert page.revealed_on_scroll == ()
 
 
@@ -347,24 +343,8 @@ def _rendered_scan_findings(page: RenderedPage) -> list[Finding]:
 
 def test_the_animated_page_clears_every_false_alarm_when_rendered(chromium: Browser, fixture_site: str) -> None:
     page = render_page(chromium, f"{fixture_site}/animated-page/index.html", FAST)
-    findings = _rendered_scan_findings(page)
-    rows = animated.ground_truth()
-    for row in rows:
-        hidden = [f"{finding.kind.value} ({finding.detail})" for finding in animated.matching(findings, row)]
-        if row.rendered in (animated.CLEARED, animated.NOT_FLAGGED):
-            assert hidden == [], row.number
-        else:
-            assert hidden == [row.rendered], row.number
-        traced = [item.landed.value for item in page.static_comparison if item.text.startswith(row.starts_with)]
-        assert traced == ([] if row.trace == animated.NO_TRACE else [row.trace]), row.number
-    found, instruction_like = animated.expected_totals()["rendered"]
-    assert len(findings) == found
-    assert sum(finding.is_instruction_like for finding in findings) == instruction_like
-    trace = animated.expected_trace()
-    landed = [item.landed.value for item in page.static_comparison]
-    assert len(landed) == trace["candidates"]
-    for outcome_name in ("visible at load", "revealed on scroll", "still hidden", "not matched"):
-        assert landed.count(outcome_name) == trace[outcome_name], outcome_name
+    traced = [(item.text, item.landed.value) for item in page.static_comparison]
+    animated.check_rendered_scan(_rendered_scan_findings(page), traced)
 
 
 # The two settings differ in timeouts, blocking and measuring, never in the checks.

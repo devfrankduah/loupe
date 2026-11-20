@@ -83,6 +83,12 @@ The animated test page goes the other way. The markup scan flags its headline an
 
 On the four public pages, all five instruction-like matches are Wikipedia link titles, such as "You are encouraged to create an account" and "Large language model". None of them is an attack. The blender test page's matches are the instructions planted in it.
 
+## Local against Bright Data
+
+On 20 November both test pages were scanned live on the local backend, as is and with `--render` (`results/2026-11-20-local.json` and `results/2026-11-20-local-rendered.json`), and compared with the Bright Data runs of 19 November. In both modes the two backends reported the same findings, the same instruction-like count, the same inline-style trace and the same answer for every finding on whether it reached the markdown.
+
+The one difference is the markdown itself: markdownify's is 47 characters longer on the blender page (2,344 against 2,297) and 49 on the animated page (1,747 against 1,698). markdownify starts with the page's `<title>`, 38 and 42 characters here, which accounts for most of that; the rest is likely spacing. That's an inference, since loupe doesn't keep Bright Data's markdown. On other pages the converters can disagree on more, such as link titles, which markdownify keeps.
+
 ## What reaches the markdown
 
 For some kinds of hiding, a lot. Across the four public pages in the markup-only run:

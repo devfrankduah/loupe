@@ -28,6 +28,6 @@ Besides these rows, both scans report the page's three `<meta>` tags (viewport, 
 - Rendered scan: 6 findings, 0 instruction-like.
 - Trace: 5 candidates, 2 visible at load, 3 revealed on scroll, 0 still hidden, 0 not matched.
 
-Whether each element reaches the markdown depends on Bright Data's converter, so the table doesn't predict it. The live results record it.
+Whether each element reaches the markdown depends on the converter, Bright Data's Fetch API or markdownify on the local backend, so the table doesn't predict it. The live results record it, and on 19 and 20 November the same elements reached the markdown on both backends.
 
 A Pause motion button stops the headline and the clock, and with reduced motion turned on, nothing fades or rotates. axe-core 4.10.3 finds no violations, and nothing that needs manual review, at desktop or phone width, with and without reduced motion.

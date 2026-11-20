@@ -24,6 +24,6 @@ Besides the planted items, both scans report the page's three `<meta>` tags (vie
 - Markup scan: 7 findings, 3 instruction-like.
 - Rendered scan: 10 findings, 5 instruction-like.
 
-Whether each item reaches the markdown depends on Bright Data's converter, so the table doesn't predict it. The live results record it.
+Whether each item reaches the markdown depends on the converter, Bright Data's Fetch API or markdownify on the local backend, so the table doesn't predict it. The live results record it, and on 19 and 20 November the same items reached the markdown on both backends.
 
 axe-core 4.10.3 finds no violations on the page at desktop or phone width. It lists one element for manual review: the row 8 line, because it sits on a gradient axe can't measure contrast against.

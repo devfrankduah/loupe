@@ -66,6 +66,16 @@ def expected(item: Planted, found_as: str) -> tuple[str, bool]:
     return found_as, item.flagged and found_as != MISSED
 
 
+def check_scan(findings: list[Finding], mode: str) -> None:
+    """Every row and the totals of the ground truth for one mode, "markup" or "rendered"."""
+    for row in ground_truth():
+        found_as = row.markup if mode == "markup" else row.rendered
+        assert outcome(findings, row) == expected(row, found_as), row.number
+    found, flagged = expected_totals()[mode]
+    assert len(findings) == found
+    assert sum(finding.is_instruction_like for finding in findings) == flagged
+
+
 def test_ground_truth_lists_eight_distinct_planted_items() -> None:
     rows = ground_truth()
     assert [row.number for row in rows] == list(range(1, 9))
@@ -83,9 +93,4 @@ def test_every_planted_item_is_in_the_page_and_the_fixture_is_the_published_page
 
 
 def test_markup_scan_matches_the_ground_truth() -> None:
-    findings = scan_html((FIXTURE / "index.html").read_text(encoding="utf-8"))
-    for row in ground_truth():
-        assert outcome(findings, row) == expected(row, row.markup), row.number
-    found, flagged = expected_totals()["markup"]
-    assert len(findings) == found
-    assert sum(finding.is_instruction_like for finding in findings) == flagged
+    check_scan(scan_html((FIXTURE / "index.html").read_text(encoding="utf-8")), "markup")

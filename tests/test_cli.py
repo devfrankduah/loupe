@@ -216,7 +216,8 @@ def test_render_needs_no_token_when_markdown_is_skipped(
     _install_fake_renderer(monkeypatch, renderer)
     output_path = tmp_path / "rendered.json"
 
-    assert cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json", str(output_path)]) == 0
+    arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
+    assert cli.main([*arguments, "--json", str(output_path)]) == 0
 
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
     assert page["scan_mode"] == "rendered"
@@ -276,7 +277,8 @@ def test_a_page_that_fails_to_render_is_reported_and_exits_nonzero(
     _install_fake_renderer(monkeypatch, FakeRenderer(failure=failure))
     output_path = tmp_path / "rendered.json"
 
-    assert cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json", str(output_path)]) == 1
+    arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
+    assert cli.main([*arguments, "--json", str(output_path)]) == 1
 
     (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
     assert (page["html_error"], page["rendering"], page["findings"]) == (str(failure), None, [])
@@ -339,7 +341,7 @@ def test_the_local_backend_never_uses_a_set_endpoint(
     _install_fake_renderer(monkeypatch, renderer)
     output_path = tmp_path / "rendered.json"
 
-    arguments = ["https://example.com/cake", "--backend", "local", "--render", "--skip-markdown"]
+    arguments = ["https://example.com/cake", "--backend", "local", "--render", "--skip-markdown", "--ignore-robots"]
     assert cli.main([*arguments, "--json", str(output_path)]) == 0
 
     assert renderer.opened_with == [None]
