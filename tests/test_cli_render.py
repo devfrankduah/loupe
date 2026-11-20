@@ -23,6 +23,7 @@ from loupe_scan import cli  # noqa: E402
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 from . import test_animated_page as animated  # noqa: E402
 from .local_results import findings_of, scan_locally, traced_of  # noqa: E402
+from .results_schema import check_results  # noqa: E402
 from .test_test_page import check_scan  # noqa: E402
 
 MARKER = re.compile(r"CASE-[A-Z-]+")
@@ -56,9 +57,9 @@ def test_render_flag_end_to_end(
     url = f"{fixture_site}/rendered.html"
 
     # No Bright Data token is set: with --skip-markdown a rendered scan needs none.
-    assert cli.main([url, "--render", "--skip-markdown", "--json", str(output_path)]) == cli.EXIT_OK
+    assert cli.main([url, "--render", "--skip-markdown", "--json-output", str(output_path)]) == cli.EXIT_OK
 
-    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert page["scan_mode"] == "rendered"
     assert page["rendering"]["browser"] == "local-chromium"
     assert page["rendering"]["reached_bottom"] is True
@@ -92,3 +93,15 @@ def test_the_animated_page_matches_its_ground_truth_rendered_on_the_local_backen
 ) -> None:
     page = scan_locally(f"{fixture_site}/animated-page/index.html", tmp_path / "local.json", "--render")
     animated.check_rendered_scan(findings_of(page), traced_of(page))
+
+
+def test_rendered_results_fit_the_published_schema(
+    chromium_installed: None, fixture_site: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main([f"{fixture_site}/test-page/index.html", "--render", "--json"]) == cli.EXIT_OK
+
+    results = json.loads(capsys.readouterr().out)
+    check_results(results)
+    (page,) = results
+    assert page["scan_mode"] == "rendered" and page["rendering"]["static_comparison"]
+    assert {finding["mode"] for finding in page["findings"]} == {"static", "rendered"}

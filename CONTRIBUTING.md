@@ -11,7 +11,7 @@ git clone https://github.com/devfrankduah/loupe.git
 cd loupe
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[test,render]" mypy
+pip install -e ".[test,render]" mypy types-jsonschema
 playwright install chromium
 ```
 

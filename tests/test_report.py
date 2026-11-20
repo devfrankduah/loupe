@@ -4,7 +4,16 @@ import pytest
 
 from loupe_scan.backend import Backend
 from loupe_scan.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison, rendered_findings
-from loupe_scan.report import CheckedFinding, PageReport, check_findings, page_to_dict, quote, render_text, verdict
+from loupe_scan.report import (
+    CheckedFinding,
+    FailureKind,
+    PageReport,
+    check_findings,
+    page_to_dict,
+    quote,
+    render_text,
+    verdict,
+)
 from loupe_scan.scan import Kind, ScanMode, make_finding, scan_html
 
 
@@ -212,7 +221,7 @@ def test_the_verdict_says_in_plain_words_what_reaches_an_agent(
 
 def test_a_page_that_wasnt_scanned_says_why_first() -> None:
     page = PageReport(url="https://a.test/", backend=Backend.LOCAL, html_error="Fetching failed: HTTP 403")
-    page.failure = "the site turned loupe away"
+    page.failure = FailureKind.BLOCKED
     assert render_text(page).splitlines()[:2] == [
         "Not scanned: the site turned loupe away. The details are below.",
         "https://a.test/",

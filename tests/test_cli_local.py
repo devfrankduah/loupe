@@ -26,11 +26,11 @@ def test_with_no_credentials_a_markup_scan_runs_on_this_machine(
 ) -> None:
     output_path = tmp_path / "local.json"
     with serve_routes({"/cake": html_route(planted_html)}) as site:
-        assert cli.main([site.url("/cake"), "--skip-markdown", "--json", str(output_path)]) == cli.EXIT_OK
+        assert cli.main([site.url("/cake"), "--skip-markdown", "--json-output", str(output_path)]) == cli.EXIT_OK
 
     report = json.loads(output_path.read_text(encoding="utf-8"))
-    (page,) = report["pages"]
-    assert (report["backend"], page["backend"], page["scan_mode"]) == ("local", "local", "static")
+    (page,) = report
+    assert (page["backend"], page["scan_mode"]) == ("local", "static")
     assert len(page["findings"]) == len(scan_html(planted_html))
     assert page["instruction_like_count"] == 13
     assert "  backend: local" in capsys.readouterr().out.splitlines()
@@ -68,10 +68,10 @@ def test_the_local_markdown_is_made_from_the_html_and_labelled_an_approximation(
 ) -> None:
     output_path = tmp_path / "local.json"
     with serve_routes({"/cake": html_route(planted_html)}) as site:
-        assert cli.main([site.url("/cake"), "--json", str(output_path)]) == cli.EXIT_OK
+        assert cli.main([site.url("/cake"), "--json-output", str(output_path)]) == cli.EXIT_OK
     assert site.requested() == ["/robots.txt", "/cake"]
 
-    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     source = page["markdown_source"]
     assert (source["name"], source["license"], source["approximation"]) == ("markdownify", "MIT", True)
     assert source["version"] == local_markdown_source().version

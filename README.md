@@ -125,7 +125,7 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 - `--skip-markdown` scans the HTML only and skips the markdown comparison.
 - `--backend local` or `--backend brightdata` picks where pages come from. Without it, loupe uses Bright Data when either of its values is set, and your machine otherwise.
 - `--ignore-robots` fetches pages even where robots.txt asks loupe not to. Use it only for pages you own or have permission to scan.
-- `--json PATH` writes the full report as JSON.
+- `--json` prints the results as JSON instead of text, and `--json-output PATH` writes the same JSON to a file. [docs/json.md](docs/json.md) describes every field, and each page carries a `schema_version`.
 - `--quote-chars N` cuts quoted hidden text to N characters (default 160, 0 for no limit).
 - `--zone NAME` picks the Web Unlocker zone on the Bright Data backend (default `mcp_unlocker`).
 
@@ -170,7 +170,7 @@ Each element the markup scan flagged for an inline style is also traced in the b
 | [Blender test page](https://devfrankduah.github.io/loupe/test-page/) | 2 | 5 | 0 | 3 / 5 |
 | [Animated test page](https://devfrankduah.github.io/loupe/animated-page/) | 5 | 3 | 3 | 0 / 0 |
 
-Measured through Bright Data on 19 November 2026 by running `loupe --quote-chars 80 --json out.json` on these six URLs, once as is and once with `--render` (output in `results/2026-11-19.json` and `results/2026-11-19-rendered.json`). On 20 November the local backend scanned both test pages the same two ways and matched those results finding for finding, including which findings reached the markdown (`results/2026-11-20-local.json` and `results/2026-11-20-local-rendered.json`).
+Measured through Bright Data on 19 November 2026 by running `loupe --quote-chars 80 --json-output out.json` on these six URLs, once as is and once with `--render` (output in `results/2026-11-19.json` and `results/2026-11-19-rendered.json`). On 20 November the local backend scanned both test pages the same two ways and matched those results finding for finding, including which findings reached the markdown (`results/2026-11-20-local.json` and `results/2026-11-20-local-rendered.json`).
 
 The two test pages show both sides. [The blender page](https://devfrankduah.github.io/loupe/test-page/) hides text aimed at AI on purpose, and [the animated page](https://devfrankduah.github.io/loupe/animated-page/) hides nothing but looks full of hidden text to a code-only scan. Their ground truths ([blender](docs/test-page/ground-truth.md), [animated](docs/animated-page/ground-truth.md)) say what each scan should find, and the tests check both scans against them.
 

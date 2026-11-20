@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devfrankduah.github.io/loupe/schema/results-v1.json",
+  "title": "loupe results, schema_version 1",
+  "description": "What loupe --json prints and --json-output writes: one object per page, in the order the pages were given. Fields may be added within schema_version 1, so readers should ignore fields they don't know. Removing or renaming a field, or changing what one means, raises schema_version. docs/json.md describes every field.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/page" },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 },
+    "optionalCount": { "type": ["integer", "null"], "minimum": 0 },
+    "scanMode": { "enum": ["static", "rendered"] },
+    "kind": {
+      "enum": [
+        "comment",
+        "hidden-attribute",
+        "inline-style",
+        "aria-hidden",
+        "label-attribute",
+        "meta",
+        "noscript",
+        "rendered-hidden"
+      ]
+    },
+    "landing": { "enum": ["visible at load", "revealed on scroll", "still hidden", "not matched"] },
+    "page": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "loupe_version",
+        "url",
+        "verdict",
+        "scan_mode",
+        "backend",
+        "error",
+        "html_characters",
+        "markdown_characters",
+        "markdown_source",
+        "markdown_error",
+        "counts_by_kind",
+        "instruction_like_count",
+        "survival",
+        "rendering",
+        "findings"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "loupe_version": { "type": "string" },
+        "url": { "type": "string", "description": "The URL as given." },
+        "verdict": { "type": "string", "description": "The plain-English first line of the text output." },
+        "scan_mode": {
+          "$ref": "#/$defs/scanMode",
+          "description": "static: the markup only. rendered: loaded in a browser with --render."
+        },
+        "backend": { "enum": ["local", "brightdata"] },
+        "error": {
+          "description": "Why the page wasn't scanned, or null when it was. A page with an error has no findings.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["kind", "message"],
+              "properties": {
+                "kind": {
+                  "enum": ["blocked", "robots", "fetch", "render"],
+                  "description": "blocked: 403, 429 or a challenge page. robots: robots.txt asked loupe not to fetch the page, or couldn't be read. fetch: any other failure to fetch it. render: any other failure to load it in the browser."
+                },
+                "message": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "html_characters": { "$ref": "#/$defs/count" },
+        "markdown_characters": {
+          "$ref": "#/$defs/optionalCount",
+          "description": "null when no markdown was compared: --skip-markdown, an error, or a markdown_error."
+        },
+        "markdown_source": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["name", "version", "license", "approximation"],
+              "properties": {
+                "name": { "type": "string" },
+                "version": { "type": ["string", "null"] },
+                "license": { "type": ["string", "null"] },
+                "approximation": {
+                  "type": "boolean",
+                  "description": "true when loupe made the markdown itself, as an approximation of what agent tools produce."
+                }
+              }
+            }
+          ]
+        },
+        "markdown_error": {
+          "type": ["string", "null"],
+          "description": "Why the markdown couldn't be compared. The page was still scanned."
+        },
+        "counts_by_kind": {
+          "type": "object",
+          "description": "Findings per kind. Kinds with no findings are left out.",
+          "propertyNames": { "$ref": "#/$defs/kind" },
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "instruction_like_count": {
+          "$ref": "#/$defs/count",
+          "description": "Findings worded like instructions to an AI, the ones --fail-on instructions counts."
+        },
+        "survival": {
+          "type": "object",
+          "required": ["survived", "dropped", "not_compared"],
+          "properties": {
+            "survived": { "$ref": "#/$defs/count" },
+            "dropped": { "$ref": "#/$defs/count" },
+            "not_compared": { "$ref": "#/$defs/count" }
+          }
+        },
+        "rendering": {
+          "description": "How the browser loaded the page. null for static scans and for pages with an error.",
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/rendering" }]
+        },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["mode", "kind", "detail", "tag", "text", "text_characters", "instruction_phrases", "in_markdown"],
+      "properties": {
+        "mode": { "$ref": "#/$defs/scanMode" },
+        "kind": { "$ref": "#/$defs/kind" },
+        "detail": { "type": "string", "description": "How the text was hidden, such as display:none or alt." },
+        "tag": { "type": "string" },
+        "text": { "type": "string", "description": "The hidden text, cut to --quote-chars characters." },
+        "text_characters": { "$ref": "#/$defs/count", "description": "The length of the text before it was cut." },
+        "instruction_phrases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The phrases that make it read like an instruction to an AI. Empty when there are none."
+        },
+        "in_markdown": {
+          "type": ["boolean", "null"],
+          "description": "Whether the text reaches the markdown. null when it wasn't compared."
+        }
+      }
+    },
+    "renderedText": {
+      "type": "object",
+      "required": ["tag", "text", "text_characters"],
+      "properties": {
+        "tag": { "type": "string" },
+        "text": { "type": "string" },
+        "text_characters": { "$ref": "#/$defs/count" }
+      }
+    },
+    "rendering": {
+      "type": "object",
+      "required": [
+        "browser",
+        "browser_version",
+        "viewport",
+        "transfer_bytes",
+        "blocked_requests",
+        "final_url",
+        "text_elements",
+        "scroll_steps",
+        "reached_bottom",
+        "centre_checks",
+        "notes",
+        "revealed_on_scroll",
+        "static_comparison_counts",
+        "static_comparison"
+      ],
+      "properties": {
+        "browser": { "enum": ["local-chromium", "remote-cdp", null] },
+        "browser_version": { "type": ["string", "null"] },
+        "viewport": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "prefixItems": [{ "$ref": "#/$defs/count" }, { "$ref": "#/$defs/count" }], "items": false, "minItems": 2 }
+          ]
+        },
+        "transfer_bytes": { "$ref": "#/$defs/optionalCount" },
+        "blocked_requests": { "$ref": "#/$defs/optionalCount" },
+        "final_url": { "type": "string" },
+        "text_elements": { "$ref": "#/$defs/count" },
+        "scroll_steps": { "$ref": "#/$defs/count" },
+        "reached_bottom": { "type": "boolean" },
+        "centre_checks": { "$ref": "#/$defs/count" },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "revealed_on_scroll": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/renderedText" },
+          "description": "Text that was hidden at load and showed on scrolling. It isn't counted as hidden."
+        },
+        "static_comparison_counts": {
+          "type": "object",
+          "required": ["visible at load", "revealed on scroll", "still hidden", "not matched"],
+          "propertyNames": { "$ref": "#/$defs/landing" },
+          "additionalProperties": { "$ref": "#/$defs/count" }
+        },
+        "static_comparison": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tag", "detail", "text", "text_characters", "landed"],
+            "properties": {
+              "tag": { "type": "string" },
+              "detail": { "type": "string" },
+              "text": { "type": "string" },
+              "text_characters": { "$ref": "#/$defs/count" },
+              "landed": { "$ref": "#/$defs/landing" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

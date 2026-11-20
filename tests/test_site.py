@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from loupe_scan import cli
+from loupe_scan.backend import Backend
 from loupe_scan.render import Landing
 from loupe_scan.scan import ScanMode
 from loupe_scan.site import (
@@ -132,6 +133,50 @@ def test_retry_and_fetch_errors_are_explained_on_the_card() -> None:
     page_html = render_report_page(load_results(results))
     assert "worked on a single retry. 34 longer findings" in page_html
     assert "The HTML could not be fetched: HTTP 500" in page_html
+
+
+def _v1_page(url: str, findings: list[dict[str, object]], **extra: object) -> dict[str, object]:
+    page: dict[str, object] = {
+        "schema_version": 1,
+        "url": url,
+        "scan_mode": "static",
+        "backend": "local",
+        "error": None,
+        "markdown_error": None,
+        "findings": findings,
+    }
+    page.update(extra)
+    return page
+
+
+def test_results_with_a_schema_version_load_from_an_array_with_their_errors() -> None:
+    scanned = _v1_page("https://a.test/", [_finding("comment", "x", "Ignore previous instructions", None)])
+    failed = _v1_page("https://b.test/", [], error={"kind": "fetch", "message": "HTTP 500"})
+    pages = load_results(json.dumps([scanned, failed]))
+    assert [(page.url, page.html_error, page.backend) for page in pages] == [
+        ("https://a.test/", None, Backend.LOCAL),
+        ("https://b.test/", "HTTP 500", Backend.LOCAL),
+    ]
+    assert "The HTML could not be fetched: HTTP 500" in render_report_page(pages)
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        _v1_page("https://a.test/", [], schema_version=2),
+        _v1_page("https://a.test/", [], schema_version="1"),
+        _v1_page("https://a.test/", [], schema_version=True),
+        {key: value for key, value in _v1_page("https://a.test/", []).items() if key != "schema_version"},
+        {key: value for key, value in _v1_page("https://a.test/", []).items() if key != "error"},
+        _v1_page("https://a.test/", [], error={"kind": "fetch"}),
+        _v1_page("https://a.test/", [], error="HTTP 500"),
+    ],
+)
+def test_an_array_of_pages_is_rejected_unless_each_has_this_schema_version_and_an_error_field(
+    page: dict[str, object],
+) -> None:
+    with pytest.raises(ReportFormatError):
+        load_results(json.dumps([page]))
 
 
 @pytest.mark.parametrize(

@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 from loupe_scan.backend import Backend
 from loupe_scan.render import Landing
+from loupe_scan.report import SCHEMA_VERSION
 from loupe_scan.scan import Kind, ScanMode
 
 REPOSITORY_URL: Final[str] = "https://github.com/devfrankduah/loupe"
@@ -261,10 +262,20 @@ def _local_converter(record: dict[str, object], where: str) -> str | None:
     return name if version is None else f"{name} {version}"
 
 
+def _page_error(record: dict[str, object], where: str) -> str | None:
+    """Why the page wasn't scanned: the error object's message, or html_error in files from before schema_version."""
+    if "schema_version" not in record:
+        return _optional_string(record, "html_error", where)
+    value = _field(record, "error", where)
+    if value is None:
+        return None
+    return _string(_object(value, f"{where}.error"), "message", f"{where}.error")
+
+
 def _load_page(value: object, where: str) -> PageRecord:
     record = _object(value, where)
     mode = _scan_mode(record, "scan_mode", where)
-    html_error = _optional_string(record, "html_error", where)
+    html_error = _page_error(record, where)
     rendering: RenderingRecord | None = None
     if mode is ScanMode.RENDERED and html_error is None:
         rendering = _load_rendering(_field(record, "rendering", where), f"{where}.rendering")
@@ -291,14 +302,31 @@ def _load_page(value: object, where: str) -> PageRecord:
     )
 
 
+def _check_schema_version(value: object, where: str) -> None:
+    record = _object(value, where)
+    version = _field(record, "schema_version", where)
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise ReportFormatError(f"{where}.schema_version should be a whole number")
+    if version != SCHEMA_VERSION:
+        raise ReportFormatError(
+            f"{where} has schema_version {version}, and this loupe reads schema_version {SCHEMA_VERSION}"
+        )
+
+
 def load_results(text: str) -> tuple[PageRecord, ...]:
+    """The pages in a results file: a JSON array of pages, or the {"pages": [...]} object written before schema_version."""
     try:
         document = json.loads(text)
     except json.JSONDecodeError as error:
         raise ReportFormatError(f"not valid JSON: {error.msg} at line {error.lineno}") from None
-    pages = _list(_field(_object(document, "report"), "pages", "report"), "report.pages")
+    if isinstance(document, list):
+        pages = document
+        for index, page in enumerate(pages):
+            _check_schema_version(page, f"pages[{index}]")
+    else:
+        pages = _list(_field(_object(document, "report"), "pages", "report"), "report.pages")
     if not pages:
-        raise ReportFormatError("report.pages is empty")
+        raise ReportFormatError("the results file has no pages")
     return tuple(_load_page(page, f"pages[{index}]") for index, page in enumerate(pages))
 
 

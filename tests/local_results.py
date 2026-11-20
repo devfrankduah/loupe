@@ -12,10 +12,8 @@ from loupe_scan.scan import Finding, Kind, ScanMode
 
 def scan_locally(url: str, json_path: Path, *extra: str) -> dict[str, Any]:
     """The one page loupe reports for url, scanned with no credentials and quotes kept whole."""
-    assert cli.main([url, "--quote-chars", "0", "--json", str(json_path), *extra]) == cli.EXIT_OK
-    report = json.loads(json_path.read_text(encoding="utf-8"))
-    assert report["backend"] == "local"
-    (page,) = report["pages"]
+    assert cli.main([url, "--quote-chars", "0", "--json-output", str(json_path), *extra]) == cli.EXIT_OK
+    (page,) = json.loads(json_path.read_text(encoding="utf-8"))
     assert page["backend"] == "local"
     assert page["markdown_source"]["approximation"] is True
     return dict(page)

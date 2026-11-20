@@ -35,7 +35,14 @@ from loupe_scan.render import (
     read_browser_endpoint,
     rendered_findings,
 )
-from loupe_scan.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
+from loupe_scan.report import (
+    DEFAULT_QUOTE_CHARACTERS,
+    FailureKind,
+    PageReport,
+    check_findings,
+    page_to_dict,
+    render_text,
+)
 from loupe_scan.scan import ScanMode, scan_html
 from loupe_scan.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
 
@@ -68,7 +75,7 @@ def _build_parser() -> argparse.ArgumentParser:
         # Raw, so the report command stays on one line however wide the terminal is.
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "To turn results files written with --json into one HTML page:\n"
+            "To turn results files written with --json-output into one HTML page:\n"
             "  loupe report RESULTS [RESULTS ...] -o PATH\n"
             "See loupe report --help."
         ),
@@ -85,7 +92,14 @@ def _build_parser() -> argparse.ArgumentParser:
             f"{BROWSER_ENDPOINT_VARIABLE} is set, local otherwise"
         ),
     )
-    parser.add_argument("--json", type=Path, metavar="PATH", help="also write the full report as JSON")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print the results as a JSON array instead of text, in the format described in docs/json.md",
+    )
+    parser.add_argument(
+        "--json-output", type=Path, metavar="PATH", help="also write the results as JSON to PATH, in the same format"
+    )
     parser.add_argument(
         "--zone",
         default=DEFAULT_UNLOCKER_ZONE,
@@ -155,17 +169,17 @@ class HtmlSource(Protocol):
     def fetch_html(self, url: str) -> str: ...
 
 
-def _record_failure(page: PageReport, error: PageFetchError | RenderError, *, loading: str) -> None:
+def _record_failure(page: PageReport, error: PageFetchError | RenderError, *, otherwise: FailureKind) -> None:
     """Record why page wasn't scanned, pointing to Bright Data when a site blocked the local backend."""
     page.html_error = str(error)
     if isinstance(error, BlockedError):
-        page.failure = "the site turned loupe away"
+        page.failure = FailureKind.BLOCKED
         if page.backend is Backend.LOCAL:
             page.html_error = f"{error}. {BLOCKED_HINT}"
     elif isinstance(error, RobotsDisallowedError):
-        page.failure = "the site's robots.txt stopped loupe"
+        page.failure = FailureKind.ROBOTS
     else:
-        page.failure = f"the page couldn't be {loading}"
+        page.failure = otherwise
 
 
 def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, backend: Backend) -> PageReport:
@@ -174,7 +188,7 @@ def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, b
     try:
         html = source.fetch_html(url)
     except PageFetchError as error:
-        _record_failure(page, error, loading="fetched")
+        _record_failure(page, error, otherwise=FailureKind.FETCH)
         return page
     page.html_characters = len(html)
     page.findings = check_findings(scan_html(html), _markdown_for(markdown, url, html, page))
@@ -201,7 +215,7 @@ def scan_rendered_page(
             fetcher.admit(url)
         rendered = renderer.render(url)
     except (PageFetchError, RenderError) as error:
-        _record_failure(page, error, loading="loaded in the browser")
+        _record_failure(page, error, otherwise=FailureKind.RENDER)
         return page
     page.html_characters = len(rendered.html)
     page.rendered = rendered
@@ -219,7 +233,7 @@ def _build_report_parser() -> argparse.ArgumentParser:
             "--render run of the same pages to see them side by side."
         ),
     )
-    parser.add_argument("results", type=Path, nargs="+", help="JSON written by loupe --json")
+    parser.add_argument("results", type=Path, nargs="+", help="JSON written by loupe --json or --json-output")
     parser.add_argument("-o", "--output", type=Path, required=True, metavar="PATH", help="HTML file to write")
     return parser
 
@@ -322,8 +336,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     def record(page: PageReport) -> None:
         pages.append(page)
-        print(scrub(render_text(page, arguments.quote_chars)), flush=True)
-        print()
+        if not arguments.json:
+            print(scrub(render_text(page, arguments.quote_chars)), flush=True)
+            print()
 
     if arguments.render:
         try:
@@ -343,17 +358,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         for url in arguments.urls:
             record(scan_page(client, markdown, url, backend=backend))
 
-    if arguments.json is not None:
-        report = {
-            "loupe_version": __version__,
-            "backend": backend.value,
-            "pages": [page_to_dict(page, arguments.quote_chars) for page in pages],
-        }
+    results = _scrub_strings([page_to_dict(page, arguments.quote_chars) for page in pages], scrub)
+    if arguments.json:
+        # Escaped to ASCII, so text from a page can't reach the terminal as a
+        # control or direction-changing character; any JSON reader decodes it.
+        print(json.dumps(results, indent=2, ensure_ascii=True), flush=True)
+    if arguments.json_output is not None:
         try:
-            text = json.dumps(_scrub_strings(report, scrub), indent=2, ensure_ascii=False) + "\n"
-            arguments.json.write_text(text, encoding="utf-8")
+            text = json.dumps(results, indent=2, ensure_ascii=False) + "\n"
+            arguments.json_output.write_text(text, encoding="utf-8")
         except OSError as error:
-            print(f"loupe: could not write {arguments.json}: {error.strerror}", file=sys.stderr)
+            print(f"loupe: could not write {arguments.json_output}: {error.strerror}", file=sys.stderr)
             return EXIT_USAGE
 
     failed = any(page.html_error is not None or page.markdown_error is not None for page in pages)

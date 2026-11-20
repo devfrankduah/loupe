@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Final
 
+from loupe_scan import __version__
 from loupe_scan.backend import Backend
 from loupe_scan.convert import MarkdownSource
 from loupe_scan.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
@@ -15,12 +17,41 @@ from loupe_scan.survival import MarkdownIndex
 
 DEFAULT_QUOTE_CHARACTERS: Final[int] = 160
 
+# The JSON format's version, in every page object. It goes up only when a
+# field is removed or renamed or its meaning changes; new fields don't change
+# it. docs/json.md describes the format and docs/schema/results-v1.json is its
+# JSON Schema.
+SCHEMA_VERSION: Final[int] = 1
+
 # Text from fetched pages reaches the terminal through render_text. Control
 # characters, including the ESC that starts an ANSI sequence and the 8-bit
 # CSI, can move the cursor, clear the screen or rewrite earlier lines, and
 # bidirectional overrides can reorder what is shown. Each is printed as an
 # escape instead.
 _UNPRINTABLE: Final[re.Pattern[str]] = re.compile(r"[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+class FailureKind(str, Enum):
+    """Why a page wasn't scanned. The values are part of the JSON format."""
+
+    # The site answered 403 or 429, or served a challenge page.
+    BLOCKED = "blocked"
+    # robots.txt asked loupe not to fetch the page, or couldn't be read.
+    ROBOTS = "robots"
+    FETCH = "fetch"
+    RENDER = "render"
+
+    @property
+    def summary(self) -> str:
+        return _FAILURE_SUMMARIES[self]
+
+
+_FAILURE_SUMMARIES: Final[dict[FailureKind, str]] = {
+    FailureKind.BLOCKED: "the site turned loupe away",
+    FailureKind.ROBOTS: "the site's robots.txt stopped loupe",
+    FailureKind.FETCH: "the page couldn't be fetched",
+    FailureKind.RENDER: "the page couldn't be loaded in the browser",
+}
 
 
 @dataclass(frozen=True)
@@ -40,9 +71,9 @@ class PageReport:
     markdown_characters: int | None = None
     # Set when markdown was fetched or made.
     markdown_source: MarkdownSource | None = None
+    # Why the page wasn't scanned, in detail, and the kind of failure it was. Both are set or neither is.
     html_error: str | None = None
-    # Why the page wasn't scanned, in plain words, when html_error is set.
-    failure: str | None = None
+    failure: FailureKind | None = None
     markdown_error: str | None = None
     mode: ScanMode = ScanMode.STATIC
     # Set for rendered scans that loaded the page.
@@ -136,16 +167,26 @@ def _rendering_to_dict(page: PageReport, quote_limit: int) -> dict[str, object] 
     }
 
 
+def _error_to_dict(page: PageReport) -> dict[str, str] | None:
+    if page.html_error is None:
+        return None
+    kind = FailureKind.FETCH if page.failure is None else page.failure
+    return {"kind": kind.value, "message": page.html_error}
+
+
 def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> dict[str, object]:
+    """One page in the JSON format described in docs/json.md."""
     return {
+        "schema_version": SCHEMA_VERSION,
+        "loupe_version": __version__,
         "url": page.url,
         "verdict": verdict(page),
         "scan_mode": page.mode.value,
         "backend": page.backend.value,
+        "error": _error_to_dict(page),
         "html_characters": page.html_characters,
         "markdown_characters": page.markdown_characters,
         "markdown_source": None if page.markdown_source is None else page.markdown_source.to_dict(),
-        "html_error": page.html_error,
         "markdown_error": page.markdown_error,
         "counts_by_kind": page.count_by_kind(),
         "instruction_like_count": len(page.instruction_like),
@@ -230,7 +271,8 @@ def _instruction_sentence(page: PageReport) -> str:
 def verdict(page: PageReport) -> str:
     """One plain sentence or two on what the page hides from people and hands to an AI."""
     if page.html_error is not None:
-        return f"Not scanned: {page.failure or 'the page could not be fetched'}. The details are below."
+        failure = FailureKind.FETCH if page.failure is None else page.failure
+        return f"Not scanned: {failure.summary}. The details are below."
     if not page.findings:
         return "No hidden text found."
     characters = sum(len(item.finding.text) for item in page.findings)

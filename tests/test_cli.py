@@ -63,11 +63,10 @@ def test_a_token_picks_the_brightdata_backend_and_the_results_record_it(
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
     output_path = tmp_path / "report.json"
 
-    cli.main(["https://example.com/cake", "--skip-markdown", "--json", str(output_path)])
+    cli.main(["https://example.com/cake", "--skip-markdown", "--json-output", str(output_path)])
 
     report = json.loads(output_path.read_text(encoding="utf-8"))
-    assert report["backend"] == "brightdata"
-    assert [page["backend"] for page in report["pages"]] == ["brightdata"]
+    assert [page["backend"] for page in report] == ["brightdata"]
     assert "  backend: Bright Data" in capsys.readouterr().out.splitlines()
 
 
@@ -81,10 +80,10 @@ def test_report_records_which_hidden_findings_reach_markdown(
     _install_fake_client(monkeypatch, FakeClient(planted_html, markdown))
     output_path = tmp_path / "report.json"
 
-    assert cli.main(["https://example.com/cake", "--json", str(output_path)]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_OK
 
     report = json.loads(output_path.read_text(encoding="utf-8"))
-    (page,) = report["pages"]
+    (page,) = report
     survived = {finding["text"].split()[-1] for finding in page["findings"] if finding["in_markdown"]}
     assert survived == {"PLANTED-ALT", "PLANTED-NOSCRIPT"}
     assert page["instruction_like_count"] == 13
@@ -121,9 +120,9 @@ def test_quoted_text_is_cut_to_the_requested_length(
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
     output_path = tmp_path / "report.json"
 
-    cli.main(["https://example.com/cake", "--skip-markdown", "--quote-chars", "20", "--json", str(output_path)])
+    cli.main(["https://example.com/cake", "--skip-markdown", "--quote-chars", "20", "--json-output", str(output_path)])
 
-    findings = json.loads(output_path.read_text(encoding="utf-8"))["pages"][0]["findings"]
+    findings = json.loads(output_path.read_text(encoding="utf-8"))[0]["findings"]
     assert all(len(finding["text"]) <= 20 for finding in findings)
     assert any(finding["text_characters"] > 20 for finding in findings)
     assert "PLANTED" not in capsys.readouterr().out
@@ -217,9 +216,9 @@ def test_render_needs_no_token_when_markdown_is_skipped(
     output_path = tmp_path / "rendered.json"
 
     arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
-    assert cli.main([*arguments, "--json", str(output_path)]) == 0
+    assert cli.main([*arguments, "--json-output", str(output_path)]) == 0
 
-    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert page["scan_mode"] == "rendered"
     marked = _marked(page["findings"])
     assert (marked["CASE-COMMENT"]["mode"], marked["CASE-COMMENT"]["kind"]) == ("static", "comment")
@@ -245,9 +244,9 @@ def test_rendered_findings_are_compared_with_the_markdown(monkeypatch: pytest.Mo
     _install_fake_client(monkeypatch, FakeClient("<p>unused</p>", markdown))
     output_path = tmp_path / "rendered.json"
 
-    assert cli.main(["https://example.com/cake", "--render", "--json", str(output_path)]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--render", "--json-output", str(output_path)]) == cli.EXIT_OK
 
-    marked = _marked(json.loads(output_path.read_text(encoding="utf-8"))["pages"][0]["findings"])
+    marked = _marked(json.loads(output_path.read_text(encoding="utf-8"))[0]["findings"])
     assert marked["CASE-CLIPPED"]["in_markdown"] is True
     assert marked["CASE-HIDDEN"]["in_markdown"] is False
 
@@ -278,10 +277,11 @@ def test_a_page_that_fails_to_render_is_reported_and_exits_nonzero(
     output_path = tmp_path / "rendered.json"
 
     arguments = ["https://example.com/cake", "--render", "--skip-markdown", "--ignore-robots"]
-    assert cli.main([*arguments, "--json", str(output_path)]) == 1
+    assert cli.main([*arguments, "--json-output", str(output_path)]) == 1
 
-    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
-    assert (page["html_error"], page["rendering"], page["findings"]) == (str(failure), None, [])
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))
+    assert page["error"] == {"kind": "render", "message": str(failure)}
+    assert (page["rendering"], page["findings"]) == (None, [])
     assert "error: Rendering https://example.com/cake failed: HTTP 500" in capsys.readouterr().out
 
 
@@ -289,9 +289,9 @@ def test_static_results_record_their_mode(monkeypatch: pytest.MonkeyPatch, plant
     _install_fake_client(monkeypatch, FakeClient(planted_html, None))
     output_path = tmp_path / "static.json"
 
-    cli.main(["https://example.com/cake", "--skip-markdown", "--json", str(output_path)])
+    cli.main(["https://example.com/cake", "--skip-markdown", "--json-output", str(output_path)])
 
-    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert (page["scan_mode"], page["rendering"]) == ("static", None)
     assert {finding["mode"] for finding in page["findings"]} == {"static"}
 
@@ -307,7 +307,7 @@ def test_an_endpoint_that_slips_into_an_error_is_never_printed_or_saved(
     _install_fake_renderer(monkeypatch, FakeRenderer(failure=leak, source=BrowserSource.REMOTE, endpoint=FAKE_ENDPOINT))
     output_path = tmp_path / "rendered.json"
 
-    cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json", str(output_path)])
+    cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json-output", str(output_path)])
 
     printed = capsys.readouterr()
     saved = output_path.read_text(encoding="utf-8")
@@ -325,10 +325,10 @@ def test_the_brightdata_backend_renders_through_the_endpoint(
     _install_fake_renderer(monkeypatch, renderer)
     output_path = tmp_path / "rendered.json"
 
-    assert cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json", str(output_path)]) == 0
+    assert cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json-output", str(output_path)]) == 0
 
     assert renderer.opened_with == [FAKE_ENDPOINT]
-    assert json.loads(output_path.read_text(encoding="utf-8"))["backend"] == "brightdata"
+    assert [page["backend"] for page in json.loads(output_path.read_text(encoding="utf-8"))] == ["brightdata"]
     assert "  backend: Bright Data" in capsys.readouterr().out.splitlines()
 
 
@@ -342,11 +342,11 @@ def test_the_local_backend_never_uses_a_set_endpoint(
     output_path = tmp_path / "rendered.json"
 
     arguments = ["https://example.com/cake", "--backend", "local", "--render", "--skip-markdown", "--ignore-robots"]
-    assert cli.main([*arguments, "--json", str(output_path)]) == 0
+    assert cli.main([*arguments, "--json-output", str(output_path)]) == 0
 
     assert renderer.opened_with == [None]
     report = json.loads(output_path.read_text(encoding="utf-8"))
-    assert (report["backend"], report["pages"][0]["backend"]) == ("local", "local")
+    assert [page["backend"] for page in report] == ["local"]
     assert "  backend: local" in capsys.readouterr().out.splitlines()
 
 
@@ -362,7 +362,7 @@ def test_an_endpoint_in_a_markup_scan_error_is_never_printed_or_saved(
     _install_fake_client(monkeypatch, LeakyClient("", None))
     output_path = tmp_path / "static.json"
 
-    assert cli.main(["https://example.com/cake", "--json", str(output_path)]) == cli.EXIT_FETCH_FAILED
+    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_FETCH_FAILED
 
     printed = capsys.readouterr()
     saved = output_path.read_text(encoding="utf-8")
@@ -426,9 +426,9 @@ def test_bright_data_markdown_is_labelled_with_its_source(
     _install_fake_client(monkeypatch, FakeClient(planted_html, "# Lemon cake"))
     output_path = tmp_path / "report.json"
 
-    assert cli.main(["https://example.com/cake", "--json", str(output_path)]) == cli.EXIT_OK
+    assert cli.main(["https://example.com/cake", "--json-output", str(output_path)]) == cli.EXIT_OK
 
-    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))
     assert page["markdown_source"] == {
         "name": "Bright Data's Fetch API",
         "version": None,
