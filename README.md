@@ -226,11 +226,11 @@ A rendered scan still misses some things, or counts them as hidden when a reader
 The tests run on the local backend only, in both scan modes, against copies of both test pages and other fixtures served from 127.0.0.1. They fail any test that tries to connect beyond your machine, and they need no account:
 
 ```
-pip install -e ".[test,render]"
+pip install -e ".[test,render,mcp]"
 pytest
 ```
 
-The browser tests are skipped when Playwright or its Chromium isn't installed. CI also runs the GitHub Action against the test pages, served inside the job.
+The browser tests are skipped when Playwright or its Chromium isn't installed, and the MCP server's tests when the `mcp` extra isn't. CI also runs the GitHub Action against the test pages, served inside the job.
 
 ## Contributing, security and license
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import re
 import socket
 
 import pytest
@@ -304,3 +305,59 @@ def test_a_declared_length_over_the_limit_is_refused_before_reading_any_of_it() 
     with serve_routes({"/big": route}) as site:
         with pytest.raises(FetchError, match="larger than 0.001 MB"):
             LocalFetcher(limits=FetchLimits(max_page_bytes=1000, total_seconds=0.5)).fetch_html(site.url("/big"))
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["127.0.0.1", "10.1.2.3", "192.168.0.10", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fe80::1%en0", "::ffff:127.0.0.1", "fd00::1"],
+)
+def test_a_public_only_fetcher_refuses_a_host_on_a_non_public_address(address: str) -> None:
+    from loupe_scan.local_fetch import NonPublicAddressError, require_public_address
+
+    with pytest.raises(NonPublicAddressError, match=f"is at {re.escape(address)}, a private, loopback"):
+        require_public_address("https://shop.example/", lambda host, port: ["93.184.215.14", address])
+
+
+def test_a_public_only_fetcher_lets_a_public_address_through_and_says_when_a_name_doesnt_resolve() -> None:
+    from loupe_scan.local_fetch import require_public_address
+
+    looked_up: list[tuple[str, int]] = []
+
+    def resolve(host: str, port: int) -> list[str]:
+        looked_up.append((host, port))
+        return ["93.184.215.14", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"]
+
+    require_public_address("https://shop.example/cake", resolve)
+    require_public_address("http://shop.example:8080/cake", resolve)
+    assert looked_up == [("shop.example", 443), ("shop.example", 8080)]
+
+    def fail(host: str, port: int) -> list[str]:
+        raise socket.gaierror("no such host")
+
+    with pytest.raises(FetchError, match="couldn't find nowhere.example"):
+        require_public_address("https://nowhere.example/", fail)
+
+
+def test_a_public_only_fetcher_checks_every_redirect_before_following_it() -> None:
+    from loupe_scan.local_fetch import NonPublicAddressError
+
+    routes = {"/robots.txt": _robots(""), "/away": Route(status=302, headers={"location": "http://router.internal/admin"})}
+    with serve_routes(routes) as site:
+        # The test server is public as far as this resolver knows; the redirect's target isn't.
+        addresses = {"127.0.0.1": ["93.184.215.14"], "router.internal": ["192.168.1.1"]}
+        fetcher = LocalFetcher(public_only=True, resolve=lambda host, port: addresses[host])
+        with pytest.raises(NonPublicAddressError, match="router.internal is at 192.168.1.1"):
+            fetcher.fetch_html(site.url("/away"))
+    assert site.requested() == ["/robots.txt", "/away"]
+
+
+def test_robots_txt_is_read_again_once_it_is_a_day_old() -> None:
+    now = [1000.0]
+    with serve_routes({"/robots.txt": _robots(""), "/cake": html_route(PAGE)}) as site:
+        fetcher = LocalFetcher(clock=lambda: now[0])
+        fetcher.fetch_html(site.url("/cake"))
+        now[0] += 86_400
+        fetcher.fetch_html(site.url("/cake"))
+        now[0] += 1
+        fetcher.fetch_html(site.url("/cake"))
+    assert site.requested() == ["/robots.txt", "/cake", "/cake", "/robots.txt", "/cake"]

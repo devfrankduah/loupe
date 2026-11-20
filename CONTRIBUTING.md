@@ -11,11 +11,11 @@ git clone https://github.com/devfrankduah/loupe.git
 cd loupe
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[test,render]" mypy types-jsonschema
+pip install -e ".[test,render,mcp]" mypy types-jsonschema
 playwright install chromium
 ```
 
-The `render` extra and Chromium are only needed for the rendered tests. Without them, those tests are skipped.
+The `render` extra and Chromium are only needed for the rendered tests, and the `mcp` extra for the MCP server's. Without them, those tests are skipped.
 
 ## Run the tests and the type check
 

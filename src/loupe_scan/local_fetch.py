@@ -9,24 +9,32 @@ This is the local backend's fetch, and it needs no account. Every request:
 * follows at most 5 redirects, checking each new address as it goes;
 * stops reading at 10 MB.
 
-robots.txt is read once per site and obeyed unless the caller turns that off
-for pages the user owns. As RFC 9309 says, a robots.txt that's missing or
+robots.txt is read once per site, again after a day, and obeyed unless the
+caller turns that off for pages the user owns. As RFC 9309 says, a robots.txt that's missing or
 answers 4xx allows everything, while one that can't be read (a 5xx, a 429 or
 a network error) disallows everything. A Crawl-delay is waited out between
 requests to the same site, up to MAX_CRAWL_DELAY_SECONDS.
 
 A 403 or 429, or a challenge page, raises BlockedError, so the caller can
 point to the Bright Data backend.
+
+With public_only, as loupe mcp uses it, every address a request goes to,
+redirects included, must resolve to public IP addresses only, so a page an
+agent is sent to can't reach this machine or its network. The name is looked
+up again when the request connects, so a site that answers differently the
+second time can still get past it.
 """
 
 from __future__ import annotations
 
 import codecs
+import ipaddress
 import re
+import socket
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
 from urllib.parse import urljoin, urlsplit
 
 import requests
@@ -59,9 +67,11 @@ class FetchLimits:
     # RFC 9309 asks parsers to read at least 500 KiB of a robots.txt.
     max_robots_bytes: int = 500 * 1024
     max_crawl_delay_seconds: float = MAX_CRAWL_DELAY_SECONDS
+    # RFC 9309 asks crawlers not to keep a robots.txt for more than a day.
+    robots_max_age_seconds: float = 86_400.0
 
     def __post_init__(self) -> None:
-        for name in ("connect_timeout_seconds", "read_timeout_seconds", "total_seconds"):
+        for name in ("connect_timeout_seconds", "read_timeout_seconds", "total_seconds", "robots_max_age_seconds"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be more than 0")
         for name in ("max_page_bytes", "max_robots_bytes"):
@@ -77,6 +87,50 @@ class FetchError(PageFetchError):
 
 class RobotsDisallowedError(FetchError):
     """robots.txt asks loupe to leave the page alone, or couldn't be read."""
+
+
+class NonPublicAddressError(FetchError):
+    """The page is on a private, loopback or other non-public address, and the fetcher only fetches public ones."""
+
+
+Resolver = Callable[[str, int], Sequence[str]]
+
+
+def resolve_addresses(host: str, port: int) -> list[str]:
+    """Every IP address host resolves to."""
+    infos: list[tuple[Any, ...]] = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in infos]
+
+
+def _is_public(address: str) -> bool:
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    # Python releases before the fix for gh-113171 call an IPv4-mapped
+    # address such as ::ffff:127.0.0.1 global, so it's judged as IPv4.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip.is_global
+
+
+def require_public_address(url: str, resolve: Resolver = resolve_addresses) -> None:
+    """Raise NonPublicAddressError unless every address url's host resolves to is public."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        addresses = resolve(host, port)
+    except (OSError, ValueError, UnicodeError):
+        raise FetchError(f"Fetching {url} failed: couldn't find {host}") from None
+    if not addresses:
+        raise FetchError(f"Fetching {url} failed: couldn't find {host}")
+    for address in addresses:
+        try:
+            public = _is_public(address)
+        except ValueError:
+            public = False
+        if not public:
+            raise NonPublicAddressError(
+                f"Not fetching {url}: {host} is at {address}, a private, loopback or other non-public address"
+            )
 
 
 class _ReadProblem(Exception):
@@ -155,26 +209,36 @@ class LocalFetcher:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         on_wait: Callable[[str], None] = lambda message: None,
+        public_only: bool = False,
+        resolve: Resolver = resolve_addresses,
     ) -> None:
         self._respect_robots = respect_robots
+        self._public_only = public_only
+        self._resolve = resolve
         self._limits = limits
         self._session: GetSession = session if session is not None else requests.Session()
         self._clock = clock
         self._sleep = sleep
         self._on_wait = on_wait
-        self._robots: dict[str, _RobotsRules] = {}
+        # Each site's rules, and when they were read.
+        self._robots: dict[str, tuple[_RobotsRules, float]] = {}
         self._last_request: dict[str, float] = {}
 
     def __repr__(self) -> str:
-        return f"LocalFetcher(respect_robots={self._respect_robots})"
+        return f"LocalFetcher(respect_robots={self._respect_robots}, public_only={self._public_only})"
 
     @property
     def _timeout(self) -> tuple[float, float]:
         return (self._limits.connect_timeout_seconds, self._limits.read_timeout_seconds)
 
     def admit(self, url: str) -> None:
-        """Check robots.txt allows url and wait out any Crawl-delay; raise RobotsDisallowedError if it doesn't."""
+        """Check robots.txt allows url and wait out any Crawl-delay; raise RobotsDisallowedError if it doesn't.
+
+        With public_only, raises NonPublicAddressError first for an address that isn't public.
+        """
         _require_http_url(url)
+        if self._public_only:
+            require_public_address(url, self._resolve)
         if not self._respect_robots:
             return
         origin = _origin(url)
@@ -297,10 +361,11 @@ class LocalFetcher:
         return b"".join(chunks)
 
     def _robots_for(self, origin: str) -> _RobotsRules:
-        rules = self._robots.get(origin)
-        if rules is None:
-            rules = self._load_robots(origin)
-            self._robots[origin] = rules
+        cached = self._robots.get(origin)
+        if cached is not None and self._clock() - cached[1] <= self._limits.robots_max_age_seconds:
+            return cached[0]
+        rules = self._load_robots(origin)
+        self._robots[origin] = (rules, self._clock())
         return rules
 
     def _load_robots(self, origin: str) -> _RobotsRules:
@@ -329,4 +394,9 @@ class LocalFetcher:
             current = urljoin(current, location)
             if urlsplit(current).scheme not in ("http", "https"):
                 return _RobotsRules()
+            if self._public_only:
+                try:
+                    require_public_address(current, self._resolve)
+                except FetchError:
+                    return _RobotsRules(unreadable_because="it redirects to an address loupe won't fetch")
         return _RobotsRules()

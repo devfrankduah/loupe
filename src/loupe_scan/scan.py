@@ -8,7 +8,7 @@ loupe_scan.render covers that case by asking a real browser.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final
 
@@ -74,6 +74,9 @@ class Finding:
     mode: ScanMode = ScanMode.STATIC
     # True when text is PER_REQUEST_PLACEHOLDER standing in for a per-request meta value.
     value_removed: bool = False
+    # The line of the HTML its element starts on (for a comment, the element holding it), when the markup scan
+    # found it. Left out of comparisons, since it says where a finding is, not what it is.
+    line: int | None = field(default=None, compare=False)
 
     @property
     def is_instruction_like(self) -> bool:
@@ -198,6 +201,7 @@ def make_finding(
     mode: ScanMode = ScanMode.STATIC,
     *,
     value_removed: bool = False,
+    line: int | None = None,
 ) -> Finding:
     return Finding(
         kind=kind,
@@ -207,6 +211,7 @@ def make_finding(
         instruction_phrases=find_instruction_phrases(text),
         mode=mode,
         value_removed=value_removed,
+        line=line,
     )
 
 
@@ -228,7 +233,9 @@ def scan_html(html: str) -> list[Finding]:
         if isinstance(node, Comment):
             text = normalize_whitespace(str(node))
             if text:
-                findings.append(make_finding(Kind.COMMENT, "<!-- -->", "comment", text))
+                holder = node.parent
+                line = holder.sourceline if isinstance(holder, Tag) else None
+                findings.append(make_finding(Kind.COMMENT, "<!-- -->", "comment", text, line=line))
             continue
         if not isinstance(node, Tag):
             continue
@@ -238,7 +245,7 @@ def scan_html(html: str) -> list[Finding]:
         for attribute in _LABEL_ATTRIBUTES:
             text = _attribute_text(node, attribute)
             if text:
-                findings.append(make_finding(Kind.LABEL_ATTRIBUTE, attribute, tag_name, text))
+                findings.append(make_finding(Kind.LABEL_ATTRIBUTE, attribute, tag_name, text, line=node.sourceline))
 
         if tag_name == "meta":
             meta_key = _meta_key(node)
@@ -248,10 +255,12 @@ def scan_html(html: str) -> list[Finding]:
                 label = f"{attribute}={key}"
                 if is_per_request_meta(key, text):
                     findings.append(
-                        make_finding(Kind.META, label, tag_name, PER_REQUEST_PLACEHOLDER, value_removed=True)
+                        make_finding(
+                            Kind.META, label, tag_name, PER_REQUEST_PLACEHOLDER, value_removed=True, line=node.sourceline
+                        )
                     )
                 else:
-                    findings.append(make_finding(Kind.META, label, tag_name, text))
+                    findings.append(make_finding(Kind.META, label, tag_name, text, line=node.sourceline))
             continue
 
         if tag_name in _NON_CONTENT_TAGS or _is_inside(node, hidden_containers):
@@ -263,12 +272,12 @@ def scan_html(html: str) -> list[Finding]:
             text = _visible_text(node)
             if text:
                 kind, detail = hiding
-                findings.append(make_finding(kind, detail, tag_name, text))
+                findings.append(make_finding(kind, detail, tag_name, text, line=node.sourceline))
             continue
 
         if tag_name == "noscript":
             text = _visible_text(node)
             if text:
-                findings.append(make_finding(Kind.NOSCRIPT, "<noscript>", tag_name, text))
+                findings.append(make_finding(Kind.NOSCRIPT, "<noscript>", tag_name, text, line=node.sourceline))
 
     return findings

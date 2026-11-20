@@ -28,8 +28,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install loupe with the test and render extras
-        run: pip install -e ".[test,render]" "mypy==2.4.1" types-jsonschema
+      - name: Install loupe with the test, render and mcp extras
+        run: pip install -e ".[test,render,mcp]" "mypy==2.4.1" types-jsonschema
       - name: Install Chromium for the rendered tests
         run: python -m playwright install --with-deps chromium
       - name: Type check

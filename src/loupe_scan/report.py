@@ -82,6 +82,8 @@ class PageReport:
     rendered: RenderedPage | None = None
     # True when loupe was given the HTML (scan_html, --html-file) rather than fetching the page itself.
     supplied_html: bool = False
+    # The markdown compared, kept only when the caller asks, as loupe mcp does to hand it on.
+    markdown: str | None = field(default=None, repr=False)
 
     @property
     def instruction_like(self) -> list[CheckedFinding]:
@@ -319,12 +321,18 @@ _UNSCANNED_RESULTS: Final[dict[FailureKind, str]] = {
 _SUMMARY_HEADER: Final[tuple[str, ...]] = ("result", "hidden", "instructions", "instructions in markdown", "url")
 
 
-def _summary_row(page: PageReport) -> tuple[str, ...]:
+def page_result(page: PageReport) -> str:
+    """The summary table's word for a page: instructions, hidden text or clean, or why it wasn't scanned."""
     if page.html_error is not None:
-        result = _UNSCANNED_RESULTS[FailureKind.FETCH if page.failure is None else page.failure]
+        return _UNSCANNED_RESULTS[FailureKind.FETCH if page.failure is None else page.failure]
+    return "instructions" if page.instruction_like else "hidden text" if page.findings else "clean"
+
+
+def _summary_row(page: PageReport) -> tuple[str, ...]:
+    result = page_result(page)
+    if page.html_error is not None:
         return (result, "-", "-", "-", page.url)
     flagged = page.instruction_like
-    result = "instructions" if flagged else "hidden text" if page.findings else "clean"
     reached = "-" if page.markdown_characters is None else f"{sum(item.in_markdown is True for item in flagged):,}"
     return (result, f"{len(page.findings):,}", f"{len(flagged):,}", reached, page.url)
 

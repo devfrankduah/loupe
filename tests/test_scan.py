@@ -188,3 +188,13 @@ def test_prose_in_a_per_request_meta_name_is_kept_and_still_checked() -> None:
 )
 def test_is_per_request_meta(name: str, value: str, expected: bool) -> None:
     assert is_per_request_meta(name, value) is expected
+
+
+def test_each_finding_says_which_line_its_element_starts_on() -> None:
+    html = (
+        "<html>\n<head><meta name=description content='A bakery'></head>\n<body>\n"
+        "<main>\n<!-- a note -->\n<p hidden>Hidden paragraph</p>\n<img alt='Alt text'>\n</main>\n</body></html>"
+    )
+    lines = {finding.kind: finding.line for finding in scan_html(html)}
+    # A comment has no line of its own here, so it gets its element's.
+    assert lines == {Kind.META: 2, Kind.COMMENT: 4, Kind.HIDDEN_ATTRIBUTE: 6, Kind.LABEL_ATTRIBUTE: 7}

@@ -63,7 +63,9 @@ def local_markdown() -> MarkdownMaker:
     return MarkdownMaker(local_markdown_source(), html_to_markdown)
 
 
-def _markdown_for(maker: MarkdownMaker | None, url: str, html: str, page: PageReport) -> str | None:
+def _markdown_for(
+    maker: MarkdownMaker | None, url: str, html: str, page: PageReport, *, keep: bool = False
+) -> str | None:
     if maker is None:
         return None
     try:
@@ -73,6 +75,8 @@ def _markdown_for(maker: MarkdownMaker | None, url: str, html: str, page: PageRe
         return None
     page.markdown_characters = len(markdown)
     page.markdown_source = maker.source
+    if keep:
+        page.markdown = markdown
     return markdown
 
 
@@ -80,7 +84,7 @@ class HtmlSource(Protocol):
     def fetch_html(self, url: str) -> str: ...
 
 
-def _record_failure(page: PageReport, error: PageFetchError | RenderError, *, otherwise: FailureKind) -> None:
+def record_failure(page: PageReport, error: PageFetchError | RenderError, *, otherwise: FailureKind) -> None:
     """Record why page wasn't scanned, pointing to Bright Data when a site blocked the local backend."""
     page.html_error = str(error)
     if isinstance(error, BlockedError):
@@ -99,17 +103,19 @@ def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, b
     try:
         html = source.fetch_html(url)
     except PageFetchError as error:
-        _record_failure(page, error, otherwise=FailureKind.FETCH)
+        record_failure(page, error, otherwise=FailureKind.FETCH)
         return page
     page.html_characters = len(html)
     page.findings = check_findings(scan_html(html), _markdown_for(markdown, url, html, page))
     return page
 
 
-def _check_rendered(page: PageReport, rendered: RenderedPage, markdown: MarkdownMaker | None) -> PageReport:
+def _check_rendered(
+    page: PageReport, rendered: RenderedPage, markdown: MarkdownMaker | None, *, keep_markdown: bool = False
+) -> PageReport:
     page.html_characters = len(rendered.html)
     page.rendered = rendered
-    markdown_text = _markdown_for(markdown, page.url, rendered.html, page)
+    markdown_text = _markdown_for(markdown, page.url, rendered.html, page, keep=keep_markdown)
     browser_findings = rendered_findings(rendered)
     # When a given page tried to navigate, the browser may not have read all
     # of its HTML, so the markup checks' guesses stay, except where the
@@ -144,34 +150,49 @@ def scan_rendered_page(
             fetcher.admit(url)
         rendered = renderer.render(url)
     except (PageFetchError, RenderError) as error:
-        _record_failure(page, error, otherwise=FailureKind.RENDER)
+        record_failure(page, error, otherwise=FailureKind.RENDER)
         return page
     return _check_rendered(page, rendered, markdown)
+
+
+def scan_html_once(
+    html: str,
+    url: str,
+    *,
+    backend: Backend,
+    markdown: bool,
+    renderer: PageRenderer | None = None,
+    supplied: bool,
+    keep_markdown: bool = False,
+) -> PageReport:
+    """Scan html as the page at url without fetching url, whoever fetched the HTML.
+
+    The markdown is always made here from that same HTML, so what's compared
+    is what was scanned, and keep_markdown keeps it on the report. With a
+    renderer, the browser is given the HTML as the page at url and loads its
+    stylesheets and scripts from the network. backend records where the HTML
+    came from, and supplied whether the caller gave it to loupe.
+    """
+    maker = local_markdown() if markdown else None
+    if renderer is None:
+        page = PageReport(url=url, backend=backend, supplied_html=supplied)
+        page.html_characters = len(html)
+        page.findings = check_findings(scan_html(html), _markdown_for(maker, url, html, page, keep=keep_markdown))
+        return page
+    page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source, supplied_html=supplied)
+    try:
+        rendered = renderer.render_html(url, html)
+    except RenderError as error:
+        record_failure(page, error, otherwise=FailureKind.RENDER)
+        return page
+    return _check_rendered(page, rendered, maker, keep_markdown=keep_markdown)
 
 
 def scan_supplied_html(
     html: str, url: str, *, backend: Backend, markdown: bool, renderer: PageRenderer | None = None
 ) -> PageReport:
-    """Scan HTML the caller already has, as the page at url, without fetching url.
-
-    The markdown is always made here from that same HTML, so what's compared
-    is what was scanned. With a renderer, the browser is given the HTML as the
-    page at url and loads its stylesheets and scripts from the network.
-    backend records where the HTML came from.
-    """
-    maker = local_markdown() if markdown else None
-    if renderer is None:
-        page = PageReport(url=url, backend=backend, supplied_html=True)
-        page.html_characters = len(html)
-        page.findings = check_findings(scan_html(html), _markdown_for(maker, url, html, page))
-        return page
-    page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source, supplied_html=True)
-    try:
-        rendered = renderer.render_html(url, html)
-    except RenderError as error:
-        _record_failure(page, error, otherwise=FailureKind.RENDER)
-        return page
-    return _check_rendered(page, rendered, maker)
+    """Scan HTML the caller already has, as the page at url, without fetching url. See scan_html_once."""
+    return scan_html_once(html, url, backend=backend, markdown=markdown, renderer=renderer, supplied=True)
 
 
 def scrub_strings(value: object, scrub: Callable[[str], str]) -> object:
@@ -195,7 +216,7 @@ def endpoint_redactor(environment: Mapping[str, str]) -> Callable[[str], str]:
         return lambda text: text.replace(value, ENDPOINT_PLACEHOLDER)
 
 
-def _bright_data_client(environment: Mapping[str, str], zone: str) -> BrightDataClient:
+def bright_data_client(environment: Mapping[str, str], zone: str) -> BrightDataClient:
     try:
         return BrightDataClient(read_token_from_environment(environment), unlocker_zone=zone)
     except MissingTokenError:
@@ -244,7 +265,7 @@ class ScanSession:
         # A rendered scan loads pages itself, so it needs Bright Data only for markdown.
         client: BrightDataClient | None = None
         if self.backend is Backend.BRIGHTDATA and (settings.markdown or not settings.render):
-            client = _bright_data_client(environment, settings.zone)
+            client = bright_data_client(environment, settings.zone)
         self._client = client
         self._markdown: MarkdownMaker | None = None
         if settings.markdown:

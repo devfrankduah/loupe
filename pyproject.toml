@@ -25,6 +25,8 @@ dependencies = [
 test = ["pytest>=8", "jsonschema>=4.18"]
 # loupe --render. After installing, fetch the browser with: playwright install chromium
 render = ["playwright>=1.64"]
+# loupe mcp, the MCP server. Version 2 of the SDK renamed FastMCP to MCPServer, which loupe uses.
+mcp = ["mcp>=2.3,<3"]
 
 [project.scripts]
 loupe = "loupe_scan.cli:main"

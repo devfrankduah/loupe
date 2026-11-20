@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -60,7 +61,9 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=(
             "To turn results files written with --json-output into one HTML page:\n"
             "  loupe report RESULTS [RESULTS ...] -o PATH\n"
-            "See loupe report --help."
+            "To serve loupe's tools to an agent over MCP (needs the mcp extra):\n"
+            "  loupe mcp\n"
+            "See loupe report --help and loupe mcp --help."
         ),
     )
     parser.add_argument("urls", nargs="*", metavar="url", help="page to fetch and scan")
@@ -269,11 +272,26 @@ def _scan_html_file(html: str, url: str, arguments: argparse.Namespace) -> PageR
         return scan_supplied_html(html, url, backend=Backend.LOCAL, markdown=markdown, renderer=renderer)
 
 
+MCP_INSTALL_HINT = "from the loupe folder, run pip install -e '.[mcp]'"
+
+
+def mcp_main(argv: Sequence[str]) -> int:
+    """loupe mcp, which needs the MCP SDK from the mcp extra."""
+    if importlib.util.find_spec("mcp") is None:
+        _note(f"loupe mcp needs the MCP Python SDK: {MCP_INSTALL_HINT}")
+        return EXIT_USAGE
+    from loupe_scan.mcp_server import main as serve
+
+    return serve(argv)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
-    # A page URL always starts with a scheme, so a bare "report" can only be the subcommand.
+    # A page URL always starts with a scheme, so a bare "report" or "mcp" can only be the subcommand.
     if raw_arguments[:1] == ["report"]:
         return report_main(raw_arguments[1:])
+    if raw_arguments[:1] == ["mcp"]:
+        return mcp_main(raw_arguments[1:])
     arguments = _build_parser().parse_args(raw_arguments)
     html: str | None = None
     if arguments.html_file is not None:
