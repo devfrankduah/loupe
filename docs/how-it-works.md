@@ -4,7 +4,7 @@ This is the detail behind the README's short version: what loupe sends to Bright
 
 ## How pages are fetched
 
-loupe has two backends. The local backend loads pages from this machine and needs no account. The Bright Data backend uses Bright Data's APIs. Without `--backend`, loupe uses Bright Data when `BRIGHTDATA_API_TOKEN` or `BRIGHTDATA_BROWSER_WSS` is set and the local backend when neither is, and every page's output and JSON say which one ran. In this version the local backend doesn't make markdown, so it needs `--skip-markdown`.
+loupe has two backends. The local backend loads pages from this machine and needs no account. The Bright Data backend uses Bright Data's APIs. Without `--backend`, loupe uses Bright Data when `BRIGHTDATA_API_TOKEN` or `BRIGHTDATA_BROWSER_WSS` is set and the local backend when neither is, and every page's output and JSON say which one ran.
 
 ### The local backend
 
@@ -41,7 +41,7 @@ Every finding is checked against a short list of phrases that read like instruct
 
 ## The markdown comparison
 
-loupe fetches the markdown version of the same page and records whether each finding's text appears in it. Both sides are reduced to lowercase words, link targets are dropped, and the finding counts as present only if its full word sequence appears in order. Findings shorter than 12 characters after that reduction aren't compared, because short strings like "Menu" match by accident.
+loupe gets a markdown version of the same page and records whether each finding's text appears in it. The Bright Data backend fetches it from the Fetch API. The local backend makes it on this machine from the HTML the site served, with [markdownify](https://github.com/matthewwithanm/python-markdownify) (MIT licence), and labels it an approximation of what agent tools produce: each tool has a converter of its own. markdownify, like most converters, keeps the text of elements CSS hides, image `alt` text and link and image titles, and drops comments, scripts, styles and `aria-label`. In a rendered scan the markdown is made from the same served HTML, so both modes compare against the same markdown. Both sides are reduced to lowercase words, link targets are dropped, and the finding counts as present only if its full word sequence appears in order. Findings shorter than 12 characters after that reduction aren't compared, because short strings like "Menu" match by accident.
 
 ## Rendered scan
 
@@ -71,7 +71,7 @@ The browser is local Chromium unless the Bright Data backend runs with `BRIGHTDA
 
 ## The JSON
 
-The report and each page record the `backend` (`local` or `brightdata`). Each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace. Quoted text is cut to `--quote-chars` characters, and per-request meta values (nonces, CSRF tokens, request IDs and the like) are replaced with a placeholder.
+The report and each page record the `backend` (`local` or `brightdata`), and each page with markdown records its `markdown_source`: the converter's `name`, `version` and `license`, and `approximation`, which is true for markdown made locally. Each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace. Quoted text is cut to `--quote-chars` characters, and per-request meta values (nonces, CSRF tokens, request IDs and the like) are replaced with a placeholder.
 
 ## What the 19 November runs showed
 

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Final
 from urllib.parse import urlsplit
 
+from loupe.backend import Backend
 from loupe.render import Landing
 from loupe.scan import Kind, ScanMode
 
@@ -89,6 +90,9 @@ class PageRecord:
     mode: ScanMode = ScanMode.STATIC
     # Set for rendered pages that loaded.
     rendering: RenderingRecord | None = None
+    backend: Backend = Backend.BRIGHTDATA
+    # The converter, such as "markdownify 1.2.4", when the markdown was made locally as an approximation.
+    local_converter: str | None = None
 
     @property
     def host(self) -> str:
@@ -233,6 +237,30 @@ def _load_finding(value: object, where: str, page_mode: ScanMode) -> FindingReco
     )
 
 
+def _backend(record: dict[str, object], where: str) -> Backend:
+    # Files written before backends existed all came from Bright Data.
+    value = record.get("backend", Backend.BRIGHTDATA.value)
+    for backend in Backend:
+        if value == backend.value:
+            return backend
+    raise ReportFormatError(f"{where}.backend should be \"local\" or \"brightdata\"")
+
+
+def _local_converter(record: dict[str, object], where: str) -> str | None:
+    value = record.get("markdown_source")
+    if value is None:
+        return None
+    source = _object(value, f"{where}.markdown_source")
+    approximation = _field(source, "approximation", f"{where}.markdown_source")
+    if not isinstance(approximation, bool):
+        raise ReportFormatError(f"{where}.markdown_source.approximation should be true or false")
+    if not approximation:
+        return None
+    name = _string(source, "name", f"{where}.markdown_source")
+    version = _optional_string(source, "version", f"{where}.markdown_source")
+    return name if version is None else f"{name} {version}"
+
+
 def _load_page(value: object, where: str) -> PageRecord:
     record = _object(value, where)
     mode = _scan_mode(record, "scan_mode", where)
@@ -258,6 +286,8 @@ def _load_page(value: object, where: str) -> PageRecord:
         ),
         mode=mode,
         rendering=rendering,
+        backend=_backend(record, where),
+        local_converter=_local_converter(record, where),
     )
 
 
@@ -457,6 +487,15 @@ def _how_hidden(finding: FindingRecord) -> str:
     return "sits in an element styled <code>display:none</code>"
 
 
+def _markdown_meant(page: PageRecord) -> str:
+    if page.local_converter is None:
+        return "the markdown version of the page that an AI agent is given"
+    return (
+        f"the markdown {_escape(page.local_converter)} made from the page, an approximation of what an AI agent "
+        "is given"
+    )
+
+
 def _example_panel(pages: tuple[PageRecord, ...]) -> str:
     chosen = choose_example(pages)
     if chosen is None:
@@ -491,7 +530,7 @@ def _example_panel(pages: tuple[PageRecord, ...]) -> str:
         "</div></figure>"
         "</div>"
         f'<p class="example-source">A real line from {_escape(page.host)}. It {_how_hidden(finding)}, so the browser '
-        "never draws it, yet it was still in the markdown version of the page that an AI agent is given."
+        f"never draws it, yet it was still in {_markdown_meant(page)}."
         f"{cut_note}</p>"
         "</section>"
     )
@@ -600,7 +639,31 @@ def _pages_section(pages: tuple[PageRecord, ...]) -> str:
     )
 
 
-def _method_section(with_rendering: bool = False) -> str:
+_BRIGHT_DATA_FETCH: Final[str] = (
+    "It asks Bright Data for the page twice: once as raw HTML, once as the markdown an AI agent is "
+    "usually given. These are the same two requests Bright Data's own agent tools make."
+)
+
+
+def _converter_named(pages: list[PageRecord]) -> str:
+    return next((page.local_converter for page in pages if page.local_converter is not None), "markdownify")
+
+
+def _fetch_step(pages: tuple[PageRecord, ...]) -> str:
+    local = [page for page in pages if page.backend is Backend.LOCAL]
+    if not local:
+        return _BRIGHT_DATA_FETCH
+    converter = _escape(_converter_named(local))
+    local_fetch = (
+        f"fetches the raw HTML straight from the site, then turns that HTML into markdown with {converter}, "
+        "an approximation of the markdown AI agent tools produce."
+    )
+    if len(local) == len(pages):
+        return f"It {local_fetch}"
+    return f"{_BRIGHT_DATA_FETCH} For the pages scanned on the local backend, it {local_fetch}"
+
+
+def _method_section(pages: tuple[PageRecord, ...], with_rendering: bool = False) -> str:
     rendering_step = (
         "<li>For a rendered scan it also loads the page in Chromium, scrolls from top to bottom, brings anything "
         "still hidden to the middle of the screen, and records which text a reader could actually see.</li>"
@@ -611,8 +674,7 @@ def _method_section(with_rendering: bool = False) -> str:
         '<section aria-labelledby="method-title">'
         '<h2 id="method-title">How loupe checks a page</h2>'
         '<ol class="process">'
-        "<li>It asks Bright Data for the page twice: once as raw HTML, once as the markdown an AI agent is "
-        "usually given. These are the same two requests Bright Data's own agent tools make.</li>"
+        f"<li>{_fetch_step(pages)}</li>"
         "<li>It reads the HTML for anything a person won't see: comments, hidden elements, image and link "
         "descriptions, meta tags and noscript blocks. It also notes text that sounds like an order to an AI.</li>"
         "<li>For each hidden piece, it checks whether the same words, in the same order, are in the markdown.</li>"
@@ -767,12 +829,21 @@ def _caveats(pages: tuple[PageRecord, ...], with_rendering: bool = False) -> str
             )
             + "</p></li>"
         )
-    items.append(
-        "<li><h3>The two versions come from two services</h3>"
-        "<p>Bright Data serves the HTML through Web Unlocker and the markdown through its Fetch API. If they "
-        "received slightly different copies of a page, a difference could come from that and not from the "
-        "markdown conversion.</p></li>"
-    )
+    if any(page.backend is Backend.BRIGHTDATA for page in pages):
+        items.append(
+            "<li><h3>The two versions come from two services</h3>"
+            "<p>Bright Data serves the HTML through Web Unlocker and the markdown through its Fetch API. If they "
+            "received slightly different copies of a page, a difference could come from that and not from the "
+            "markdown conversion.</p></li>"
+        )
+    local = [page for page in pages if page.local_converter is not None]
+    if local:
+        items.append(
+            "<li><h3>Markdown made here is an approximation</h3>"
+            f"<p>On the local backend, {_escape(_converter_named(local))} turned each page's HTML into markdown on "
+            "this machine. Agent tools use converters of their own, which keep or drop different things, so a "
+            "hidden line found in this markdown may be missing from theirs, or the other way round.</p></li>"
+        )
     items.append(
         "<li><h3>&ldquo;Reached the AI&rdquo; means the words appear in the markdown</h3>"
         "<p>It doesn't prove they got there from the hidden element. A link's description often repeats the "
@@ -1031,7 +1102,7 @@ def render_report_page(pages: tuple[PageRecord, ...], run_date: datetime.date | 
         sections += [_example_panel(static_pages), _result_section(static_pages), _pages_section(static_pages)]
     if with_rendering:
         sections.append(_rendered_section(static_pages, rendered_pages))
-    sections.append(_method_section(with_rendering))
+    sections.append(_method_section(pages, with_rendering))
     if static_pages:
         sections.append(_caveats(static_pages, with_rendering))
     sections.append(_glossary(with_rendering))

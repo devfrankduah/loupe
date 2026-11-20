@@ -50,12 +50,6 @@ def test_the_brightdata_backend_without_a_token_is_a_usage_error(capsys: pytest.
     assert "BRIGHTDATA_API_TOKEN" in error and "--backend local" in error
 
 
-def test_with_no_credentials_the_local_backend_needs_skip_markdown(capsys: pytest.CaptureFixture[str]) -> None:
-    for arguments in (["https://example.com/"], ["https://example.com/", "--render"]):
-        assert cli.main(arguments) == cli.EXIT_USAGE
-        assert "the local backend can't make markdown" in capsys.readouterr().err
-
-
 def test_an_unknown_backend_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as caught:
         cli.main(["https://example.com/", "--backend", "cloud"])
@@ -257,12 +251,12 @@ def test_rendered_findings_are_compared_with_the_markdown(monkeypatch: pytest.Mo
     assert marked["CASE-HIDDEN"]["in_markdown"] is False
 
 
-def test_render_with_markdown_still_needs_a_token(
+def test_a_bright_data_render_with_markdown_still_needs_a_token(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     renderer = FakeRenderer()
     _install_fake_renderer(monkeypatch, renderer)
-    assert cli.main(["https://example.com/cake", "--render"]) == cli.EXIT_USAGE
+    assert cli.main(["https://example.com/cake", "--render", "--backend", "brightdata"]) == cli.EXIT_USAGE
     assert "BRIGHTDATA_API_TOKEN" in capsys.readouterr().err
     assert renderer.urls == []
 
@@ -422,3 +416,21 @@ def test_the_bright_data_render_path_is_unchanged_and_never_reads_robots_txt(mon
         assert cli.main([site.url("/cake"), "--render", "--skip-markdown"]) == cli.EXIT_OK
     assert site.requested() == []
     assert renderer.urls == [site.url("/cake")]
+
+
+def test_bright_data_markdown_is_labelled_with_its_source(
+    monkeypatch: pytest.MonkeyPatch, planted_html: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _install_fake_client(monkeypatch, FakeClient(planted_html, "# Lemon cake"))
+    output_path = tmp_path / "report.json"
+
+    assert cli.main(["https://example.com/cake", "--json", str(output_path)]) == cli.EXIT_OK
+
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
+    assert page["markdown_source"] == {
+        "name": "Bright Data's Fetch API",
+        "version": None,
+        "license": None,
+        "approximation": False,
+    }
+    assert "markdown: 12 chars (from Bright Data's Fetch API)" in capsys.readouterr().out

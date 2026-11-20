@@ -26,7 +26,7 @@ playwright install chromium
 loupe --render --skip-markdown https://devfrankduah.github.io/loupe/test-page/
 ```
 
-That loads the test page in a local Chromium and reports the text that never showed. To check what reaches the markdown as well, add a Bright Data API token as [Sites that block bots and scanning at scale](#sites-that-block-bots-and-scanning-at-scale) describes and drop `--skip-markdown`. Pages that turn away automated browsers need the Browser API endpoint too. Without `--render`, loupe fetches the HTML and reads the markup only, which is faster and needs no browser.
+That loads the test page in a local Chromium and reports the text that never showed. Drop `--skip-markdown` to check what reaches the markdown as well: loupe makes the markdown on this machine with markdownify, an approximation of what agent tools produce. Pages that turn away automated visitors need Bright Data, as [Sites that block bots and scanning at scale](#sites-that-block-bots-and-scanning-at-scale) describes. Without `--render`, loupe fetches the HTML and reads the markup only, which is faster and needs no browser.
 
 In each new terminal, run `source .venv/bin/activate` again before using loupe.
 

@@ -6,18 +6,19 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable, Mapping
 from typing import Final, Protocol, Sequence
 
 from loupe import __version__
 from loupe.backend import Backend, choose_backend
+from loupe.convert import BRIGHT_DATA_MARKDOWN, MarkdownSource, html_to_markdown, local_markdown_source
 from loupe.errors import BlockedError, PageFetchError
 from loupe.fetch import (
     DEFAULT_UNLOCKER_ZONE,
     TOKEN_ENVIRONMENT_VARIABLE,
     BrightDataClient,
-    BrightDataError,
     MissingTokenError,
     read_token_from_environment,
 )
@@ -121,15 +122,32 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _fetch_markdown(client: BrightDataClient | None, url: str, page: PageReport) -> str | None:
-    if client is None:
+@dataclass(frozen=True)
+class MarkdownMaker:
+    """Gets a page's markdown, from its URL or its HTML, and says where it came from."""
+
+    source: MarkdownSource
+    make: Callable[[str, str], str]
+
+
+def bright_data_markdown(client: BrightDataClient) -> MarkdownMaker:
+    return MarkdownMaker(BRIGHT_DATA_MARKDOWN, lambda url, html: client.fetch_markdown(url))
+
+
+def local_markdown() -> MarkdownMaker:
+    return MarkdownMaker(local_markdown_source(), html_to_markdown)
+
+
+def _markdown_for(maker: MarkdownMaker | None, url: str, html: str, page: PageReport) -> str | None:
+    if maker is None:
         return None
     try:
-        markdown = client.fetch_markdown(url)
-    except BrightDataError as error:
+        markdown = maker.make(url, html)
+    except PageFetchError as error:
         page.markdown_error = str(error)
         return None
     page.markdown_characters = len(markdown)
+    page.markdown_source = maker.source
     return markdown
 
 
@@ -144,10 +162,8 @@ def _fetch_failure(error: PageFetchError | RenderError, backend: Backend) -> str
     return str(error)
 
 
-def scan_page(
-    source: HtmlSource, markdown_client: BrightDataClient | None, url: str, *, backend: Backend
-) -> PageReport:
-    """Fetch url's HTML from source and scan the markup. Markdown is compared only when a client is given."""
+def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, backend: Backend) -> PageReport:
+    """Fetch url's HTML from source and scan the markup. Markdown is compared only when a maker is given."""
     page = PageReport(url=url, backend=backend)
     try:
         html = source.fetch_html(url)
@@ -155,20 +171,21 @@ def scan_page(
         page.html_error = _fetch_failure(error, backend)
         return page
     page.html_characters = len(html)
-    markdown = _fetch_markdown(markdown_client, url, page)
-    page.findings = check_findings(scan_html(html), markdown)
+    page.findings = check_findings(scan_html(html), _markdown_for(markdown, url, html, page))
     return page
 
 
 def scan_rendered_page(
     renderer: PageRenderer,
-    markdown_client: BrightDataClient | None,
+    markdown: MarkdownMaker | None,
     url: str,
     *,
     backend: Backend,
     fetcher: LocalFetcher | None = None,
 ) -> PageReport:
-    """Render url, then check what never showed. Markdown is compared only when a client is given.
+    """Render url, then check what never showed. Markdown is compared only when a maker is given.
+
+    The local backend's markdown is made from the HTML the site served, the same HTML the markup checks read.
 
     A local fetcher, when given, checks robots.txt and waits out any Crawl-delay before the browser loads url.
     """
@@ -182,9 +199,9 @@ def scan_rendered_page(
         return page
     page.html_characters = len(rendered.html)
     page.rendered = rendered
-    markdown = _fetch_markdown(markdown_client, url, page)
+    markdown_text = _markdown_for(markdown, url, rendered.html, page)
     markup_findings = [finding for finding in scan_html(rendered.html) if finding.kind not in SUPERSEDED_BY_RENDERING]
-    page.findings = check_findings(markup_findings + rendered_findings(rendered), markdown)
+    page.findings = check_findings(markup_findings + rendered_findings(rendered), markdown_text)
     return page
 
 
@@ -281,20 +298,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     # the one around each error, so no part of the endpoint gets out.
     scrub = _endpoint_redactor(os.environ)
 
-    if backend is Backend.LOCAL and not arguments.skip_markdown:
-        print(
-            "loupe: the local backend can't make markdown in this version; add --skip-markdown, or set "
-            f"{TOKEN_ENVIRONMENT_VARIABLE} to use Bright Data",
-            file=sys.stderr,
-        )
-        return EXIT_USAGE
-
     # A rendered scan loads pages itself, so it needs Bright Data only for markdown.
     client: BrightDataClient | None = None
     if backend is Backend.BRIGHTDATA and not (arguments.render and arguments.skip_markdown):
         client = _client_from_environment(arguments.zone)
         if client is None:
             return EXIT_USAGE
+    markdown: MarkdownMaker | None = None
+    if not arguments.skip_markdown and backend is Backend.LOCAL:
+        markdown = local_markdown()
+    elif not arguments.skip_markdown and client is not None:
+        markdown = bright_data_markdown(client)
     if backend is Backend.BRIGHTDATA and arguments.ignore_robots:
         print("loupe: --ignore-robots only changes the local backend, so it has no effect here", file=sys.stderr)
 
@@ -311,18 +325,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             fetcher = _local_fetcher(arguments.ignore_robots) if backend is Backend.LOCAL else None
             with open_renderer(endpoint) as renderer:
                 for url in arguments.urls:
-                    record(scan_rendered_page(renderer, client, url, backend=backend, fetcher=fetcher))
+                    record(scan_rendered_page(renderer, markdown, url, backend=backend, fetcher=fetcher))
         except RenderSetupError as error:
             print(scrub(f"loupe: {error}"), file=sys.stderr)
             return EXIT_USAGE
     elif backend is Backend.LOCAL:
         local_fetcher = _local_fetcher(arguments.ignore_robots)
         for url in arguments.urls:
-            record(scan_page(local_fetcher, None, url, backend=backend))
+            record(scan_page(local_fetcher, markdown, url, backend=backend))
     elif client is not None:
-        markdown_client = None if arguments.skip_markdown else client
         for url in arguments.urls:
-            record(scan_page(client, markdown_client, url, backend=backend))
+            record(scan_page(client, markdown, url, backend=backend))
 
     if arguments.json is not None:
         report = {

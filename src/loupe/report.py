@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from loupe.backend import Backend
+from loupe.convert import MarkdownSource
 from loupe.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
 from loupe.scan import Finding, Kind, ScanMode
 from loupe.survival import MarkdownIndex
@@ -37,6 +38,8 @@ class PageReport:
     findings: list[CheckedFinding] = field(default_factory=list)
     html_characters: int = 0
     markdown_characters: int | None = None
+    # Set when markdown was fetched or made.
+    markdown_source: MarkdownSource | None = None
     html_error: str | None = None
     markdown_error: str | None = None
     mode: ScanMode = ScanMode.STATIC
@@ -138,6 +141,7 @@ def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) 
         "backend": page.backend.value,
         "html_characters": page.html_characters,
         "markdown_characters": page.markdown_characters,
+        "markdown_source": None if page.markdown_source is None else page.markdown_source.to_dict(),
         "html_error": page.html_error,
         "markdown_error": page.markdown_error,
         "counts_by_kind": page.count_by_kind(),
@@ -203,6 +207,8 @@ def _text_lines(page: PageReport, quote_limit: int) -> list[str]:
         return lines
 
     markdown_size = "not fetched" if page.markdown_characters is None else f"{page.markdown_characters} chars"
+    if page.markdown_source is not None:
+        markdown_size += f" ({page.markdown_source.description})"
     lines.append(f"  html: {page.html_characters} chars, markdown: {markdown_size}")
     if page.markdown_error is not None:
         lines.append(f"  markdown error: {page.markdown_error}")

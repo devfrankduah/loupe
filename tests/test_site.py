@@ -493,3 +493,68 @@ def test_static_results_load_with_or_without_a_mode() -> None:
     untagged = _finding("comment", "<!-- -->", "an older note", False)
     pages = load_results(_results(_page("https://a.test/", [tagged, untagged], scan_mode="static")))
     assert [finding.text for finding in pages[0].findings] == ["a note in the source", "an older note"]
+
+
+LOCAL_SOURCE = {"name": "markdownify", "version": "1.2.4", "license": "MIT", "approximation": True}
+BRIGHT_DATA_SOURCE = {"name": "Bright Data's Fetch API", "version": None, "license": None, "approximation": False}
+SURVIVING = _finding("hidden-attribute", "hidden", "Marked hidden and still in the markdown.", True)
+
+
+def test_results_without_a_backend_came_from_bright_data_and_others_say_which() -> None:
+    old, local, bright = load_results(
+        _results(
+            _page("https://a.test/", []),
+            _page("https://b.test/", [], backend="local", markdown_source=LOCAL_SOURCE),
+            _page("https://c.test/", [], backend="brightdata", markdown_source=BRIGHT_DATA_SOURCE),
+        )
+    )
+    assert [page.backend.value for page in (old, local, bright)] == ["brightdata", "local", "brightdata"]
+    assert [page.local_converter for page in (old, local, bright)] == [None, "markdownify 1.2.4", None]
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        _page("https://a.test/", [], backend="cloud"),
+        _page("https://a.test/", [], backend="local", markdown_source={"name": "markdownify"}),
+        _page("https://a.test/", [], backend="local", markdown_source={"name": "x", "approximation": "yes"}),
+        _page("https://a.test/", [], backend="local", markdown_source="markdownify"),
+    ],
+)
+def test_a_malformed_backend_or_markdown_source_is_rejected(page: dict[str, object]) -> None:
+    with pytest.raises(ReportFormatError):
+        load_results(_results(page))
+
+
+def test_a_local_run_says_how_its_markdown_was_made_and_drops_the_two_services_caveat() -> None:
+    page_html = render_report_page(
+        load_results(_results(_page("https://a.test/", [SURVIVING], backend="local", markdown_source=LOCAL_SOURCE)))
+    )
+    assert "fetches the raw HTML straight from the site, then turns that HTML into markdown with markdownify 1.2.4" in page_html
+    assert "It asks Bright Data" not in page_html
+    assert "The two versions come from two services" not in page_html
+    assert "Markdown made here is an approximation" in page_html
+    assert "the markdown markdownify 1.2.4 made from the page, an approximation of what an AI agent is given" in page_html
+
+
+def test_a_bright_data_run_keeps_its_wording() -> None:
+    page_html = render_report_page(
+        load_results(_results(_page("https://a.test/", [SURVIVING], backend="brightdata", markdown_source=BRIGHT_DATA_SOURCE)))
+    )
+    assert "It asks Bright Data for the page twice" in page_html
+    assert "The two versions come from two services" in page_html
+    assert "approximation" not in page_html
+
+
+def test_a_mixed_run_describes_both_backends() -> None:
+    page_html = render_report_page(
+        load_results(
+            _results(
+                _page("https://a.test/", [SURVIVING], backend="brightdata"),
+                _page("https://b.test/", [], backend="local", markdown_source=LOCAL_SOURCE),
+            )
+        )
+    )
+    assert "same two requests Bright Data's own agent tools make. For the pages scanned on the local backend, it" in page_html
+    assert "The two versions come from two services" in page_html
+    assert "Markdown made here is an approximation" in page_html

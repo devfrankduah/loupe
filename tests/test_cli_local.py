@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from loupe import cli
+from loupe.convert import html_to_markdown, local_markdown_source
 from loupe.scan import scan_html
 
 from .route_site import Route, html_route, serve_routes
@@ -60,3 +61,24 @@ def test_robots_txt_is_obeyed_unless_the_user_says_the_page_is_theirs(capsys: py
         assert "its robots.txt asks loupe not to" in capsys.readouterr().out
         assert cli.main([site.url("/cake"), "--skip-markdown", "--ignore-robots"]) == cli.EXIT_OK
     assert site.requested() == ["/robots.txt", "/cake"]
+
+
+def test_the_local_markdown_is_made_from_the_html_and_labelled_an_approximation(
+    planted_html: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output_path = tmp_path / "local.json"
+    with serve_routes({"/cake": html_route(planted_html)}) as site:
+        assert cli.main([site.url("/cake"), "--json", str(output_path)]) == cli.EXIT_OK
+    assert site.requested() == ["/robots.txt", "/cake"]
+
+    (page,) = json.loads(output_path.read_text(encoding="utf-8"))["pages"]
+    source = page["markdown_source"]
+    assert (source["name"], source["license"], source["approximation"]) == ("markdownify", "MIT", True)
+    assert source["version"] == local_markdown_source().version
+    assert page["markdown_characters"] == len(html_to_markdown(site.url("/cake"), planted_html))
+    assert page["survival"]["survived"] > 0 and page["survival"]["dropped"] > 0
+    by_kind = {finding["kind"]: finding["in_markdown"] for finding in page["findings"] if finding["kind"] == "comment"}
+    assert by_kind == {"comment": False}
+    printed = capsys.readouterr().out
+    expected = f"chars (converted here by markdownify {source['version']}, an approximation of what agent tools produce)"
+    assert expected in printed

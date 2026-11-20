@@ -17,6 +17,8 @@ dependencies = [
     "beautifulsoup4>=4.12",
     # robots.txt for the local backend, with RFC 9309 wildcards.
     "protego>=0.4",
+    # The local backend's markdown, an approximation of what agent tools produce.
+    "markdownify>=1.2",
 ]
 
 [project.optional-dependencies]
