@@ -4,7 +4,9 @@ This is the detail behind the README's short version: what loupe sends to Bright
 
 ## How pages are fetched
 
-loupe sends the same requests that Bright Data's own MCP server ([brightdata-mcp](https://github.com/brightdata/brightdata-mcp), version 4.3.0) sends for its two scraping tools:
+loupe has two backends. The local backend loads pages from this machine and needs no account. The Bright Data backend uses Bright Data's APIs. Without `--backend`, loupe uses Bright Data when `BRIGHTDATA_API_TOKEN` or `BRIGHTDATA_BROWSER_WSS` is set and the local backend when neither is, and every page's output and JSON say which one ran. In this version the local backend runs rendered scans with `--skip-markdown` only.
+
+For the Bright Data backend, loupe sends the same requests that Bright Data's own MCP server ([brightdata-mcp](https://github.com/brightdata/brightdata-mcp), version 4.3.0) sends for its two scraping tools:
 
 - HTML, like `scrape_as_html`: `POST https://api.brightdata.com/request` with `{"url", "zone": "mcp_unlocker", "format": "raw"}`. That's Web Unlocker. The MCP server creates the `mcp_unlocker` zone the first time it starts, so on an account that has never run it you need to create that zone first. `--zone` picks a different one.
 - Markdown, like `scrape_as_markdown`: `POST https://api.brightdata.com/datasets/v3/scrape?dataset_id=gd_m6gjtfmeh43we6cqc&format=json&include_errors=true` with `[{"url"}]`, reading the `markdown` field of the first record. That's the Fetch API, which the MCP server switched to on 2026-11-01.
@@ -53,11 +55,11 @@ Each element an inline-style guess flagged is traced and reported as visible at 
 
 The checks run in an isolated JavaScript world, so a page's own scripts can't patch `checkVisibility` or `getClientRects` to make hidden text look visible.
 
-The browser is local Chromium unless `BRIGHTDATA_BROWSER_WSS` holds a CDP websocket endpoint for Bright Data's Browser API. That value carries credentials. loupe never prints, logs or saves it, and a failed connection reports only that it failed. A remote browser gets two-minute timeouts. It skips images, media and fonts, but never stylesheets, since they decide what shows, and each page records the bytes transferred and the requests it refused. A remote page fails if it measures no bytes, or if it loaded images over http(s) and nothing was refused, because then neither the byte limit nor the blocking can be trusted. Every page gets a fresh browser.
+The browser is local Chromium unless the Bright Data backend runs with `BRIGHTDATA_BROWSER_WSS` set to a CDP websocket endpoint for Bright Data's Browser API. The local backend never reads it. That value carries credentials. loupe never prints, logs or saves it, and a failed connection reports only that it failed. A remote browser gets two-minute timeouts. It skips images, media and fonts, but never stylesheets, since they decide what shows, and each page records the bytes transferred and the requests it refused. A remote page fails if it measures no bytes, or if it loaded images over http(s) and nothing was refused, because then neither the byte limit nor the blocking can be trusted. Every page gets a fresh browser.
 
 ## The JSON
 
-Each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace. Quoted text is cut to `--quote-chars` characters, and per-request meta values (nonces, CSRF tokens, request IDs and the like) are replaced with a placeholder.
+The report and each page record the `backend` (`local` or `brightdata`). Each page has a `scan_mode` and each finding a `mode` (`static` or `rendered`). A rendered page adds a `rendering` block with the browser version, scroll steps, notes, the revealed text and the inline-style trace. Quoted text is cut to `--quote-chars` characters, and per-request meta values (nonces, CSRF tokens, request IDs and the like) are replaced with a placeholder.
 
 ## What the 19 November runs showed
 

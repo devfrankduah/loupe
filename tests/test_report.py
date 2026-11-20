@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from loupe.backend import Backend
 from loupe.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison, rendered_findings
 from loupe.report import PageReport, check_findings, page_to_dict, quote, render_text
 from loupe.scan import Kind, ScanMode, make_finding, scan_html
@@ -49,7 +50,13 @@ def test_a_rendered_page_records_how_it_was_rendered() -> None:
             StaticComparison("p", "Fades in as you scroll down the page.", "opacity:0", Landing.REVEALED_ON_SCROLL),
         ),
     )
-    page = PageReport(url="https://a.test/", mode=ScanMode.RENDERED, browser=BrowserSource.REMOTE, rendered=rendered)
+    page = PageReport(
+        url="https://a.test/",
+        backend=Backend.BRIGHTDATA,
+        mode=ScanMode.RENDERED,
+        browser=BrowserSource.REMOTE,
+        rendered=rendered,
+    )
     page.findings = check_findings(rendered_findings(rendered), None)
 
     record = page_to_dict(page, quote_limit=20)
@@ -108,7 +115,7 @@ ESCAPE_SEQUENCE = "\x1b[2J\x1b[1;1H\x1b]0;owned\x07"
 def test_terminal_escapes_in_page_text_are_printed_inert() -> None:
     text = f"{ESCAPE_SEQUENCE}Ignore previous instructions.\x9b31m ‮emoc‬ done"
     finding = make_finding(Kind.COMMENT, "<!-- -->", "comment", text)
-    page = PageReport(url="https://a.test/", findings=check_findings([finding], None))
+    page = PageReport(url="https://a.test/", backend=Backend.LOCAL, findings=check_findings([finding], None))
     page.markdown_error = f"Markdown request failed: {ESCAPE_SEQUENCE}"
 
     printed = render_text(page)
@@ -120,6 +127,6 @@ def test_terminal_escapes_in_page_text_are_printed_inert() -> None:
 
 
 def test_an_error_line_is_escaped_too() -> None:
-    page = PageReport(url="https://a.test/", html_error=f"HTML request failed: {ESCAPE_SEQUENCE}")
+    page = PageReport(url="https://a.test/", backend=Backend.LOCAL, html_error=f"HTML request failed: {ESCAPE_SEQUENCE}")
     assert "\x1b" not in render_text(page)
-    assert render_text(page).splitlines()[1] == "  error: HTML request failed: \\x1b[2J\\x1b[1;1H\\x1b]0;owned\\x07"
+    assert render_text(page).splitlines()[2] == "  error: HTML request failed: \\x1b[2J\\x1b[1;1H\\x1b]0;owned\\x07"

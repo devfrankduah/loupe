@@ -7,6 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Final
 
+from loupe.backend import Backend
 from loupe.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
 from loupe.scan import Finding, Kind, ScanMode
 from loupe.survival import MarkdownIndex
@@ -31,6 +32,8 @@ class CheckedFinding:
 @dataclass
 class PageReport:
     url: str
+    # Required, so a report never records a backend it didn't use.
+    backend: Backend = field(kw_only=True)
     findings: list[CheckedFinding] = field(default_factory=list)
     html_characters: int = 0
     markdown_characters: int | None = None
@@ -132,6 +135,7 @@ def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) 
     return {
         "url": page.url,
         "scan_mode": page.mode.value,
+        "backend": page.backend.value,
         "html_characters": page.html_characters,
         "markdown_characters": page.markdown_characters,
         "html_error": page.html_error,
@@ -193,7 +197,7 @@ def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -
 
 
 def _text_lines(page: PageReport, quote_limit: int) -> list[str]:
-    lines = [page.url]
+    lines = [page.url, f"  backend: {page.backend.description}"]
     if page.html_error is not None:
         lines.append(f"  error: {page.html_error}")
         return lines

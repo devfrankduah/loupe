@@ -29,8 +29,9 @@ it replaces with a visible one.
 The checks run in visibility.js, inside an isolated JavaScript world, so the
 page's own scripts can't tamper with them.
 
-The browser is local Chromium unless BRIGHTDATA_BROWSER_WSS holds a CDP
-websocket endpoint. That value carries credentials: it is never printed,
+The browser is local Chromium unless open_renderer is given a CDP websocket
+endpoint, which the command line reads from BRIGHTDATA_BROWSER_WSS for the
+Bright Data backend only. That value carries credentials: it is never printed,
 logged or saved, and errors from connecting to it say only that it failed.
 A remote browser gets two-minute timeouts, skips images, media and fonts
 (never stylesheets, which decide what shows), and has its transfer counted;
@@ -864,10 +865,8 @@ def _start_playwright() -> Playwright:
 
 
 @contextmanager
-def open_renderer(
-    environment: Mapping[str, str], settings: RenderSettings | None = None
-) -> Iterator[Renderer[Browser]]:
-    endpoint = read_browser_endpoint(environment)
+def open_renderer(endpoint: str | None, settings: RenderSettings | None = None) -> Iterator[Renderer[Browser]]:
+    """A renderer that connects to endpoint, a CDP websocket URL, or launches local Chromium when it's None."""
     playwright = _start_playwright()
     try:
         yield Renderer(playwright.chromium, endpoint, settings or settings_for(endpoint), render_page)

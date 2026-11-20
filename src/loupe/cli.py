@@ -7,10 +7,11 @@ import json
 import os
 import sys
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Sequence
 
 from loupe import __version__
+from loupe.backend import Backend, choose_backend
 from loupe.fetch import (
     DEFAULT_UNLOCKER_ZONE,
     TOKEN_ENVIRONMENT_VARIABLE,
@@ -21,11 +22,14 @@ from loupe.fetch import (
 )
 from loupe.render import (
     BROWSER_ENDPOINT_VARIABLE,
+    ENDPOINT_PLACEHOLDER,
     SUPERSEDED_BY_RENDERING,
+    EndpointRedactor,
     PageRenderer,
     RenderError,
     RenderSetupError,
     open_renderer,
+    read_browser_endpoint,
     rendered_findings,
 )
 from loupe.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
@@ -60,6 +64,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("urls", nargs="+", metavar="url", help="page to fetch and scan")
+    parser.add_argument(
+        "--backend",
+        type=Backend,
+        choices=list(Backend),
+        metavar="{local,brightdata}",
+        help=(
+            "where pages are loaded from: local (this machine, no account needed) or brightdata "
+            f"(Bright Data's APIs). Default: brightdata when {TOKEN_ENVIRONMENT_VARIABLE} or "
+            f"{BROWSER_ENDPOINT_VARIABLE} is set, local otherwise"
+        ),
+    )
     parser.add_argument("--json", type=Path, metavar="PATH", help="also write the full report as JSON")
     parser.add_argument(
         "--zone",
@@ -73,8 +88,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--render",
         action="store_true",
         help=(
-            "load each page in Chromium and check what actually shows, scrolling to the bottom; "
-            f"uses the CDP endpoint in {BROWSER_ENDPOINT_VARIABLE} if set, local Chromium otherwise"
+            "load each page in Chromium and check what actually shows, scrolling to the bottom; the "
+            f"brightdata backend uses the Browser API endpoint in {BROWSER_ENDPOINT_VARIABLE} if it's set, "
+            "and local Chromium otherwise"
         ),
     )
     parser.add_argument(
@@ -101,7 +117,7 @@ def _fetch_markdown(client: BrightDataClient | None, url: str, page: PageReport)
 
 
 def scan_page(client: BrightDataClient, url: str, *, fetch_markdown: bool) -> PageReport:
-    page = PageReport(url=url)
+    page = PageReport(url=url, backend=Backend.BRIGHTDATA)
     try:
         html = client.fetch_html(url)
     except BrightDataError as error:
@@ -113,9 +129,11 @@ def scan_page(client: BrightDataClient, url: str, *, fetch_markdown: bool) -> Pa
     return page
 
 
-def scan_rendered_page(renderer: PageRenderer, markdown_client: BrightDataClient | None, url: str) -> PageReport:
+def scan_rendered_page(
+    renderer: PageRenderer, markdown_client: BrightDataClient | None, url: str, *, backend: Backend
+) -> PageReport:
     """Render url, then check what never showed. Markdown is compared only when a client is given."""
-    page = PageReport(url=url, mode=ScanMode.RENDERED, browser=renderer.source)
+    page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source)
     try:
         rendered = renderer.render(url)
     except RenderError as error:
@@ -167,10 +185,6 @@ def report_main(argv: Sequence[str]) -> int:
     return EXIT_OK
 
 
-def _unchanged(text: str) -> str:
-    return text
-
-
 def _scrub_strings(value: object, scrub: Callable[[str], str]) -> object:
     """value with scrub applied to every string in it, keys included."""
     if isinstance(value, str):
@@ -187,10 +201,24 @@ def _client_from_environment(zone: str) -> BrightDataClient | None:
     try:
         return BrightDataClient(read_token_from_environment(), unlocker_zone=zone)
     except MissingTokenError:
-        print(f"loupe: set {TOKEN_ENVIRONMENT_VARIABLE} to a Bright Data API token", file=sys.stderr)
+        print(
+            f"loupe: the brightdata backend needs {TOKEN_ENVIRONMENT_VARIABLE} set to a Bright Data API token; "
+            "set it, or use --backend local",
+            file=sys.stderr,
+        )
     except ValueError as error:
         print(f"loupe: {error}", file=sys.stderr)
     return None
+
+
+def _endpoint_redactor(environment: Mapping[str, str]) -> Callable[[str], str]:
+    """Hides any part of the Browser API endpoint, if one is set, whichever backend runs."""
+    value = environment.get(BROWSER_ENDPOINT_VARIABLE, "").strip()
+    try:
+        return EndpointRedactor(value or None)
+    except ValueError:
+        # A value too malformed to split into parts can still be hidden whole.
+        return lambda text: text.replace(value, ENDPOINT_PLACEHOLDER)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -199,18 +227,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     if raw_arguments[:1] == ["report"]:
         return report_main(raw_arguments[1:])
     arguments = _build_parser().parse_args(raw_arguments)
+    backend = choose_backend(arguments.backend, os.environ)
+    # Everything printed or saved passes through this, a second guard after
+    # the one around each error, so no part of the endpoint gets out.
+    scrub = _endpoint_redactor(os.environ)
+
+    if backend is Backend.LOCAL and not arguments.render:
+        print(
+            "loupe: the local backend can't fetch HTML in this version; run a rendered scan with --render "
+            f"--skip-markdown, or set {TOKEN_ENVIRONMENT_VARIABLE} to use Bright Data",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    if backend is Backend.LOCAL and not arguments.skip_markdown:
+        print(
+            "loupe: the local backend can't make markdown in this version; add --skip-markdown, or set "
+            f"{TOKEN_ENVIRONMENT_VARIABLE} to use Bright Data",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
 
     # A rendered scan loads pages itself, so it needs Bright Data only for markdown.
     client: BrightDataClient | None = None
-    if not arguments.render or not arguments.skip_markdown:
+    if backend is Backend.BRIGHTDATA and not (arguments.render and arguments.skip_markdown):
         client = _client_from_environment(arguments.zone)
         if client is None:
             return EXIT_USAGE
 
     pages: list[PageReport] = []
-    # A rendered scan passes everything it prints or saves through the
-    # renderer's redactor, a second guard after the one around each error.
-    scrub: Callable[[str], str] = _unchanged
 
     def record(page: PageReport) -> None:
         pages.append(page)
@@ -219,10 +263,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if arguments.render:
         try:
-            with open_renderer(os.environ) as renderer:
-                scrub = renderer.redact
+            endpoint = read_browser_endpoint(os.environ) if backend is Backend.BRIGHTDATA else None
+            with open_renderer(endpoint) as renderer:
                 for url in arguments.urls:
-                    record(scan_rendered_page(renderer, client, url))
+                    record(scan_rendered_page(renderer, client, url, backend=backend))
         except RenderSetupError as error:
             print(scrub(f"loupe: {error}"), file=sys.stderr)
             return EXIT_USAGE
@@ -231,7 +275,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             record(scan_page(client, url, fetch_markdown=not arguments.skip_markdown))
 
     if arguments.json is not None:
-        report = {"loupe_version": __version__, "pages": [page_to_dict(page, arguments.quote_chars) for page in pages]}
+        report = {
+            "loupe_version": __version__,
+            "backend": backend.value,
+            "pages": [page_to_dict(page, arguments.quote_chars) for page in pages],
+        }
         try:
             text = json.dumps(_scrub_strings(report, scrub), indent=2, ensure_ascii=False) + "\n"
             arguments.json.write_text(text, encoding="utf-8")

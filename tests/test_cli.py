@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,9 +34,38 @@ def _install_fake_client(monkeypatch: pytest.MonkeyPatch, client: FakeClient) ->
     monkeypatch.setattr(cli, "BrightDataClient", lambda token, unlocker_zone: client)
 
 
-def test_missing_token_exits_with_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_brightdata_backend_without_a_token_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["https://example.com/", "--backend", "brightdata"]) == cli.EXIT_USAGE
+    error = capsys.readouterr().err
+    assert "BRIGHTDATA_API_TOKEN" in error and "--backend local" in error
+
+
+def test_with_no_credentials_the_local_backend_runs_rendered_scans_only(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["https://example.com/"]) == cli.EXIT_USAGE
-    assert "BRIGHTDATA_API_TOKEN" in capsys.readouterr().err
+    assert "the local backend can't fetch HTML" in capsys.readouterr().err
+    assert cli.main(["https://example.com/", "--render"]) == cli.EXIT_USAGE
+    assert "the local backend can't make markdown" in capsys.readouterr().err
+
+
+def test_an_unknown_backend_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["https://example.com/", "--backend", "cloud"])
+    assert caught.value.code == cli.EXIT_USAGE
+    assert "--backend" in capsys.readouterr().err
+
+
+def test_a_token_picks_the_brightdata_backend_and_the_results_record_it(
+    monkeypatch: pytest.MonkeyPatch, planted_html: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _install_fake_client(monkeypatch, FakeClient(planted_html, None))
+    output_path = tmp_path / "report.json"
+
+    cli.main(["https://example.com/cake", "--skip-markdown", "--json", str(output_path)])
+
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["backend"] == "brightdata"
+    assert [page["backend"] for page in report["pages"]] == ["brightdata"]
+    assert "  backend: Bright Data" in capsys.readouterr().out.splitlines()
 
 
 def test_report_records_which_hidden_findings_reach_markdown(
@@ -143,6 +172,8 @@ class FakeRenderer:
     source: BrowserSource = BrowserSource.LOCAL
     endpoint: str | None = None
     urls: list[str] = field(default_factory=list)
+    # The endpoint open_renderer was given each time, None for local Chromium.
+    opened_with: list[str | None] = field(default_factory=list)
 
     def render(self, url: str) -> RenderedPage:
         self.urls.append(url)
@@ -156,9 +187,10 @@ class FakeRenderer:
 
 def _install_fake_renderer(monkeypatch: pytest.MonkeyPatch, renderer: FakeRenderer | RenderSetupError) -> None:
     @contextmanager
-    def fake_open_renderer(environment: Mapping[str, str]) -> Iterator[FakeRenderer]:
+    def fake_open_renderer(endpoint: str | None) -> Iterator[FakeRenderer]:
         if isinstance(renderer, RenderSetupError):
             raise renderer
+        renderer.opened_with.append(endpoint)
         yield renderer
 
     monkeypatch.setattr(cli, "open_renderer", fake_open_renderer)
@@ -265,6 +297,7 @@ FAKE_ENDPOINT = "wss://brd-customer-hl_0000fake-zone-loupe_test:not-a-real-passw
 def test_an_endpoint_that_slips_into_an_error_is_never_printed_or_saved(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
     leak = RenderError(f"Rendering https://example.com/cake failed: {FAKE_ENDPOINT} hl_0000fake loupe_test")
     _install_fake_renderer(monkeypatch, FakeRenderer(failure=leak, source=BrowserSource.REMOTE, endpoint=FAKE_ENDPOINT))
     output_path = tmp_path / "rendered.json"
@@ -277,3 +310,56 @@ def test_an_endpoint_that_slips_into_an_error_is_never_printed_or_saved(
         assert part not in printed.out and part not in printed.err and part not in saved
     assert "failed: [endpoint] [endpoint] [endpoint]" in saved
 
+
+
+def test_the_brightdata_backend_renders_through_the_endpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
+    renderer = FakeRenderer(source=BrowserSource.REMOTE, endpoint=FAKE_ENDPOINT)
+    _install_fake_renderer(monkeypatch, renderer)
+    output_path = tmp_path / "rendered.json"
+
+    assert cli.main(["https://example.com/cake", "--render", "--skip-markdown", "--json", str(output_path)]) == 0
+
+    assert renderer.opened_with == [FAKE_ENDPOINT]
+    assert json.loads(output_path.read_text(encoding="utf-8"))["backend"] == "brightdata"
+    assert "  backend: Bright Data" in capsys.readouterr().out.splitlines()
+
+
+def test_the_local_backend_never_uses_a_set_endpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
+    monkeypatch.setenv("BRIGHTDATA_API_TOKEN", TOKEN)
+    renderer = FakeRenderer()
+    _install_fake_renderer(monkeypatch, renderer)
+    output_path = tmp_path / "rendered.json"
+
+    arguments = ["https://example.com/cake", "--backend", "local", "--render", "--skip-markdown"]
+    assert cli.main([*arguments, "--json", str(output_path)]) == 0
+
+    assert renderer.opened_with == [None]
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert (report["backend"], report["pages"][0]["backend"]) == ("local", "local")
+    assert "  backend: local" in capsys.readouterr().out.splitlines()
+
+
+def test_an_endpoint_in_a_markup_scan_error_is_never_printed_or_saved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BRIGHTDATA_BROWSER_WSS", FAKE_ENDPOINT)
+
+    class LeakyClient(FakeClient):
+        def fetch_html(self, url: str) -> str:
+            raise BrightDataError(f"HTML request for {url} failed: {FAKE_ENDPOINT}")
+
+    _install_fake_client(monkeypatch, LeakyClient("", None))
+    output_path = tmp_path / "static.json"
+
+    assert cli.main(["https://example.com/cake", "--json", str(output_path)]) == cli.EXIT_FETCH_FAILED
+
+    printed = capsys.readouterr()
+    saved = output_path.read_text(encoding="utf-8")
+    for part in ("browser.invalid", "hl_0000fake", "not-a-real-password", "brd-customer"):
+        assert part not in printed.out and part not in printed.err and part not in saved
