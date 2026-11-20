@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from loupe import cli
-from loupe.scan import Finding, Kind, ScanMode
+from loupe_scan import cli
+from loupe_scan.scan import Finding, Kind, ScanMode
 
 
 def scan_locally(url: str, json_path: Path, *extra: str) -> dict[str, Any]:

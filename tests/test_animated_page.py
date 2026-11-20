@@ -13,7 +13,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from loupe.scan import Finding, Kind, normalize_whitespace, scan_html
+from loupe_scan.scan import Finding, Kind, normalize_whitespace, scan_html
 
 from .conftest import FIXTURES
 from .ground_truth import read_table, read_totals

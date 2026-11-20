@@ -35,9 +35,9 @@ from bs4.dammit import EncodingDetector
 from protego import Protego
 from urllib3.response import BaseHTTPResponse
 
-from loupe import __version__
-from loupe.blocking import blocked_by_answer, blocked_by_content
-from loupe.errors import BlockedError, PageFetchError
+from loupe_scan import __version__
+from loupe_scan.blocking import blocked_by_answer, blocked_by_content
+from loupe_scan.errors import BlockedError, PageFetchError
 
 REPOSITORY_URL: Final[str] = "https://github.com/devfrankduah/loupe"
 USER_AGENT: Final[str] = f"loupe/{__version__} (+{REPOSITORY_URL})"

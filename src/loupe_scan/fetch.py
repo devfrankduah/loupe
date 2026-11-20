@@ -20,8 +20,8 @@ from typing import Final, Protocol, Union
 
 import requests
 
-from loupe import __version__
-from loupe.errors import PageFetchError
+from loupe_scan import __version__
+from loupe_scan.errors import PageFetchError
 
 TOKEN_ENVIRONMENT_VARIABLE: Final[str] = "BRIGHTDATA_API_TOKEN"
 API_BASE_URL: Final[str] = "https://api.brightdata.com"

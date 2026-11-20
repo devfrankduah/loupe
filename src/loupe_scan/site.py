@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Final
 from urllib.parse import urlsplit
 
-from loupe.backend import Backend
-from loupe.render import Landing
-from loupe.scan import Kind, ScanMode
+from loupe_scan.backend import Backend
+from loupe_scan.render import Landing
+from loupe_scan.scan import Kind, ScanMode
 
 REPOSITORY_URL: Final[str] = "https://github.com/devfrankduah/loupe"
 

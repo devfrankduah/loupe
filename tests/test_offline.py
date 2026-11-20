@@ -5,7 +5,7 @@ import socket
 import pytest
 import requests
 
-from loupe.local_fetch import LocalFetcher
+from loupe_scan.local_fetch import LocalFetcher
 
 from .conftest import NetworkAccessError
 from .route_site import html_route, serve_routes

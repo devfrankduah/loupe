@@ -18,7 +18,7 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Browser, sync_playwright  # noqa: E402
 from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 
-from loupe.render import (  # noqa: E402
+from loupe_scan.render import (  # noqa: E402
     BLOCKABLE_RESOURCE_TYPES,
     LOCAL_SETTINGS,
     REMOTE_SETTINGS,
@@ -31,7 +31,7 @@ from loupe.render import (  # noqa: E402
     render_page,
     rendered_findings,
 )
-from loupe.scan import Finding, scan_html  # noqa: E402
+from loupe_scan.scan import Finding, scan_html  # noqa: E402
 
 from .conftest import FIXTURES  # noqa: E402
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402

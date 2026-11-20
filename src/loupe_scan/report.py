@@ -7,11 +7,11 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Final
 
-from loupe.backend import Backend
-from loupe.convert import MarkdownSource
-from loupe.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
-from loupe.scan import Finding, Kind, ScanMode
-from loupe.survival import MarkdownIndex
+from loupe_scan.backend import Backend
+from loupe_scan.convert import MarkdownSource
+from loupe_scan.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
+from loupe_scan.scan import Finding, Kind, ScanMode
+from loupe_scan.survival import MarkdownIndex
 
 DEFAULT_QUOTE_CHARACTERS: Final[int] = 160
 

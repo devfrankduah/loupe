@@ -37,7 +37,7 @@ In the HTML:
 
 Text inside a hidden element is reported once, on the outermost hidden element. Script and style contents are ignored.
 
-Every finding is checked against a short list of phrases that read like instructions to a model ("ignore previous", "ignore all", "you are", "system prompt", "do not tell" and a few more). The list lives in `src/loupe/phrases.py`. "assistant" was on it until 7 November. On real pages it only ever named products and projects, so it was dropped.
+Every finding is checked against a short list of phrases that read like instructions to a model ("ignore previous", "ignore all", "you are", "system prompt", "do not tell" and a few more). The list lives in `src/loupe_scan/phrases.py`. "assistant" was on it until 7 November. On real pages it only ever named products and projects, so it was dropped.
 
 ## The markdown comparison
 

@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import Enum
 
-from loupe.fetch import TOKEN_ENVIRONMENT_VARIABLE
-from loupe.render import BROWSER_ENDPOINT_VARIABLE
+from loupe_scan.fetch import TOKEN_ENVIRONMENT_VARIABLE
+from loupe_scan.render import BROWSER_ENDPOINT_VARIABLE
 
 
 class Backend(str, Enum):

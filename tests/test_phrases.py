@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from loupe.phrases import INSTRUCTION_PHRASES, find_instruction_phrases
+from loupe_scan.phrases import INSTRUCTION_PHRASES, find_instruction_phrases
 
 
 @pytest.mark.parametrize("phrase", INSTRUCTION_PHRASES)

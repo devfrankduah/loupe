@@ -8,8 +8,8 @@ import socket
 import pytest
 import requests
 
-from loupe.errors import BlockedError
-from loupe.local_fetch import (
+from loupe_scan.errors import BlockedError
+from loupe_scan.local_fetch import (
     USER_AGENT,
     FetchError,
     FetchLimits,

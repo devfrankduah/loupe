@@ -16,7 +16,7 @@ from typing import Final
 
 from markdownify import markdownify
 
-from loupe.errors import PageFetchError
+from loupe_scan.errors import PageFetchError
 
 CONVERTER: Final[str] = "markdownify"
 CONVERTER_LICENSE: Final[str] = "MIT"

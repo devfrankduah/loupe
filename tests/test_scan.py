@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from loupe.scan import (
+from loupe_scan.scan import (
     PER_REQUEST_PLACEHOLDER,
     Finding,
     Kind,

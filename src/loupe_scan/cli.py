@@ -11,19 +11,19 @@ from pathlib import Path
 from collections.abc import Callable, Mapping
 from typing import Final, Protocol, Sequence
 
-from loupe import __version__
-from loupe.backend import Backend, choose_backend
-from loupe.convert import BRIGHT_DATA_MARKDOWN, MarkdownSource, html_to_markdown, local_markdown_source
-from loupe.errors import BlockedError, PageFetchError
-from loupe.fetch import (
+from loupe_scan import __version__
+from loupe_scan.backend import Backend, choose_backend
+from loupe_scan.convert import BRIGHT_DATA_MARKDOWN, MarkdownSource, html_to_markdown, local_markdown_source
+from loupe_scan.errors import BlockedError, PageFetchError
+from loupe_scan.fetch import (
     DEFAULT_UNLOCKER_ZONE,
     TOKEN_ENVIRONMENT_VARIABLE,
     BrightDataClient,
     MissingTokenError,
     read_token_from_environment,
 )
-from loupe.local_fetch import REPOSITORY_URL, LocalFetcher, RobotsDisallowedError
-from loupe.render import (
+from loupe_scan.local_fetch import REPOSITORY_URL, LocalFetcher, RobotsDisallowedError
+from loupe_scan.render import (
     BROWSER_ENDPOINT_VARIABLE,
     ENDPOINT_PLACEHOLDER,
     SUPERSEDED_BY_RENDERING,
@@ -35,9 +35,9 @@ from loupe.render import (
     read_browser_endpoint,
     rendered_findings,
 )
-from loupe.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
-from loupe.scan import ScanMode, scan_html
-from loupe.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
+from loupe_scan.report import DEFAULT_QUOTE_CHARACTERS, PageReport, check_findings, page_to_dict, render_text
+from loupe_scan.scan import ScanMode, scan_html
+from loupe_scan.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
 
 EXIT_OK = 0
 EXIT_FETCH_FAILED = 1

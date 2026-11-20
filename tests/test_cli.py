@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from loupe import cli
-from loupe.fetch import BrightDataError
-from loupe.render import (
+from loupe_scan import cli
+from loupe_scan.fetch import BrightDataError
+from loupe_scan.render import (
     BrowserSource,
     EndpointRedactor,
     PageBlockedError,

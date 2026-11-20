@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from loupe import cli
-from loupe.render import Landing
-from loupe.scan import ScanMode
-from loupe.site import (
+from loupe_scan import cli
+from loupe_scan.render import Landing
+from loupe_scan.scan import ScanMode
+from loupe_scan.site import (
     HIDING_METHODS,
     ReportFormatError,
     choose_example,

@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from loupe import cli
-from loupe.convert import html_to_markdown, local_markdown_source
-from loupe.scan import scan_html
+from loupe_scan import cli
+from loupe_scan.convert import html_to_markdown, local_markdown_source
+from loupe_scan.scan import scan_html
 
 from .route_site import Route, html_route, serve_routes
 

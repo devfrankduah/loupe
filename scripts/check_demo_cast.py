@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-from loupe.render import EndpointRedactor, _endpoint_pieces
+from loupe_scan.render import EndpointRedactor, _endpoint_pieces
 
 PLAYBACK_SECONDS = 11
 

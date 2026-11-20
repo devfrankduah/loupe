@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from loupe import convert
-from loupe.convert import BRIGHT_DATA_MARKDOWN, ConversionError, html_to_markdown, local_markdown_source
-from loupe.survival import MarkdownIndex
+from loupe_scan import convert
+from loupe_scan.convert import BRIGHT_DATA_MARKDOWN, ConversionError, html_to_markdown, local_markdown_source
+from loupe_scan.survival import MarkdownIndex
 
 PAGE = """<!doctype html><html><head><title>Lemon cake</title><meta name="description" content="Meta words here">
 <style>.x { display: none }</style><script>var note = "script words here";</script></head>

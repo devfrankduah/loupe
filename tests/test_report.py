@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from loupe.backend import Backend
-from loupe.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison, rendered_findings
-from loupe.report import CheckedFinding, PageReport, check_findings, page_to_dict, quote, render_text, verdict
-from loupe.scan import Kind, ScanMode, make_finding, scan_html
+from loupe_scan.backend import Backend
+from loupe_scan.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison, rendered_findings
+from loupe_scan.report import CheckedFinding, PageReport, check_findings, page_to_dict, quote, render_text, verdict
+from loupe_scan.scan import Kind, ScanMode, make_finding, scan_html
 
 
 @pytest.mark.parametrize(

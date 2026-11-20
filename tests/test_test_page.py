@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from loupe.scan import Finding, Kind, scan_html
+from loupe_scan.scan import Finding, Kind, scan_html
 
 from .conftest import FIXTURES
 from .ground_truth import read_table, read_totals

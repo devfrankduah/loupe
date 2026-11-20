@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "loupe"
+name = "loupe-scan"
 version = "0.1.0"
 description = "Find text on web pages that human readers can't see but AI agents can."
 readme = "README.md"
@@ -27,13 +27,13 @@ test = ["pytest>=8"]
 render = ["playwright>=1.64"]
 
 [project.scripts]
-loupe = "loupe.cli:main"
+loupe = "loupe_scan.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-loupe = ["visibility.js"]
+loupe_scan = ["visibility.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

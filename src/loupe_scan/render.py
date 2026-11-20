@@ -52,9 +52,9 @@ from enum import Enum
 from typing import TYPE_CHECKING, Final, Generic, Literal, Protocol, TypeVar
 from urllib.parse import unquote, urlsplit
 
-from loupe.blocking import blocked_by_answer, blocked_by_content
-from loupe.errors import BlockedError
-from loupe.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
+from loupe_scan.blocking import blocked_by_answer, blocked_by_content
+from loupe_scan.errors import BlockedError
+from loupe_scan.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, CDPSession, Page, Playwright, Request, Route
@@ -367,7 +367,7 @@ def acquire_browser(launcher: BrowserLauncher[BrowserT], endpoint: str | None, s
 
 @functools.cache
 def _scanner_source() -> str:
-    return (importlib.resources.files("loupe") / "visibility.js").read_text(encoding="utf-8")
+    return (importlib.resources.files("loupe_scan") / "visibility.js").read_text(encoding="utf-8")
 
 
 def _mapping(value: object, what: str) -> Mapping[str, object]:

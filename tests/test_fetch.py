@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import requests
 
-from loupe.fetch import (
+from loupe_scan.fetch import (
     FETCH_DATASET_ID,
     FETCH_SCRAPE_URL,
     UNLOCKER_REQUEST_URL,

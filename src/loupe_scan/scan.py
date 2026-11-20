@@ -2,7 +2,7 @@
 
 Only the markup is inspected. Stylesheets, scripts and layout are not
 evaluated, so an element hidden by a CSS class is invisible to this scanner;
-loupe.render covers that case by asking a real browser.
+loupe_scan.render covers that case by asking a real browser.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Final
 
 from bs4 import BeautifulSoup, Comment, Tag
 
-from loupe.phrases import find_instruction_phrases
+from loupe_scan.phrases import find_instruction_phrases
 
 # Offsets at or beyond this many pixels to the left or top push content far
 # outside any real viewport. Smaller negative offsets are common in normal
@@ -53,7 +53,7 @@ class Kind(str, Enum):
     LABEL_ATTRIBUTE = "label-attribute"
     META = "meta"
     NOSCRIPT = "noscript"
-    # Found by loupe.render: a browser drew the page and this text never showed.
+    # Found by loupe_scan.render: a browser drew the page and this text never showed.
     RENDERED_HIDDEN = "rendered-hidden"
 
 

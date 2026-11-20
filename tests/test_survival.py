@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from loupe.survival import MarkdownIndex, normalize_words
+from loupe_scan.survival import MarkdownIndex, normalize_words
 
 
 def test_normalize_words_drops_punctuation_and_case() -> None:

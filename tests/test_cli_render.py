@@ -18,7 +18,7 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
-from loupe import cli  # noqa: E402
+from loupe_scan import cli  # noqa: E402
 
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 from . import test_animated_page as animated  # noqa: E402

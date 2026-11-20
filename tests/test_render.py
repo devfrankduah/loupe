@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from loupe.render import (
+from loupe_scan.render import (
     CHROMIUM_INSTALL_HINT,
     PLAYWRIGHT_INSTALL_HINT,
     BROWSER_ENDPOINT_VARIABLE,
@@ -33,7 +33,7 @@ from loupe.render import (
     static_candidates,
     watch_notes,
 )
-from loupe.scan import Kind, ScanMode, make_finding
+from loupe_scan.scan import Kind, ScanMode, make_finding
 
 USERNAME = "brd-customer-test0001-zone-fake_browser"
 PASSWORD = "p@ss/word with spaces"

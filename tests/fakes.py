@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import requests
 
-from loupe.fetch import JsonValue
+from loupe_scan.fetch import JsonValue
 
 
 def make_response(

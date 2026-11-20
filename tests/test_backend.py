@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from loupe.backend import Backend, choose_backend
+from loupe_scan.backend import Backend, choose_backend
 
 TOKEN = {"BRIGHTDATA_API_TOKEN": "a-token"}
 ENDPOINT = {"BRIGHTDATA_BROWSER_WSS": "wss://user:pass@browser.invalid:9222"}
