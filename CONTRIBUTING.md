@@ -24,7 +24,7 @@ pytest
 mypy --strict src tests
 ```
 
-The tests run offline against local fixtures and never need a Bright Data token. `tests/conftest.py` removes `BRIGHTDATA_API_TOKEN` and `BRIGHTDATA_BROWSER_WSS` from every test's environment, so a token in your shell can't reach a test run.
+The tests run on the local backend against fixtures served from 127.0.0.1 and never need a Bright Data token. `tests/conftest.py` removes `BRIGHTDATA_API_TOKEN` and `BRIGHTDATA_BROWSER_WSS` from every test's environment, so a token in your shell can't reach a test run, and it fails any test that tries to connect beyond this machine.
 
 CI runs both commands on Python 3.10 and 3.13 for every push to `main` and every pull request. It installs Chromium, which adds about 15 seconds, so the rendered tests run there too, and it fails if any test is skipped.
 
@@ -55,7 +55,7 @@ Never commit `.env`, and never put a Bright Data token or Browser API endpoint i
 
 ## Re-record the demo GIF
 
-`scripts/record-demo.sh` records `docs/demo.gif` with asciinema and agg (`brew install asciinema agg`). It runs one rendered scan of the blender test page through the Browser API, a few KB, so it needs both values in `.env`. The recording stays in a temporary folder and is deleted either way. Before converting it, the script checks it for the token and every part of the endpoint, and stops if it finds one. Never commit a `.cast` file.
+`scripts/record-demo.sh` records `docs/demo.gif` with asciinema and agg (`brew install asciinema agg`). It runs the README's quickstart scan of the blender test page on the local backend, with the Bright Data values removed from the command, so it needs no account. The recording stays in a temporary folder and is deleted either way. If `.env` holds Bright Data values, the script checks the recording for the token and every part of the endpoint before converting it, and stops if it finds one. Never commit a `.cast` file.
 
 ## Pull requests
 

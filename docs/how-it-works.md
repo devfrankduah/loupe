@@ -1,6 +1,6 @@
 # How loupe works
 
-This is the detail behind the README's short version: what loupe sends to Bright Data, what each check looks for, how a rendered scan decides what's visible, and what the 19 November runs showed.
+This is the detail behind the README's short version: how each backend fetches a page, what each check looks for, how a rendered scan decides what's visible, and what the 19 November runs showed.
 
 ## How pages are fetched
 

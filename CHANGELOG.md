@@ -4,6 +4,16 @@
 
 The version in `pyproject.toml` has been 0.1.0 since the first commit, and nothing is tagged yet. Each heading below is the day the work landed on `main`.
 
+### 20 November 2026
+
+- loupe works with no account. A local backend fetches pages from your machine, renders them in local Chromium with the same checks as the Browser API, and makes the markdown with markdownify (MIT), labelled an approximation of what agent tools produce. It picks itself when no Bright Data value is set, `--backend` overrides that either way, and the output and JSON name the backend each page used.
+- The local fetch names loupe and its repository in its user agent, obeys robots.txt (with `--ignore-robots` for pages you own) and any Crawl-delay, and has time, redirect and 10 MB limits. A 403, a 429 or a Cloudflare challenge is reported as a block, with a link to the Bright Data section of the README.
+- Each page's output starts with a plain-English verdict: how many pieces of hidden text read like instructions to an AI and how many of those reach the markdown, then the total amount of hidden text. The JSON keeps it as `verdict`.
+- The tests run on the local backend only, against fixtures served from 127.0.0.1 in both scan modes, and fail any connection beyond the machine. Both test pages' ground truths pass end to end on the local backend, and live local runs of both pages match the 19 November Bright Data runs finding for finding.
+- The README's quickstart needs no account, and Bright Data moves to a section for sites that block bots and for scanning at scale. The demo GIF shows the quickstart scan on the local backend.
+- New dependencies: markdownify, Protego, and urllib3 2.2 or newer, which requests already installs.
+- The Playwright install hint now installs from the repository folder, since `loupe` on PyPI is an unrelated package.
+
 ### 19 November 2026
 
 - The README is rewritten for anyone building an agent that reads the web: what loupe catches and who it's for first, then a quickstart that needs no account, a plain guide to reading the output, and the deeper sections after.
