@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final
@@ -334,6 +335,31 @@ def summary_table(pages: list[PageReport]) -> str:
         cells = [row[0].ljust(widths[0]), *(row[column].rjust(widths[column]) for column in range(1, len(widths)))]
         lines.append("  " + "  ".join([*cells, row[-1]]))
     return "\n".join(printable(line) for line in lines)
+
+
+def _markdown_url(url: str) -> str:
+    """url as a code span that a table cell can hold: no markup inside it is read, and it can't end the cell."""
+    # A backtick would close the span, so it's written as the URL escape it stands for.
+    return "`" + printable(url).replace("`", "%60").replace("|", "\\|") + "`"
+
+
+def summary_markdown(pages: Sequence[PageReport], outcome: str) -> str:
+    """The summary table as GitHub-flavoured Markdown, for a CI job summary, then outcome as its last line.
+
+    Only loupe's own words, counts and the URLs as given appear in it, so nothing from a page can add markup.
+    """
+    header = ("Result", "Hidden", "Instructions", "Instructions in markdown", "Page")
+    lines = [
+        "### loupe",
+        "",
+        "| " + " | ".join(header) + " |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ]
+    for page in pages:
+        *cells, url = _summary_row(page)
+        lines.append("| " + " | ".join([*cells, _markdown_url(url)]) + " |")
+    lines.extend(["", outcome, ""])
+    return "\n".join(lines)
 
 
 def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> str:

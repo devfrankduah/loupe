@@ -149,3 +149,54 @@ def test_one_page_or_json_output_prints_no_table(site: RouteSite, capsys: pytest
     assert "Summary of" not in capsys.readouterr().out
     cli.main([site.url("/clean"), site.url("/comment"), "--json"])
     assert len(json.loads(capsys.readouterr().out)) == 2
+
+
+def test_the_markdown_summary_is_added_to_the_file_with_the_exit_code(site: RouteSite, tmp_path: Path) -> None:
+    summary = tmp_path / "summary.md"
+    summary.write_text("An earlier step's summary.\n", encoding="utf-8")
+    urls = [site.url(path) for path in ("/instruction", "/comment", "/blocked")]
+
+    assert cli.main([*urls, "--skip-markdown", "--markdown-summary", str(summary)]) == cli.EXIT_ERROR
+
+    assert summary.read_text(encoding="utf-8").splitlines() == [
+        "An earlier step's summary.",
+        "### loupe",
+        "",
+        "| Result | Hidden | Instructions | Instructions in markdown | Page |",
+        "| --- | ---: | ---: | ---: | --- |",
+        f"| instructions | 1 | 1 | - | `{urls[0]}` |",
+        f"| hidden text | 1 | 0 | - | `{urls[1]}` |",
+        f"| blocked | - | - | - | `{urls[2]}` |",
+        "",
+        "Exit 2: 1 page couldn't be scanned in full.",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fail_on", "code", "outcome"),
+    [
+        ("instructions", cli.EXIT_FINDINGS, "Exit 1: 1 page with hidden text worded like instructions to an AI (--fail-on instructions)."),
+        ("never", cli.EXIT_OK, "Exit 0: 2 pages scanned in full, with nothing --fail-on never counts."),
+    ],
+)
+def test_the_markdown_summary_explains_exit_0_and_1(
+    site: RouteSite, tmp_path: Path, fail_on: str, code: int, outcome: str
+) -> None:
+    summary = tmp_path / "summary.md"
+    urls = [site.url("/instruction"), site.url("/clean")]
+    assert cli.main([*urls, "--fail-on", fail_on, "--markdown-summary", str(summary)]) == code
+    assert summary.read_text(encoding="utf-8").splitlines()[-1] == outcome
+
+
+def test_a_url_can_add_no_markup_to_the_markdown_summary() -> None:
+    from loupe_scan.backend import Backend
+    from loupe_scan.report import PageReport, summary_markdown
+
+    url = "https://example.com/a|b`<img src=x onerror=alert(1)>`\x1b[2J"
+    row = summary_markdown([PageReport(url=url, backend=Backend.LOCAL)], "Exit 0: fine.").splitlines()[4]
+    assert row == "| clean | 0 | 0 | - | `https://example.com/a\\|b%60<img src=x onerror=alert(1)>%60\\x1b[2J` |"
+
+
+def test_a_summary_file_that_cant_be_written_exits_2(site: RouteSite, tmp_path: Path) -> None:
+    missing_folder = tmp_path / "no-such-folder" / "summary.md"
+    assert cli.main([site.url("/clean"), "--markdown-summary", str(missing_folder)]) == cli.EXIT_ERROR

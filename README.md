@@ -134,6 +134,7 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 - `--ignore-robots` fetches pages even where robots.txt asks loupe not to. Use it only for pages you own or have permission to scan.
 - `--json` prints the results as JSON instead of text, and `--json-output PATH` writes the same JSON to a file. [docs/json.md](docs/json.md) describes every field, and each page carries a `schema_version`.
 - `--fail-on instructions`, `hidden` or `never` picks which findings make loupe exit 1 (see [Exit codes](#exit-codes)).
+- `--markdown-summary PATH` adds the summary table and the exit code to the end of PATH as Markdown. The GitHub Action uses it for the job summary.
 - `--quote-chars N` cuts quoted hidden text to N characters (default 160, 0 for no limit).
 - `--zone NAME` picks the Web Unlocker zone on the Bright Data backend (default `mcp_unlocker`).
 

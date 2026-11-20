@@ -66,7 +66,7 @@ runs:
 
     - name: Set up Python for loupe
       id: python
-      uses: actions/setup-python@v7
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: "3.13"
         # Leaves the job's own Python and PATH as they were.
@@ -104,6 +104,8 @@ runs:
         out="$(mktemp -d "$RUNNER_TEMP/loupe-XXXXXXXX")"
         printf '%s\n' "$LOUPE_URLS" | tr ' \t\r' '\n\n\n' > "$out/urls.txt"
         arguments=(--urls-file "$out/urls.txt" --json-output "$out/results.json" --fail-on "$LOUPE_FAIL_ON")
+        # The job summary gets a table of each page's result and counts, and the exit code.
+        arguments+=(--markdown-summary "$GITHUB_STEP_SUMMARY")
         if [ "$LOUPE_RENDER" = true ]; then arguments+=(--render); fi
         if [ "$LOUPE_BACKEND" != auto ]; then arguments+=(--backend "$LOUPE_BACKEND"); fi
         echo "results=$out/results.json" >> "$GITHUB_OUTPUT"
@@ -119,7 +121,7 @@ runs:
 
     - name: Upload the results
       if: ${{ !cancelled() && steps.scan.outcome != 'skipped' }}
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ steps.scan.outputs.results }}

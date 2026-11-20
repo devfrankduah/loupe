@@ -20,7 +20,9 @@ from loupe_scan.report import (
     PageReport,
     findings_counted,
     page_to_dict,
+    printable,
     render_text,
+    summary_markdown,
     summary_table,
 )
 from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scrub_strings
@@ -86,6 +88,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--json-output", type=Path, metavar="PATH", help="also write the results as JSON to PATH, in the same format"
+    )
+    parser.add_argument(
+        "--markdown-summary",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "also add the summary table and exit code to PATH as Markdown, appending to what's there, "
+            "such as a CI job summary"
+        ),
     )
     parser.add_argument(
         "--zone",
@@ -242,7 +253,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(scrub(render_text(page, arguments.quote_chars)), flush=True)
                     print()
     except SetupError as error:
+        message = scrub(f"loupe couldn't scan: {error}")
         print(scrub(f"loupe: {error}"), file=sys.stderr)
+        _append_markdown(arguments.markdown_summary, f"### loupe\n\n{printable(message)}\n")
         return EXIT_USAGE
     if len(pages) > 1 and not arguments.json:
         print(scrub(summary_table(pages)), flush=True)
@@ -260,25 +273,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"loupe: could not write {arguments.json_output}: {error.strerror}", file=sys.stderr)
             return EXIT_USAGE
 
-    return _finish(pages, arguments.fail_on)
+    code, reason = _outcome(pages, arguments.fail_on)
+    if code != EXIT_OK:
+        _note(f"exit {code}: {reason}")
+    if not _append_markdown(arguments.markdown_summary, scrub(summary_markdown(pages, f"Exit {code}: {reason}."))):
+        return EXIT_USAGE
+    return code
+
+
+def _append_markdown(path: Path | None, markdown: str) -> bool:
+    """Add markdown to the end of path, if one was given. False, after saying why, when it couldn't be written."""
+    if path is None:
+        return True
+    try:
+        with path.open("a", encoding="utf-8") as summary:
+            summary.write(markdown)
+    except OSError as error:
+        _note(f"could not write {path}: {error.strerror}")
+        return False
+    return True
 
 
 def _count_pages(number: int) -> str:
     return "1 page" if number == 1 else f"{number:,} pages"
 
 
-def _finish(pages: Sequence[PageReport], fail_on: FailOn) -> int:
-    """The exit code for the run, explained on stderr when it isn't 0."""
+def _outcome(pages: Sequence[PageReport], fail_on: FailOn) -> tuple[int, str]:
+    """The exit code for the run, and why, in words that follow "exit N: "."""
     incomplete = [page for page in pages if page.html_error is not None or page.markdown_error is not None]
     if incomplete:
-        _note(f"exit {EXIT_ERROR}: {_count_pages(len(incomplete))} couldn't be scanned in full")
-        return EXIT_ERROR
+        return EXIT_ERROR, f"{_count_pages(len(incomplete))} couldn't be scanned in full"
     counted = [page for page in pages if findings_counted(page, fail_on)]
     if counted:
         what = "hidden text" if fail_on is FailOn.HIDDEN else "hidden text worded like instructions to an AI"
-        _note(f"exit {EXIT_FINDINGS}: {_count_pages(len(counted))} with {what} (--fail-on {fail_on.value})")
-        return EXIT_FINDINGS
-    return EXIT_OK
+        return EXIT_FINDINGS, f"{_count_pages(len(counted))} with {what} (--fail-on {fail_on.value})"
+    return EXIT_OK, f"{_count_pages(len(pages))} scanned in full, with nothing --fail-on {fail_on.value} counts"
 
 
 if __name__ == "__main__":

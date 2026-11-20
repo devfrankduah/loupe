@@ -53,3 +53,22 @@ def test_no_script_in_the_action_has_an_expression_pasted_into_it() -> None:
     assert len(scripts) == 3
     for script in scripts:
         assert "${{" not in script, script
+
+
+def test_every_action_is_pinned_to_a_commit_with_its_release_in_a_comment() -> None:
+    workflows = [ACTION, *sorted((ROOT / ".github" / "workflows").glob("*.yml"))]
+    pinned = 0
+    for path in workflows:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\s*(?:- )?uses: (\S+)(.*)$", line)
+            if match is None or match.group(1) == "./":
+                continue
+            assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", match.group(1)), line
+            assert re.fullmatch(r" # v\d+\.\d+\.\d+", match.group(2)), line
+            pinned += 1
+    assert pinned == 7
+
+
+def test_the_action_adds_its_summary_to_the_job_summary() -> None:
+    (scan,) = [script for script in _run_scripts(ACTION.read_text(encoding="utf-8")) if "--urls-file" in script]
+    assert 'arguments+=(--markdown-summary "$GITHUB_STEP_SUMMARY")' in scan
