@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Records docs/demo.gif: one rendered scan of the blender test page through
 # Bright Data's Browser API, which uses a few KB of Browser API traffic.
+# Quotes are cut to 80 characters so all 20 lines fit the 150 by 22 window.
 #
 # Needs asciinema and agg (brew install asciinema agg), the virtual
 # environment from the README with the render extra, and both
@@ -31,7 +32,7 @@ cleanup() {
 trap cleanup EXIT
 
 asciinema rec --quiet --headless --return --window-size 150x22 --capture-env TERM \
-  --command 'printf "\$ loupe https://devfrankduah.github.io/loupe/test-page/ --render\n"; loupe https://devfrankduah.github.io/loupe/test-page/ --render' \
+  --command 'printf "\$ loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/\n"; loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/' \
   "$cast"
 
 # Stops here, through set -e, if the recording holds a secret.

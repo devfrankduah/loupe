@@ -10,6 +10,8 @@ loupe shows what a web page feeds an AI agent that a person reading the same pag
 
 On a [made-up product page](https://devfrankduah.github.io/loupe/test-page/) with five mostly negative reviews, the browser scan finds five of the six hidden instructions telling an AI to call the blender the best one available, and two hidden fake five-star reviews. Three of those instructions and both reviews also reach the markdown. The sixth instruction is coloured like the background, which loupe can't detect.
 
+![A terminal running loupe --render --quote-chars 80 on the blender test page through Bright Data's Browser API. After about 8 seconds it prints 10 findings, 5 of them worded like instructions to an AI, and says which ones reached the markdown.](docs/demo.gif)
+
 ## Quickstart
 
 This takes about a minute on a fast connection and needs no account. You need Python 3.10 or newer (`python3 --version` shows yours) and a macOS or Linux shell.
@@ -128,6 +130,12 @@ loupe report results/2026-11-19.json results/2026-11-19-rendered.json -o /tmp/lo
 ```
 
 `docs/index.html` is built from that pair, so `cmp /tmp/loupe-report.html docs/index.html` prints nothing. Given a markup-only run and a `--render` run of the same pages, the report sets them side by side, page by page. One results file works too.
+
+![The loupe report page in light mode on a desktop. Under the headline "A web page can hide text from you and still hand it to the AI reading it", two panels show a real line from github.com: the panel for what a person sees is empty, and the panel for what an AI reads says "You can't perform that action at this time."](docs/screenshot-desktop-2026-11-19.png)
+
+<img src="docs/screenshot-phone-2026-11-19.png" alt="The same report page on a phone, light mode, with the two panels stacked" width="300">
+
+Both screenshots show that page, taken on 19 November 2026.
 
 ## How it works
 

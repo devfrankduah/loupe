@@ -6,6 +6,8 @@ The version in `pyproject.toml` has been 0.1.0 since the first commit, and nothi
 
 ### 19 November 2026
 
+- The README is rewritten for anyone building an agent that reads the web: what loupe catches and who it's for first, then a quickstart that needs no account, a plain guide to reading the output, and the deeper sections after.
+- `docs/demo.gif` is recorded again, on the blender test page through the Browser API, with quotes cut to 80 characters so all 20 lines fit the window. New screenshots of the rebuilt report page are `docs/screenshot-desktop-2026-11-19.png` and `docs/screenshot-phone-2026-11-19.png`. `docs/social-preview.png` was generated again from the rebuilt page and came out unchanged.
 - The results and every mention of a personal site that was one of the five pages scanned are gone from `main`, along with the demo GIF and screenshots that showed it; the git history keeps them. The README, `docs/how-it-works.md` and the report page now use the 19 November runs of four public pages and both test pages, and the animated test page takes over as the example of false alarms. The report page's byline no longer names a person, and its caveats no longer cite "assistant" as a listed phrase.
 - A second test page at `docs/animated-page/`: a landing page for a made-up travel pack with scroll fades, a headline that rotates over an invisible layout copy, a live clock, a skip link and a collapsed menu, and nothing planted. Its ground truth says every hidden-text flag from the markup scan is a false alarm and the rendered scan clears all of them, and the tests check both modes against it.
 
