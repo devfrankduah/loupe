@@ -38,6 +38,10 @@ Fixtures are small HTML pages in `tests/fixtures/`. To add a case:
 
 `tests/fixture_site.py` serves the fixtures from 127.0.0.1. Files under `tests/fixtures/slow/` are held for a second before they're served, for pages that need to be parsed before a stylesheet arrives.
 
+## Change the harness's canary pages
+
+The pages in `docs/harness/` are written by `scripts/build_harness_pages.py` from one template, so they stay identical apart from how each hides its instruction. Change the script, run `python3 scripts/build_harness_pages.py`, and commit both. `tests/test_harness_pages.py` fails if the pages differ from what the script writes, or if a page's ground truth is wrong. [docs/design/harness.md](docs/design/harness.md) explains the design.
+
 ## Report a false positive or missed hidden text
 
 Use the [false positive or missed hidden text](https://github.com/devfrankduah/loupe/issues/new?template=hidden-text.yml) form, and include:

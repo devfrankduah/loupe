@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from .conftest import FIXTURES
 
@@ -25,8 +26,8 @@ class FixtureSite:
 
 
 @contextmanager
-def serve_fixtures() -> Iterator[FixtureSite]:
-    """Serve the fixture pages until the block ends, recording what was requested."""
+def serve_fixtures(directory: Path = FIXTURES) -> Iterator[FixtureSite]:
+    """Serve directory, the fixture pages unless another is given, until the block ends, recording what was requested."""
     site = FixtureSite(base_url="")
 
     class RecordingHandler(SimpleHTTPRequestHandler):
@@ -40,7 +41,7 @@ def serve_fixtures() -> Iterator[FixtureSite]:
         def log_message(self, format: str, *args: object) -> None:
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(RecordingHandler, directory=str(FIXTURES)))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(RecordingHandler, directory=str(directory)))
     site.base_url = f"http://127.0.0.1:{server.server_address[1]}"
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
