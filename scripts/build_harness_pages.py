@@ -86,9 +86,9 @@ TECHNIQUES: tuple[Technique, ...] = (
         "Coloured like the background",
         "text coloured the same as the background behind it",
         "TF-6604-ZU",
-        True, True, False, False, True, True, True, True,
-        "loupe doesn't compare text colour with the background, so it counts this as visible in both scans. "
-        "A known gap.",
+        True, True, True, True, True, True, False, False,
+        "loupe compares the text's colour with the solid colour behind it, so both scans catch it: the rendered scan "
+        "from the colours the browser draws, the markup scan because the page's stylesheet declares both.",
     ),
     Technique(
         "control",

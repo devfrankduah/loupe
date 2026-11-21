@@ -150,7 +150,7 @@ def test_strip_takes_out_every_piece_of_the_blender_pages_hidden_text_that_reach
     blender: BlenderOutputs,
 ) -> None:
     header, _, body = blender.fetched[Mode.STRIP].partition("\n---\n")
-    assert len(blender.reaching) == 5
+    assert len(blender.reaching) == 6
     index = MarkdownIndex(body)
     assert [text for text in blender.reaching if index.contains(text)] == []
     assert f"markdown: {len(blender.reaching)} pieces of hidden text taken out" in header.splitlines()
@@ -177,9 +177,8 @@ def test_no_planted_text_loupe_finds_is_repeated_in_any_tool_output_in_any_mode(
 
 
 def test_strip_cant_take_out_what_loupe_doesnt_find(blender: BlenderOutputs) -> None:
-    # The limits docs/mcp.md names: text a script adds when only the markup
-    # is read, and text coloured like its background in either mode.
-    expected = [3, 8] if not blender.render else [8]
+    # The limit docs/mcp.md names: text a script adds, when only the markup is read.
+    expected = [3] if not blender.render else []
     assert [row.number for row in blender.planted_missed] == expected
     stripped = normalize_words(blender.fetched[Mode.STRIP])
     for row in blender.planted_missed:
@@ -237,9 +236,9 @@ def test_fetch_page_starts_with_the_verdict_and_counts(blender: BlenderOutputs, 
         "loupe: this page hides text worded like instructions to an AI",
         f"page: {blender_url}",
         f"scan: {how}, fetched from this machine",
-        "found: 10 pieces of hidden text, 5 worded like instructions to an AI, 5 reaching the markdown"
+        "found: 11 pieces of hidden text, 6 worded like instructions to an AI, 6 reaching the markdown"
         if blender.render
-        else "found: 9 pieces of hidden text, 4 worded like instructions to an AI, 5 reaching the markdown",
+        else "found: 10 pieces of hidden text, 5 worded like instructions to an AI, 6 reaching the markdown",
     ]
     note = (
         "note: a markup-only scan applies only simple stylesheet rules and runs no scripts; "

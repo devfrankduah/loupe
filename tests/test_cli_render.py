@@ -25,7 +25,7 @@ from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 from . import test_animated_page as animated  # noqa: E402
 from .local_results import findings_of, scan_locally, traced_of  # noqa: E402
 from .results_schema import check_results  # noqa: E402
-from .test_test_page import check_scan  # noqa: E402
+from .test_test_page import check_scan, expected_totals  # noqa: E402
 
 MARKER = re.compile(r"CASE-[A-Z-]+")
 
@@ -117,7 +117,7 @@ def test_the_python_api_renders_the_blender_page_like_the_command_does(
     (printed,) = json.loads(capsys.readouterr().out)
 
     assert result.mode is ScanMode.RENDERED
-    assert len(result.instruction_like) == printed["instruction_like_count"] == 5
+    assert len(result.instruction_like) == printed["instruction_like_count"] == expected_totals()["rendered"][1]
     findings = result.to_dict()["findings"]
     assert isinstance(findings, list)
     assert [item["text"] for item in findings] == [item["text"] for item in printed["findings"]]

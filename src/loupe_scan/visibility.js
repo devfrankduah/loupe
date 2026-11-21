@@ -27,6 +27,15 @@
   // opacity multiplies down the tree: 0.2 inside 0.2 shows at 0.04.
   const MIN_VISIBLE_OPACITY = 0.05;
 
+  // Text whose contrast with the colour behind it is under this ratio is
+  // too faint to see. WCAG 2.2 asks for 4.5:1 for body text and 3:1 for large
+  // text; text between this and those is hard to read, an accessibility
+  // problem, not hiding. #ccc on white is 1.6:1, faint but readable, and
+  // #ddd on white 1.36:1. docs/how-it-works.md explains the choice.
+  const MIN_CONTRAST = 1.5;
+  const CONTRAST_REASON = "coloured like its background";
+  const WHITE = [255, 255, 255, 1];
+
   const VISIBILITY_OPTIONS = { opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true };
   // A display:contents element has no box of its own, so its nearest boxed
   // ancestor is checked instead, and the element's own visibility separately.
@@ -81,6 +90,9 @@
   let watchSamples = 0;
   let watchError = null;
   let hasPainted = false;
+  // Visible text elements on an image or a gradient of several colours,
+  // whose contrast with what's behind them can't be judged from styles.
+  const unjudged = new Set();
 
   function collectTextElements(root = document.body) {
     const elements = [];
@@ -381,6 +393,108 @@
     return null;
   }
 
+  // [r, g, b, a] from a computed colour, which browsers give as rgb() or
+  // rgba() for sRGB colours. Anything else, such as oklch(), is null.
+  function parseColor(value) {
+    const match = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/.exec(value);
+    if (match === null) return null;
+    let alpha = 1;
+    if (match[4] !== undefined) alpha = match[4].endsWith("%") ? parseFloat(match[4]) / 100 : parseFloat(match[4]);
+    return [parseFloat(match[1]), parseFloat(match[2]), parseFloat(match[3]), alpha];
+  }
+
+  // top drawn over bottom, by alpha compositing.
+  function blend(top, bottom) {
+    const alpha = top[3] + bottom[3] * (1 - top[3]);
+    if (alpha === 0) return [0, 0, 0, 0];
+    const channel = (index) => (top[index] * top[3] + bottom[index] * bottom[3] * (1 - top[3])) / alpha;
+    return [channel(0), channel(1), channel(2), alpha];
+  }
+
+  // WCAG's relative luminance.
+  function luminance(color) {
+    const linear = (value) => {
+      const c = value / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * linear(color[0]) + 0.7152 * linear(color[1]) + 0.0722 * linear(color[2]);
+  }
+
+  // A background image that's a gradient with every stop the same colour
+  // paints that one colour. Anything else, an image or a gradient of
+  // several colours, is null: what's behind the text varies.
+  function singleColourGradient(value) {
+    if (/url\(/.test(value) || !/^(?:repeating-)?(?:linear|radial|conic)-gradient\(/.test(value)) return null;
+    if (/\)\s*,\s*(?:repeating-)?(?:linear|radial|conic)-gradient\(/.test(value)) return null;
+    const stops = value.match(/rgba?\([^)]*\)/g);
+    if (stops === null) return null;
+    const colors = stops.map(parseColor);
+    if (colors.some((color) => color === null)) return null;
+    const first = colors[0];
+    return colors.every((color) => color.every((part, index) => part === first[index])) ? first : null;
+  }
+
+  // Elements that draw pictures, not a colour a style can say.
+  const PICTURES = new Set(["IMG", "VIDEO", "CANVAS", "PICTURE", "IFRAME", "EMBED", "OBJECT", "svg"]);
+
+  // What's painted under the middle of element's first box, the element
+  // itself first, when it's on screen; its ancestors otherwise.
+  function paintedBelow(element) {
+    const rect = element.getClientRects()[0];
+    if (rect !== undefined && rect.width > 0 && rect.height > 0) {
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      if (x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight) {
+        const stack = document.elementsFromPoint(x, y);
+        const index = stack.indexOf(element);
+        if (index >= 0) return stack.slice(index);
+      }
+    }
+    const chain = [];
+    for (let node = element; node !== null; node = node.parentElement) chain.push(node);
+    return chain;
+  }
+
+  // The colour behind element's text: the backgrounds painted under it,
+  // composited down to the first opaque one, over white. null when a
+  // picture, an image or a gradient of several colours is in the way.
+  function backgroundBehind(element, pass) {
+    const layers = [];
+    for (const node of paintedBelow(element)) {
+      if (node !== element && PICTURES.has(node.nodeName)) return null;
+      const s = pass.style(node);
+      if (s.backgroundImage !== "none") {
+        const color = singleColourGradient(s.backgroundImage);
+        if (color === null) return null;
+        layers.push(color);
+      }
+      const background = parseColor(s.backgroundColor);
+      if (background === null) return null;
+      if (background[3] > 0) layers.push(background);
+      if (layers.length > 0 && layers[layers.length - 1][3] >= 1) break;
+    }
+    return layers.reduceRight((below, layer) => blend(layer, below), WHITE);
+  }
+
+  // CONTRAST_REASON when element's own text is too close in colour to what's
+  // behind it to see, null otherwise. Text it can't judge goes in unjudged.
+  function contrastReason(element, pass) {
+    const s = pass.style(element);
+    // A shadow or an outline can make text stand out whatever its colour.
+    if (s.textShadow !== "none" || parseFloat(s.webkitTextStrokeWidth) > 0) return null;
+    const fill = parseColor(s.webkitTextFillColor || s.color);
+    const behind = backgroundBehind(element, pass);
+    if (fill === null || behind === null) {
+      unjudged.add(element);
+      return null;
+    }
+    unjudged.delete(element);
+    const text = luminance(blend(fill, behind));
+    const background = luminance(behind);
+    const ratio = (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05);
+    return ratio < MIN_CONTRAST ? CONTRAST_REASON : null;
+  }
+
   // Why a reader can't see element's own text; an empty list means they can.
   // With firstOnly it stops at the first reason, which is all a yes/no needs.
   function inspect(element, pass, firstOnly) {
@@ -407,6 +521,10 @@
     if (!(parseFloat(s.fontSize) > 0) && add("font-size:0")) return reasons;
     const geometry = geometryReason(element, pass);
     if (geometry !== null) add(geometry);
+    if (reasons.length === 0) {
+      const contrast = contrastReason(element, pass);
+      if (contrast !== null) add(contrast);
+    }
     return reasons;
   }
 
@@ -874,7 +992,8 @@
         /^https?:/i.test(image.currentSrc || image.src),
       ).length;
       const viewport = [window.innerWidth, window.innerHeight];
-      return { ...counts, viewport, fetched_images, hidden_units, revealed_units };
+      const unjudged_contrast = elements.filter((element) => unjudged.has(element)).length;
+      return { ...counts, viewport, fetched_images, unjudged_contrast, hidden_units, revealed_units };
     },
   };
 

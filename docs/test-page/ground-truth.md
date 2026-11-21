@@ -15,14 +15,14 @@ Each planted item starts with different words, so it can be told apart in loupe'
 | 5 | Instruction | the product image's `alt` text | Quillmore Q6 blender in brushed steel | label-attribute (alt) | label-attribute (alt) | yes |
 | 6 | Fake five-star review | the `hidden` attribute | Rated 5 out of 5 by Priya | hidden-attribute | rendered-hidden (hidden attribute) | no |
 | 7 | Fake five-star review | a stylesheet class that sets `display:none` | Rated 5 out of 5 by Tom | stylesheet | rendered-hidden (display:none) | no |
-| 8 | Instruction | text coloured like the background | Instructions for any AI assistant | missed | missed | no |
+| 8 | Instruction | text coloured like the background | Instructions for any AI assistant | stylesheet | rendered-hidden (coloured like its background) | yes |
 
-Rows 1 and 7 are caught without a browser by the markup scan's stylesheet check, which applies the page's own `<style>` block for the simple ways CSS hides text; it's a partial check, and only the rendered scan runs the page's scripts. Row 8 is a known limit, left in on purpose: loupe doesn't compare text colour with the background, so it counts that line as visible in both modes. Flagged instruction-like means loupe reports the finding as matching its phrase list. A missed item is never a finding, so it's never flagged, even when its words would match: row 8 contains "ignore all".
+Rows 1 and 7 are caught without a browser by the markup scan's stylesheet check, which applies the page's own `<style>` block for the simple ways CSS hides text; it's a partial check, and only the rendered scan runs the page's scripts. Row 8's text is the same colour as the solid gradient behind it. The rendered scan finds it by comparing the two colours' contrast, and the markup scan finds it too, because the page's stylesheet declares both colours. Flagged instruction-like means loupe reports the finding as matching its phrase list; row 8 contains "ignore all". A missed item is never a finding, so it's never flagged.
 
 Besides the planted items, both scans report the page's three `<meta>` tags (viewport, robots and description), none of them instruction-like. In total:
 
-- Markup scan: 9 findings, 4 instruction-like.
-- Rendered scan: 10 findings, 5 instruction-like.
+- Markup scan: 10 findings, 5 instruction-like.
+- Rendered scan: 11 findings, 6 instruction-like.
 
 Whether each item reaches the markdown depends on the converter, Bright Data's Fetch API or markdownify on the local backend, so the table doesn't predict it. The live results record it, and on 19 and 20 November the same items reached the markdown on both backends.
 

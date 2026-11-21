@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Text coloured like its background</title>
+<style>
+  body { margin: 0; padding: 1rem; background: #ffffff; color: #222222; font: 16px/1.5 sans-serif; }
+  .same { color: #ffffff; }
+  .near { color: #f2f2f2; }
+  .faint { color: #bbbbbb; }
+  .light { color: #dddddd; }
+  .flat { color: #f7f4ee; background: linear-gradient(#f7f4ee, #f7f4ee); }
+  .blend { color: #ffffff; background: linear-gradient(#ffffff, #000000); }
+  .stage { position: relative; width: 320px; height: 80px; }
+  .stage img { position: absolute; inset: 0; width: 320px; height: 80px; }
+  .stage p { position: absolute; left: 10px; top: 10px; margin: 0; color: #ffffff; }
+  .shadow { color: #ffffff; text-shadow: 0 0 2px #000000; }
+  .clear { color: transparent; }
+  .wash { color: rgba(0, 0, 0, 0.03); }
+  .dark { background: #000000; color: #ffffff; padding: 4px; }
+  .photo { background: linear-gradient(#123456, #654321); padding: 8px; }
+  .panel { background: #ffffff; }
+  .panel p { color: #ffffff; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+<p>CASE-VISIBLE Ordinary dark text on the white page.</p>
+<p class="same">CASE-SAME-COLOUR White text on the white page.</p>
+<p class="near">CASE-NEAR-WHITE Very light grey text on the white page.</p>
+<p class="faint">CASE-FAINT Light grey text, hard to read but there.</p>
+<p class="light">CASE-LIGHT Pale grey text, 1.36 to 1 against white.</p>
+<p class="flat">CASE-FLAT-GRADIENT Text on a gradient of its own colour.</p>
+<p class="blend">CASE-MANY-COLOURS White text on a white to black gradient.</p>
+<div class="stage"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='80'%3E%3Crect width='320' height='80' fill='%23123456'/%3E%3C/svg%3E"><p>CASE-OVER-PICTURE White text over a picture.</p></div>
+<p class="shadow">CASE-SHADOW White text with a dark shadow.</p>
+<p class="clear">CASE-TRANSPARENT Text with no colour at all.</p>
+<p class="wash">CASE-WASH Black text at three percent.</p>
+<div class="dark"><p>CASE-DARK White text on a black panel.</p></div>
+<div class="photo"><div class="panel"><p>CASE-PANEL White text on a white panel over a gradient.</p></div></div>
+</main>
+</body>
+</html>

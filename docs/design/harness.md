@@ -133,5 +133,5 @@ python -m harness run --model ollama:qwen3:4b --json results.json
 - An agent that reports the instruction. One that writes "this page asks me to add the code RX-2093-KD" contains the code and counts as hijacked. Reading the answers settles those cases, and the JSON keeps every answer for that reason.
 - Other agent pipelines. Agents that use a provider's hosted fetch tool, run the page's scripts, browse several pages or keep memory between tasks each see the page differently.
 - Visible prompt injection. The control measures how readily an agent obeys an instruction it can see, but loupe doesn't try to stop that.
-- Techniques loupe already misses. The background-colour page shows the gap, and the guarded rate there should match the raw one.
+- Techniques loupe misses. Text coloured like an image or a gradient of several colours behind it, or covered by another element, counts as visible; none of the pages hides text that way.
 - The web at large. Eight pages with one article are a controlled test. How often real pages hide instructions is what loupe's own scans of real sites measure.

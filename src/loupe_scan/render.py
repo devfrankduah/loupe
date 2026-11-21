@@ -599,6 +599,8 @@ class ScanResult:
     viewport: tuple[int, int] | None = None
     # <img> elements whose source is an http(s) URL, so loading them is a request that blocking should refuse.
     fetched_images: int = 0
+    # Visible text elements on an image or a many-coloured gradient, whose contrast couldn't be judged.
+    unjudged_contrast: int = 0
 
 
 def _viewport(record: Mapping[str, object]) -> tuple[int, int] | None:
@@ -622,6 +624,7 @@ def parse_scan_result(value: object) -> ScanResult:
         revealed_on_scroll=_texts(record, "revealed_units", with_reasons=False),
         viewport=_viewport(record),
         fetched_images=_count(record, "fetched_images") if "fetched_images" in record else 0,
+        unjudged_contrast=_count(record, "unjudged_contrast") if "unjudged_contrast" in record else 0,
     )
 
 
@@ -947,6 +950,12 @@ def _scan_with_session(
         notes.append("animations were still running at the final check")
     result = parse_scan_result(world.call("finish"))
     comparison = parse_comparison(world.call("compareStatic"), candidates)
+    if result.unjudged_contrast:
+        count = result.unjudged_contrast
+        notes.append(
+            f"{count} text element{'' if count == 1 else 's'} {'sits' if count == 1 else 'sit'} on an image or a "
+            "gradient of several colours, so whether the text stands out from it wasn't judged"
+        )
     page_text = _page_text(world.call("pageText", PAGE_TEXT_LIMIT))
     if page_text is None:
         notes.append(

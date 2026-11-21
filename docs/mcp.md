@@ -18,8 +18,8 @@ Add the `render` extra and `playwright install chromium` too if the agent will a
 loupe: this page hides text worded like instructions to an AI
 page: https://devfrankduah.github.io/loupe/test-page/
 scan: markup only, with a partial stylesheet check, fetched from this machine
-found: 9 pieces of hidden text, 4 worded like instructions to an AI, 5 reaching the markdown
-markdown: 5 pieces of hidden text taken out
+found: 10 pieces of hidden text, 5 worded like instructions to an AI, 6 reaching the markdown
+markdown: 6 pieces of hidden text taken out
 note: a markup-only scan applies only simple stylesheet rules and runs no scripts; render=true checks both in a browser
 ---
 Quillmore Q6 blender (loupe test page)
@@ -44,7 +44,7 @@ loupe decides whether text is worded like an instruction from a short list of ph
 ## What strip can't promise
 
 - The markdown is loupe's own conversion, made with markdownify, and approximates what other tools produce. Strip guarantees only that loupe's markdown no longer contains the hidden text loupe found. If the agent also fetches the page another way, that copy wasn't checked.
-- Text coloured like its background gets through. loupe doesn't compare text colour with the background, so it counts that text as visible, in both scan modes. Row 8 of the [test page's ground truth](test-page/ground-truth.md) is such a line, and strip leaves it in.
+- Text coloured like a background loupe can't judge gets through. loupe compares text with a solid colour behind it, but text on an image, a picture or a gradient of several colours counts as visible. Without `render`, the colour check runs only where the page's styles declare both colours. Row 8 of the [test page's ground truth](test-page/ground-truth.md), a line coloured like its solid background, is now found in both modes and stripped.
 - Without `render`, text a script hides gets through, and so does text hidden by a stylesheet rule the partial check doesn't apply: one on another host, behind `@import`, or inside `@supports`, `@layer` or a media query it can't settle. On the test page the two items a stylesheet class hides are caught either way. The header's `note:` line says the check was partial whenever the scan was markup only.
 - With `render=true`, text in the HTML that the page's scripts take out counts as hidden when it reaches the markdown, since a reader never sees it. Text a script only changes, such as a date or a clock, doesn't count, and neither does text taken out of a page whose text runs past 5 million characters.
 - Hidden text shorter than 12 characters, once punctuation is dropped, stays unless it's worded like an instruction. Words like "Menu" are hidden on many pages and shown elsewhere on them, and taking out every copy would damage the visible text.

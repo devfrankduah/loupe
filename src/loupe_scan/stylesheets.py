@@ -7,7 +7,10 @@ selector matching and the cascade (importance, the style attribute,
 specificity, then order) for the simple ways CSS hides text: display:none,
 visibility:hidden, opacity:0, font-size:0, an offset or text-indent of
 1000px or more off the page, and clip or clip-path that leaves nothing
-showing.
+showing. It also flags text coloured like its background, with a WCAG
+contrast ratio under 1.5:1, where the styles declare both the text's colour,
+on the element or inherited, and a solid background behind it; a colour it
+can't read, an image or a gradient of several colours leaves it unjudged.
 
 It's a partial check, and it would rather miss hidden text than report text
 a reader can see. Rules it can't be sure apply to the 1280 by 800 desktop
@@ -54,6 +57,25 @@ _OFFSET_PROPERTIES: Final[tuple[str, ...]] = ("left", "top", "right", "bottom")
 HIDING_PROPERTIES: Final[frozenset[str]] = frozenset(
     {"display", "visibility", "opacity", "font-size", "position", "text-indent", "clip", "clip-path", *_OFFSET_PROPERTIES}
 )
+# The properties the colour check reads: the text's colour and what's painted behind it.
+COLOUR_PROPERTIES: Final[frozenset[str]] = frozenset({"color", "background-color", "background-image"})
+_COLLECTED_PROPERTIES: Final[frozenset[str]] = HIDING_PROPERTIES | COLOUR_PROPERTIES
+# Text whose contrast with the colour behind it is under this ratio is too
+# faint to see: the same threshold as the rendered scan's, in visibility.js.
+MIN_CONTRAST: Final[float] = 1.5
+CONTRAST_REASON: Final[str] = "coloured like its background"
+# The CSS level 1 colour names. Any other name leaves a colour unjudged.
+_NAMED_COLOURS: Final[dict[str, tuple[int, int, int]]] = {
+    "black": (0, 0, 0), "silver": (192, 192, 192), "gray": (128, 128, 128), "grey": (128, 128, 128),
+    "white": (255, 255, 255), "maroon": (128, 0, 0), "red": (255, 0, 0), "purple": (128, 0, 128),
+    "fuchsia": (255, 0, 255), "green": (0, 128, 0), "lime": (0, 255, 0), "olive": (128, 128, 0),
+    "yellow": (255, 255, 0), "navy": (0, 0, 128), "blue": (0, 0, 255), "teal": (0, 128, 128), "aqua": (0, 255, 255),
+}
+_HEX_COLOUR: Final[re.Pattern[str]] = re.compile(r"#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})")
+_RGB_COLOUR: Final[re.Pattern[str]] = re.compile(
+    r"rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)(?:\s*[,/]\s*([\d.]+%?))?\s*\)"
+)
+_GRADIENT: Final[re.Pattern[str]] = re.compile(r"(?:repeating-)?(?:linear|radial|conic)-gradient\((.*)\)")
 _FONT_SIZE_KEYWORDS: Final[frozenset[str]] = frozenset(
     {"xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large", "xxx-large", "larger", "smaller", "math"}
 )
@@ -267,10 +289,26 @@ def _font_size_of(font: str) -> str:
     return "medium"
 
 
+def _background_longhands(value: str) -> list[tuple[str, str]]:
+    """The background shorthand's colour and image. Several layers, or an image, leave the image unjudged."""
+    if _split_values(value, ",")[1:]:
+        return [("background-color", "unjudged"), ("background-image", "unjudged")]
+    colour = "transparent"
+    image = "none"
+    for token in _split_values(value):
+        if token.startswith("url(") or _GRADIENT.fullmatch(token):
+            image = token
+        elif parse_colour(token) is not None or token.startswith(("var(", "rgb", "hsl", "#", "color(", "oklch(", "lab(")):
+            colour = token
+    return [("background-color", colour), ("background-image", image)]
+
+
 def _longhands(name: str, value: str) -> list[tuple[str, str]]:
-    """The hiding properties a declaration sets, with shorthands expanded."""
-    if name in HIDING_PROPERTIES:
+    """The properties a declaration sets that the checks read, with shorthands expanded."""
+    if name in _COLLECTED_PROPERTIES:
         return [(name, value)]
+    if name == "background":
+        return _background_longhands(value)
     if name == "font":
         return [("font-size", _font_size_of(value))]
     if name == "inset":
@@ -280,8 +318,86 @@ def _longhands(name: str, value: str) -> list[tuple[str, str]]:
         top, right, bottom, left = (edges * 4)[:4] if len(edges) == 1 else _edges(edges)
         return [("top", top), ("right", right), ("bottom", bottom), ("left", left)]
     if name == "all":
-        return [(longhand, value) for longhand in sorted(HIDING_PROPERTIES)]
+        return [(longhand, value) for longhand in sorted(_COLLECTED_PROPERTIES)]
     return []
+
+
+Colour = tuple[float, float, float, float]
+
+
+def _channel(text: str, scale: float) -> float | None:
+    try:
+        value = float(text[:-1]) * scale / 100 if text.endswith("%") else float(text)
+    except ValueError:
+        return None
+    return min(max(value, 0.0), scale)
+
+
+def parse_colour(value: str) -> Colour | None:
+    """(r, g, b, alpha) for a hex, rgb() or rgba() colour, a CSS level 1 name or transparent; None for anything else."""
+    value = value.strip().lower()
+    if value == "transparent":
+        return (0.0, 0.0, 0.0, 0.0)
+    if value in _NAMED_COLOURS:
+        named = _NAMED_COLOURS[value]
+        return (float(named[0]), float(named[1]), float(named[2]), 1.0)
+    hexadecimal = _HEX_COLOUR.fullmatch(value)
+    if hexadecimal is not None:
+        digits = hexadecimal.group(1)
+        if len(digits) in (3, 4):
+            digits = "".join(digit * 2 for digit in digits)
+        parts = [float(int(digits[index : index + 2], 16)) for index in range(0, len(digits), 2)]
+        return (parts[0], parts[1], parts[2], parts[3] / 255 if len(parts) == 4 else 1.0)
+    functional = _RGB_COLOUR.fullmatch(value)
+    if functional is None:
+        return None
+    red, green, blue = (_channel(functional.group(index), 255.0) for index in (1, 2, 3))
+    opacity = 1.0 if functional.group(4) is None else _channel(functional.group(4), 1.0)
+    if red is None or green is None or blue is None or opacity is None:
+        return None
+    return (red, green, blue, opacity)
+
+
+def single_colour_gradient(value: str) -> Colour | None:
+    """The one colour a gradient paints when all its stops are that colour, or None."""
+    match = _GRADIENT.fullmatch(value.strip().lower())
+    if match is None:
+        return None
+    colours = [parse_colour(_split_values(stop)[0]) for stop in _split_values(match.group(1), ",") if _split_values(stop)]
+    stops = [colour for colour in colours if colour is not None]
+    # The first argument may be a direction or a shape rather than a colour; any other non-colour leaves it unjudged.
+    if not stops or len(stops) < len(colours) - 1 or (len(stops) < len(colours) and colours[0] is not None):
+        return None
+    return stops[0] if all(stop == stops[0] for stop in stops) else None
+
+
+def _blend(top: Colour, bottom: Colour) -> Colour:
+    alpha = top[3] + bottom[3] * (1 - top[3])
+    if alpha == 0:
+        return (0.0, 0.0, 0.0, 0.0)
+
+    def channel(index: int) -> float:
+        return (top[index] * top[3] + bottom[index] * bottom[3] * (1 - top[3])) / alpha
+
+    return (channel(0), channel(1), channel(2), alpha)
+
+
+def _luminance(colour: Colour) -> float:
+    def linear(value: float) -> float:
+        c = value / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * linear(colour[0]) + 0.7152 * linear(colour[1]) + 0.0722 * linear(colour[2])
+
+
+def contrast_ratio(text: Colour, background: Colour) -> float:
+    """WCAG's contrast ratio between text drawn over an opaque background and that background."""
+    drawn = _luminance(_blend(text, background))
+    behind = _luminance(background)
+    return (max(drawn, behind) + 0.05) / (min(drawn, behind) + 0.05)
+
+
+_WHITE: Final[Colour] = (255.0, 255.0, 255.0, 1.0)
 
 
 def _edges(values: list[str]) -> tuple[str, str, str, str]:
@@ -805,6 +921,7 @@ class StyleCascade:
         self._buckets: dict[_IndexKey, list[_Rule]] = {}
         for rule in rules:
             self._buckets.setdefault(index_key(rule.selector), []).append(rule)
+        self._resolved: dict[int, _Resolved] = {}
 
     def _matching(self, element: Tag) -> Iterable[_Rule]:
         for key in _element_keys(element):
@@ -812,29 +929,126 @@ class StyleCascade:
                 if rule.compiled is None or rule.compiled.match(element):
                     yield rule
 
-    def hiding(self, element: Tag) -> StyleHiding | None:
-        """How element's styles hide it, or None. Only what's certain counts: see the module docstring."""
-        winners: dict[str, tuple[_CascadeKey, str, bool]] = {}
-        # Values that might apply instead, with the most a rule's key could be.
-        alternatives: dict[str, list[tuple[_CascadeKey, str]]] = {}
-        whole_page = element.name.lower() in _WHOLE_PAGE_ELEMENTS
-        if not whole_page:
-            for rule in self._matching(element):
-                for declaration in rule.declarations:
-                    key: _CascadeKey = (
-                        declaration.important,
-                        False,
-                        rule.specificity if rule.specificity is not None else _MOST_SPECIFIC,
-                        rule.order,
-                    )
-                    if rule.certain:
-                        _keep_highest(winners, declaration.name, key, declaration.value, True)
-                    else:
-                        alternatives.setdefault(declaration.name, []).append((key, declaration.value))
+    def _resolve(self, element: Tag) -> _Resolved:
+        """The winning declaration of each property for element, and what might apply instead."""
+        cached = self._resolved.get(id(element))
+        if cached is not None:
+            return cached
+        resolved = _Resolved({}, {})
+        for rule in self._matching(element):
+            for declaration in rule.declarations:
+                key: _CascadeKey = (
+                    declaration.important,
+                    False,
+                    rule.specificity if rule.specificity is not None else _MOST_SPECIFIC,
+                    rule.order,
+                )
+                if rule.certain:
+                    _keep_highest(resolved.winners, declaration.name, key, declaration.value, True)
+                else:
+                    resolved.alternatives.setdefault(declaration.name, []).append((key, declaration.value))
         style = element.get("style")
         if isinstance(style, str):
-            _add_style_attribute(winners, style)
-        return _decide(winners, alternatives)
+            _add_style_attribute(resolved.winners, style)
+        self._resolved[id(element)] = resolved
+        return resolved
+
+    def hiding(self, element: Tag) -> StyleHiding | None:
+        """How element's styles hide it, or None. Only what's certain counts: see the module docstring."""
+        if element.name.lower() in _WHOLE_PAGE_ELEMENTS:
+            winners: dict[str, tuple[_CascadeKey, str, bool]] = {}
+            style = element.get("style")
+            if isinstance(style, str):
+                _add_style_attribute(winners, style)
+            return _decide(winners, {})
+        resolved = self._resolve(element)
+        decided = _decide(resolved.winners, resolved.alternatives)
+        if decided is not None:
+            return decided
+        return self._colour_hiding(element)
+
+    def _settled(self, element: Tag, name: str) -> tuple[str, bool] | None | _Unsettled:
+        """element's winning value of name and whether a stylesheet set it, None when nothing sets it, or
+        UNSETTLED when a rule that might apply could set it instead."""
+        resolved = self._resolve(element)
+        winner = resolved.winners.get(name)
+        for key, _ in resolved.alternatives.get(name, ()):
+            if winner is None or key > winner[0]:
+                return UNSETTLED
+        return None if winner is None else (winner[1], winner[2])
+
+    def _text_colour(self, element: Tag) -> tuple[Colour, bool] | None:
+        """The colour element's text is drawn in, set on it or inherited, or None when it can't be told."""
+        for node in (element, *element.parents):
+            if not isinstance(node, Tag) or node.name == "[document]":
+                break
+            settled = self._settled(node, "color")
+            if settled is UNSETTLED:
+                return None
+            if isinstance(settled, tuple):
+                colour = parse_colour(settled[0])
+                return None if colour is None else (colour, settled[1])
+        return None
+
+    def _background(self, element: Tag) -> tuple[Colour, bool] | None:
+        """The colour behind element's text, from its own and its ancestors' backgrounds, or None when it can't be told."""
+        layers: list[Colour] = []
+        from_stylesheet = False
+        for node in (element, *element.parents):
+            if not isinstance(node, Tag) or node.name == "[document]":
+                break
+            image = self._settled(node, "background-image")
+            colour = self._settled(node, "background-color")
+            if image is UNSETTLED or colour is UNSETTLED:
+                return None
+            if isinstance(image, tuple) and image[0] != "none":
+                painted = single_colour_gradient(image[0])
+                if painted is None:
+                    return None
+                layers.append(painted)
+                from_stylesheet = from_stylesheet or image[1]
+            if isinstance(colour, tuple):
+                parsed = parse_colour(colour[0])
+                if parsed is None:
+                    return None
+                if parsed[3] > 0:
+                    layers.append(parsed)
+                    from_stylesheet = from_stylesheet or colour[1]
+            if layers and layers[-1][3] >= 1:
+                break
+        if not layers:
+            return None
+        background = _WHITE
+        for layer in reversed(layers):
+            background = _blend(layer, background)
+        return background, from_stylesheet
+
+    def _colour_hiding(self, element: Tag) -> StyleHiding | None:
+        """CONTRAST_REASON when both colours are declared and too close to see apart, as the module docstring says."""
+        text = self._text_colour(element)
+        if text is None:
+            return None
+        background = self._background(element)
+        if background is None:
+            return None
+        if contrast_ratio(text[0], background[0]) >= MIN_CONTRAST:
+            return None
+        return StyleHiding((CONTRAST_REASON,), text[1] or background[1])
+
+
+class _Unsettled:
+    def __repr__(self) -> str:
+        return "UNSETTLED"
+
+
+UNSETTLED: Final[_Unsettled] = _Unsettled()
+
+
+@dataclass
+class _Resolved:
+    winners: dict[str, tuple[_CascadeKey, str, bool]]
+    # Values that might apply instead, with the most a rule's key could be.
+    alternatives: dict[str, list[tuple[_CascadeKey, str]]]
 
 
 def _add_style_attribute(winners: dict[str, tuple[_CascadeKey, str, bool]], style: str) -> None:

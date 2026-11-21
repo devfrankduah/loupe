@@ -14,6 +14,9 @@ from loupe_scan.scan import Finding, Kind, scan_html, scan_markup
 from loupe_scan.session import ScanSession, ScanSettings
 from loupe_scan.stylesheets import (
     ASSUMED_VIEWPORT_HEIGHT_PX,
+    contrast_ratio,
+    parse_colour,
+    single_colour_gradient,
     ASSUMED_VIEWPORT_WIDTH_PX,
     MAX_LINKED_STYLESHEETS,
     StylesheetCheck,
@@ -461,3 +464,91 @@ def test_a_redirected_page_reads_stylesheets_from_where_it_ended_up() -> None:
             report = session.scan(site.url("/old"))
         assert "/new/site.css" in site.requested()
     assert [item.finding.kind for item in report.findings] == [Kind.STYLESHEET]
+
+
+# Text coloured like its background, without a browser
+
+
+@pytest.mark.parametrize(
+    ("value", "colour"),
+    [
+        ("#fff", (255.0, 255.0, 255.0, 1.0)),
+        ("#F7F4EE", (247.0, 244.0, 238.0, 1.0)),
+        ("#00000080", (0.0, 0.0, 0.0, 128 / 255)),
+        ("rgb(10, 20, 30)", (10.0, 20.0, 30.0, 1.0)),
+        ("rgba(10 20 30 / 50%)", (10.0, 20.0, 30.0, 0.5)),
+        ("rgb(100%, 0%, 0%)", (255.0, 0.0, 0.0, 1.0)),
+        ("White", (255.0, 255.0, 255.0, 1.0)),
+        ("transparent", (0.0, 0.0, 0.0, 0.0)),
+        ("var(--ink)", None),
+        ("rebeccapurple", None),
+        ("oklch(0.5 0.1 200)", None),
+        ("#ggg", None),
+    ],
+)
+def test_colours_it_can_read(value: str, colour: tuple[float, float, float, float] | None) -> None:
+    assert parse_colour(value) == colour
+
+
+@pytest.mark.parametrize(
+    ("value", "colour"),
+    [
+        ("linear-gradient(#f7f4ee, #f7f4ee)", (247.0, 244.0, 238.0, 1.0)),
+        ("linear-gradient(to right, #fff 0%, #fff 100%)", (255.0, 255.0, 255.0, 1.0)),
+        ("linear-gradient(#fff, #000)", None),
+        ("radial-gradient(circle, var(--a), var(--a))", None),
+        ("url(photo.jpg)", None),
+    ],
+)
+def test_a_gradient_of_one_colour_is_that_colour(value: str, colour: tuple[float, float, float, float] | None) -> None:
+    assert single_colour_gradient(value) == colour
+
+
+def test_contrast_follows_wcag() -> None:
+    white, black = (255.0, 255.0, 255.0, 1.0), (0.0, 0.0, 0.0, 1.0)
+    assert contrast_ratio(black, white) == pytest.approx(21.0)
+    assert contrast_ratio(white, white) == pytest.approx(1.0)
+    assert contrast_ratio((204.0, 204.0, 204.0, 1.0), white) == pytest.approx(1.61, abs=0.01)
+    assert contrast_ratio((221.0, 221.0, 221.0, 1.0), white) == pytest.approx(1.36, abs=0.01)
+    # Half-transparent black over white draws a mid grey.
+    assert contrast_ratio((0.0, 0.0, 0.0, 0.5), white) == pytest.approx(contrast_ratio((128.0, 128.0, 128.0, 1.0), white), abs=0.05)
+
+
+@pytest.mark.parametrize(
+    ("html", "kind"),
+    [
+        ('<style>body { background: #fff } .a { color: #fefefe }</style><body><p class="a">{t}</p></body>', "stylesheet"),
+        ('<style>body { background: #fff } .a { color: #ddd }</style><body><p class="a">{t}</p></body>', "stylesheet"),
+        ('<style>.a { color: #f7f4ee; background: linear-gradient(#f7f4ee, #f7f4ee) }</style><p class="a">{t}</p>', "stylesheet"),
+        ('<div style="background: #000"><p style="color: rgba(0, 0, 0, 0.02)">{t}</p></div>', "inline-style"),
+        ('<style>body { background: #000 }</style><body><p style="color: transparent">{t}</p></body>', "stylesheet"),
+        ('<style>.box { background-color: #fff } .box p { color: white }</style><div class="box"><span><p>{t}</p></span></div>', "stylesheet"),
+    ],
+)
+def test_text_coloured_like_its_declared_background_is_found(html: str, kind: str) -> None:
+    findings = _style_findings(scan_html(html.replace("{t}", SECRET)))
+    assert [(finding.kind.value, finding.detail, finding.text) for finding in findings] == [(kind, "coloured like its background", SECRET)]
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        # Faint but readable.
+        '<style>body { background: #fff } .a { color: #bbb }</style><body><p class="a">{t}</p></body>',
+        # Only one of the two colours is declared.
+        '<p style="color: #fff">{t}</p>',
+        '<div style="background: #fff"><p>{t}</p></div>',
+        # A colour it can't read, an image, or a gradient of several colours.
+        '<style>body { background: var(--page) } .a { color: #fff }</style><body><p class="a">{t}</p></body>',
+        '<style>body { background: #fff url(paper.png) } .a { color: #fff }</style><body><p class="a">{t}</p></body>',
+        '<style>.b { background: linear-gradient(#fff, #000) } .a { color: #fff }</style><div class="b"><p class="a">{t}</p></div>',
+        '<style>body { background: #fff, url(x.png) } .a { color: #fff }</style><body><p class="a">{t}</p></body>',
+        # A rule that might apply could change either colour.
+        '<style>body { background: #fff; color: #fff } @media (prefers-color-scheme: dark) { body { background: #000 } }</style><body><p>{t}</p></body>',
+        '<style>body { background: #fff } p { color: #fff } @supports (color: red) { p { color: #000 } }</style><body><p>{t}</p></body>',
+        # The whole page coloured like itself is the page's own business: html and body are never reported.
+        '<style>body { background: #fff; color: #fff }</style><body>{t}</body>',
+    ],
+)
+def test_text_whose_colours_it_cant_settle_is_left_alone(html: str) -> None:
+    assert _style_findings(scan_html(html.replace("{t}", SECRET))) == []

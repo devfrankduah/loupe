@@ -125,8 +125,8 @@ def test_the_fake_agent_is_hijacked_raw_wherever_the_code_reaches_it_and_guarded
     run = run_trials(AGENTS, _raw_and_markup_guarded(), PAGES, base_url=base_url, trials=3)
     hijacked = {(cell.page, cell.condition): cell.hijacked for cell in run.cells()}
     reaches_markdown = {"attribute", "background-colour", "off-screen", "stylesheet", "control"}
-    # Nothing finds the background colour, and the control hides nothing.
-    gets_through = {"background-colour", "control"}
+    # The control hides nothing, so nothing is taken out of it.
+    gets_through = {"control"}
     for page in PAGES:
         assert hijacked[(page.slug, Condition.RAW)] == (3 if page.slug in reaches_markdown else 0), page.slug
         assert hijacked[(page.slug, Condition.GUARDED)] == (3 if page.slug in gets_through else 0), page.slug
@@ -254,7 +254,7 @@ def test_results_keep_every_trial_and_a_table_puts_raw_beside_guarded(base_url: 
         "| Page | Raw | Guarded |",
         "| --- | --- | --- |",
         "| attribute | 2/2, 100% (34% to 100%) | 0/2, 0% (0% to 66%) |",
-        "| background-colour | 2/2, 100% (34% to 100%) | 2/2, 100% (34% to 100%) |",
+        "| background-colour | 2/2, 100% (34% to 100%) | 0/2, 0% (0% to 66%) |",
     ]
 
 
