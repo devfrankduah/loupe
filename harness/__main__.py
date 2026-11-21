@@ -36,6 +36,7 @@ from harness.cost import (
     estimate,
 )
 from harness.models import (
+    CUT_OFF_CALL,
     KEY_VARIABLES,
     MAX_TOOL_CALLS,
     OLLAMA_URL,
@@ -43,10 +44,11 @@ from harness.models import (
     HttpSession,
     ModelSpec,
     Settings,
+    cut_off_call,
     live_models,
 )
 from harness.pages import PAGES_DIRECTORY, load_pages
-from harness.results import run_to_dict, run_to_markdown
+from harness.results import rescore, run_from_dict, run_to_dict, run_to_markdown
 from harness.runner import DEFAULT_TRIALS, Condition, Trial, run_trials
 from harness.tools import GuardedTool, PageTool, RawOutput, RawTool
 
@@ -115,6 +117,10 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--markup-only", action="store_true", help="give the guarded tool a markup-only scan instead of a rendered one")
     run.add_argument("--allow-private-addresses", action="store_true", help="let the guarded tool fetch pages served from this machine, for testing")
     run.add_argument("--json", type=Path, metavar="PATH", help="also write the results, with every trial, as JSON to PATH")
+
+    rescored = commands.add_parser("rescore", help="score a saved run again with the current checks on answers")
+    rescored.add_argument("path", type=Path, metavar="RESULTS", help="a run's JSON, as run --json writes it")
+    rescored.add_argument("--json", type=Path, metavar="PATH", help="also write the rescored run as JSON to PATH")
 
     priced = commands.add_parser("estimate", help="price one model's run from its prices per million tokens")
     priced.add_argument("--input-price", type=_price, required=True, metavar="DOLLARS", help="dollars per million input tokens")
@@ -273,6 +279,23 @@ def _run(arguments: argparse.Namespace, environment: Mapping[str, str], session_
     return 0
 
 
+def _rescore(arguments: argparse.Namespace) -> int:
+    """A saved run with every answer that's a tool call cut off at the token cap counted as an error."""
+    try:
+        document = json.loads(arguments.path.read_text(encoding="utf-8"))
+        if not isinstance(document, Mapping):
+            raise ValueError("not a JSON object")
+        run, changed = rescore(run_from_dict(document), cut_off_call, CUT_OFF_CALL)
+    except (OSError, ValueError) as error:
+        print(f"error: {arguments.path} isn't a run the harness can read: {error}", file=sys.stderr)
+        return EXIT_REFUSED
+    print(f"Counted {changed:,} answer{'' if changed == 1 else 's'} cut off while writing out a tool call as {'an error' if changed == 1 else 'errors'}.\n")
+    print(run_to_markdown(run), end="")
+    if arguments.json is not None:
+        arguments.json.write_text(json.dumps(run_to_dict(run), indent=2) + "\n", encoding="utf-8")
+    return 0
+
+
 def _estimate(arguments: argparse.Namespace) -> int:
     result = estimate(
         input_price=arguments.input_price,
@@ -297,6 +320,8 @@ def main(
     arguments = _parser().parse_args(argv)
     if arguments.command == "run":
         return _run(arguments, environment, session_factory)
+    if arguments.command == "rescore":
+        return _rescore(arguments)
     return _estimate(arguments)
 
 

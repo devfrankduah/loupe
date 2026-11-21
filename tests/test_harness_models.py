@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pytest
 import requests
@@ -18,6 +19,7 @@ from harness.agents import AGENTS, Usage  # noqa: E402
 from harness.cost import PRICES, Price, Spend  # noqa: E402
 from harness.models import (  # noqa: E402
     ANTHROPIC_URL,
+    CUT_OFF_CALL,
     ANTHROPIC_VERSION,
     MAX_TOOL_CALLS,
     OLLAMA_URL,
@@ -28,11 +30,12 @@ from harness.models import (  # noqa: E402
     ModelSpec,
     Provider,
     Settings,
+    cut_off_call,
     live_models,
     read_key,
 )
 from harness.pages import load_pages  # noqa: E402
-from harness.results import run_to_dict, run_to_markdown  # noqa: E402
+from harness.results import run_from_dict, run_to_dict, run_to_markdown  # noqa: E402
 from harness.runner import Condition, Trial, run_trials  # noqa: E402
 from harness.tools import RawTool  # noqa: E402
 
@@ -345,6 +348,64 @@ def test_a_tool_call_a_local_model_writes_out_as_its_reply_is_run_as_a_call() ->
 @pytest.mark.parametrize("text", ['{"summary": "bread"}', '{"name": "Ann", "age": 3}', '{"name": 3, "parameters": {}}', '{"name": "x"} and more', "{not json}"])
 def test_a_reply_that_only_looks_like_json_is_an_answer(text: str) -> None:
     assert _model(Provider.OLLAMA, ScriptedApi([(200, _written(text))]))(Tool()).answer(URL, TASK) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "cut_off"),
+    [
+        ('{"name": "parse_text", "parameters": {"text": "A kitchen guide, about five', True),
+        ('<|python_tag|>{"name": "parse_html", "arguments": "{\\"html', True),
+        ('{"name": "parse_text", "parameters": {"text": "done"}}', False),
+        ('{"name": "Ann", "age": 3', False),
+        ("A page about bread.", False),
+    ],
+)
+def test_a_tool_call_the_cap_cut_off_is_told_apart_from_an_answer(text: str, cut_off: bool) -> None:
+    assert cut_off_call(text) is cut_off
+
+
+def test_an_answer_cut_off_while_writing_out_a_tool_call_is_an_error() -> None:
+    reply = {"message": {"role": "assistant", "content": '{"name": "parse_text", "parameters": {"text": "A kitchen'}, "done_reason": "length"}
+    with pytest.raises(ModelError, match="cut off while writing out a tool call"):
+        _model(Provider.OLLAMA, ScriptedApi([(200, reply)]))(Tool()).answer(URL, TASK)
+
+
+def test_a_saved_run_reads_back_and_can_be_rescored(base_url: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run = run_trials({"ollama:obedient": _model(Provider.OLLAMA, ObedientApi(Provider.OLLAMA), name="obedient")}, {Condition.RAW: RawTool()}, load_pages()[:2], base_url=base_url, trials=2)
+    document = json.loads(json.dumps(run_to_dict(run)))
+    assert run_to_dict(run_from_dict(document)) == document
+    document["trials"][0]["answer"] = '{"name": "parse_text", "parameters": {"text": "A kitchen'
+    saved, rescored = tmp_path / "run.json", tmp_path / "rescored.json"
+    saved.write_text(json.dumps(document), encoding="utf-8")
+    assert harness_cli.main(["rescore", str(saved), "--json", str(rescored)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Counted 1 answer cut off while writing out a tool call as an error.\n")
+    first = document["trials"][0]
+    trial = json.loads(rescored.read_text(encoding="utf-8"))["trials"][0]
+    assert (trial["hijacked"], trial["error"]) == (None, f"{CUT_OFF_CALL} (rescored)")
+    assert f"| {first['page']} | 1/1, 100% (21% to 100%), 1 error |" in out.splitlines()
+    saved.write_text('{"format_version": 99}', encoding="utf-8")
+    assert harness_cli.main(["rescore", str(saved)]) == harness_cli.EXIT_REFUSED
+    assert "isn't a run the harness can read" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda document: document.update(trials="none"),
+        lambda document: document["trials"][0].update(trial="1"),
+        lambda document: document["trials"][0].update(trial=True),
+        lambda document: document["trials"][0].update(hijacked="yes"),
+        lambda document: document.update(conditions=[]),
+        lambda document: document["pages"][0].pop("code"),
+    ],
+)
+def test_a_saved_run_in_the_wrong_shape_is_refused(base_url: str, change: Callable[[dict[str, Any]], object]) -> None:
+    run = run_trials(AGENTS, {Condition.RAW: RawTool()}, load_pages()[:1], base_url=base_url, trials=1)
+    document = json.loads(json.dumps(run_to_dict(run)))
+    change(document)
+    with pytest.raises(ValueError):
+        run_from_dict(document)
 
 
 def test_writing_out_tool_calls_forever_is_an_error() -> None:

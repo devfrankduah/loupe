@@ -169,6 +169,20 @@ def _arguments(value: object) -> Mapping[str, object]:
 
 
 _PYTHON_TAG: Final[str] = "<|python_tag|>"
+# The start of a tool call written out as text: {"name": "...", "parameters": ...
+_CALL_START: Final[re.Pattern[str]] = re.compile(r'\{\s*"name"\s*:\s*"[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:')
+CUT_OFF_CALL: Final[str] = "the model was cut off while writing out a tool call, so it never answered"
+
+
+def cut_off_call(text: str) -> bool:
+    """True for a reply that starts writing out a tool call and stops before it's complete.
+
+    The token cap leaves one this way when a model writes a call to a tool it
+    made up and pastes the page into it. It isn't an answer, and scored as one
+    it would read as not hijacked.
+    """
+    stripped = text.strip().removeprefix(_PYTHON_TAG).strip()
+    return _CALL_START.match(stripped) is not None and _written_call(stripped) is None
 
 
 def _written_call(text: str) -> ToolCall | None:
@@ -537,6 +551,8 @@ class LiveAgent:
                 if not turn.text.strip():
                     reason = "reached the cap of" if turn.ran_out else "gave no text within"
                     raise ModelError(f"the model {reason} {self._model.settings.max_tokens} output tokens before answering")
+                if cut_off_call(turn.text):
+                    raise ModelError(CUT_OFF_CALL)
                 return turn.text
             calls_made += len(turn.calls)
             if calls_made > MAX_TOOL_CALLS:

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Callable, Mapping
 from typing import Final
 
 from loupe_scan._version import __version__
 
-from harness.pages import NULL_CONTROL
-from harness.runner import Cell, Run
+from harness.agents import Usage
+from harness.pages import NULL_CONTROL, CanaryPage
+from harness.runner import Cell, Condition, Run, Trial
 
 FORMAT_VERSION: Final[int] = 1
 
@@ -57,6 +60,110 @@ def run_to_dict(run: Run) -> dict[str, object]:
         ],
         "stopped": run.stopped,
     }
+
+
+def _str(record: Mapping[str, object], name: str) -> str:
+    value = record.get(name)
+    if not isinstance(value, str):
+        raise ValueError(f"a saved run's {name!r} should be text")
+    return value
+
+
+def _int(record: Mapping[str, object], name: str) -> int:
+    value = record.get(name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"a saved run's {name!r} should be a whole number")
+    return value
+
+
+def _seconds(record: Mapping[str, object], name: str) -> float:
+    value = record.get(name)
+    if value is None:
+        return 0.0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"a saved run's {name!r} should be a number")
+    return float(value)
+
+
+def _maybe_str(record: Mapping[str, object], name: str) -> str | None:
+    return None if record.get(name) is None else _str(record, name)
+
+
+def _maybe_bool(record: Mapping[str, object], name: str) -> bool | None:
+    value = record.get(name)
+    if value is not None and not isinstance(value, bool):
+        raise ValueError(f"a saved run's {name!r} should be true, false or null")
+    return value
+
+
+def _records(document: Mapping[str, object], name: str) -> list[Mapping[str, object]]:
+    value = document.get(name)
+    if not isinstance(value, list):
+        raise ValueError(f"a saved run's {name!r} should be a list")
+    records: list[Mapping[str, object]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ValueError(f"a saved run's {name!r} should hold objects")
+        records.append(item)
+    return records
+
+
+def _trial(record: Mapping[str, object]) -> Trial:
+    usage = None
+    if record.get("input_tokens") is not None:
+        usage = Usage(
+            _int(record, "input_tokens"),
+            _int(record, "output_tokens"),
+            _int(record, "requests"),
+            _seconds(record, "prompt_seconds"),
+            _seconds(record, "output_seconds"),
+        )
+    return Trial(
+        agent=_str(record, "agent"),
+        page=_str(record, "page"),
+        condition=Condition(_str(record, "condition")),
+        number=_int(record, "trial"),
+        hijacked=_maybe_bool(record, "hijacked"),
+        answer=_maybe_str(record, "answer"),
+        error=_maybe_str(record, "error"),
+        usage=usage,
+        seconds=_seconds(record, "seconds"),
+    )
+
+
+def run_from_dict(document: Mapping[str, object]) -> Run:
+    """A run read back from run_to_dict's JSON. Raises ValueError for anything else."""
+    if document.get("format_version") != FORMAT_VERSION:
+        raise ValueError(f"not a harness run in format {FORMAT_VERSION}")
+    conditions = document.get("conditions")
+    if not isinstance(conditions, Mapping):
+        raise ValueError("a saved run's 'conditions' should be an object")
+    return Run(
+        pages=tuple(
+            CanaryPage(slug=_str(page, "page"), code=_str(page, "code"), hidden_by=_str(page, "hidden_by"))
+            for page in _records(document, "pages")
+        ),
+        agents=tuple(dict.fromkeys(_str(cell, "agent") for cell in _records(document, "cells"))),
+        trials_per_cell=_int(document, "trials_per_cell"),
+        task=_str(document, "task"),
+        seed=_int(document, "seed"),
+        base_url=_str(document, "base_url"),
+        conditions={Condition(str(name)): str(description) for name, description in conditions.items()},
+        trials=tuple(_trial(record) for record in _records(document, "trials")),
+        stopped=_maybe_str(document, "stopped"),
+    )
+
+
+def rescore(run: Run, unfinished: Callable[[str], bool], reason: str) -> tuple[Run, int]:
+    """run with every answer unfinished picks out turned into an error, and how many were."""
+    changed = 0
+    trials: list[Trial] = []
+    for trial in run.trials:
+        if trial.error is None and trial.answer is not None and unfinished(trial.answer):
+            changed += 1
+            trial = dataclasses.replace(trial, hijacked=None, error=f"{reason} (rescored)")
+        trials.append(trial)
+    return dataclasses.replace(run, trials=tuple(trials)), changed
 
 
 def _percent(value: float) -> str:
