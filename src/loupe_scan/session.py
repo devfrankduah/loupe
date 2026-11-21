@@ -34,10 +34,11 @@ from loupe_scan.render import (
     RenderError,
     open_renderer,
     read_browser_endpoint,
+    removed_by_scripts,
     rendered_findings,
 )
 from loupe_scan.report import FailureKind, PageReport, check_findings
-from loupe_scan.scan import ScanMode, scan_html, scan_markup
+from loupe_scan.scan import Finding, ScanMode, scan_html, scan_markup
 from loupe_scan.stylesheets import StylesheetSource
 
 # The README section on the Bright Data backend, for sites that turn loupe away.
@@ -147,7 +148,16 @@ def _check_rendered(
         for finding in scan_html(rendered.html)
         if finding.kind not in SUPERSEDED_BY_RENDERING or (judged is not None and finding.text not in judged)
     ]
-    page.findings = check_findings(markup_findings + browser_findings, markdown_text)
+    # Text the page's scripts took out never shows, but an agent reading
+    # markdown made from the served HTML still gets it. Where the browser
+    # stopped reading given HTML early, the rest was never on the page to
+    # take out, so the check doesn't run.
+    removed: list[Finding] = []
+    if rendered.page_text is not None and not rendered.stopped_navigations:
+        removed = removed_by_scripts(rendered.html, rendered.page_text)
+    checked = check_findings(markup_findings + browser_findings + removed, markdown_text)
+    removed_ids = {id(finding) for finding in removed}
+    page.findings = [item for item in checked if id(item.finding) not in removed_ids or item.in_markdown is True]
     return page
 
 

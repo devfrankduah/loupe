@@ -54,6 +54,25 @@ class MarkdownIndex:
 _MAX_REMOVAL_ROUNDS: Final[int] = 5
 _EXTRA_BLANK_LINES: Final[re.Pattern[str]] = re.compile(r"\n{3,}")
 _TRAILING_SPACE: Final[re.Pattern[str]] = re.compile(r"[ \t]+$", re.MULTILINE)
+# Left where text was taken out, so the markdown it emptied can be tidied
+# there and nowhere else. It isn't a word character, so it never joins or
+# splits the words the check compares.
+_CUT: Final[str] = "\x00"
+# Markdown that wrapped text now taken out, and is empty: emphasis, strikethrough, code, link text and link titles.
+_EMPTIED: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
+    (re.compile(r"\*\*[ \t]*\x00[ \t]*\*\*"), _CUT),
+    (re.compile(r"(?<![\w*])\*[ \t]*\x00[ \t]*\*(?![\w*])"), _CUT),
+    (re.compile(r"__[ \t]*\x00[ \t]*__"), _CUT),
+    (re.compile(r"(?<!\w)_[ \t]*\x00[ \t]*_(?!\w)"), _CUT),
+    (re.compile(r"~~[ \t]*\x00[ \t]*~~"), _CUT),
+    (re.compile(r"`[ \t]*\x00[ \t]*`"), _CUT),
+    (re.compile(r"(?<!!)\[[ \t]*\x00[ \t]*\]\([^)\s]*(?:\s+\"[^\"]*\")?\)"), _CUT),
+    (re.compile(r"\]\(([^)\s]*)\s+\"[ \t]*\x00[ \t]*\"\)"), "](\\1)" + _CUT),
+)
+_CUTS: Final[re.Pattern[str]] = re.compile(r"[ \t]*\x00(?:[ \t]*\x00)*[ \t]*")
+_INDENTATION: Final[re.Pattern[str]] = re.compile(r"[ \t]*")
+# A line left holding only a list marker, heading marks or quote marks.
+_BARE_MARKUP_LINE: Final[re.Pattern[str]] = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])|#{1,6}|(?:>\s*)+)?\s*$")
 
 
 @dataclass(frozen=True)
@@ -113,6 +132,7 @@ def remove_hidden_text(markdown: str, texts: list[str]) -> Stripped:
     it too. Every copy goes, including one the page also shows, since there's
     no telling them apart.
     """
+    ends_with_newline = markdown.endswith("\n")
     needles: list[tuple[list[str], tuple[str, str]]] = []
     for text in texts:
         sequence = normalize_words(text).split()
@@ -137,10 +157,48 @@ def remove_hidden_text(markdown: str, texts: list[str]) -> Stripped:
         for start, end in sorted(spans):
             if start >= position:
                 pieces.append(markdown[position:start])
+                pieces.append(_CUT)
             position = max(position, end)
         pieces.append(markdown[position:])
         markdown = "".join(pieces)
     words = _comparable_words(markdown)
     remaining = sum(bool(_copies(words, needle)) for needle, _ in needles)
-    tidied = _EXTRA_BLANK_LINES.sub("\n\n", _TRAILING_SPACE.sub("", markdown))
+    tidied = _EXTRA_BLANK_LINES.sub("\n\n", _TRAILING_SPACE.sub("", _tidy_cuts(markdown))).strip("\n")
+    if tidied and ends_with_newline:
+        tidied += "\n"
     return Stripped(markdown=tidied, removed=len(removed), remaining=remaining)
+
+
+def _tidy_line(line: str) -> str | None:
+    """A line text was taken out of, with the markdown that held only that text removed, or None to drop it."""
+    previous = None
+    while previous != line:
+        previous = line
+        for pattern, replacement in _EMPTIED:
+            line = pattern.sub(replacement, line)
+    indentation = _INDENTATION.match(line)
+    start = 0 if indentation is None else indentation.end()
+    line = line[:start] + _CUTS.sub(_close_up, line[start:])
+    return None if _BARE_MARKUP_LINE.match(line) else line
+
+
+def _close_up(match: re.Match[str]) -> str:
+    """What a cut and the spaces around it become: one space between words, none at an edge or before punctuation."""
+    before = match.string[match.start() - 1] if match.start() else ""
+    after = match.string[match.end()] if match.end() < len(match.string) else ""
+    if not before or not after or after in ".,;:!?)]}" or before in "([{":
+        return ""
+    return " "
+
+
+def _tidy_cuts(markdown: str) -> str:
+    """markdown with the lines text was taken out of tidied, and every _CUT mark gone."""
+    lines: list[str] = []
+    for line in markdown.split("\n"):
+        if _CUT not in line:
+            lines.append(line)
+            continue
+        tidied = _tidy_line(line)
+        if tidied is not None:
+            lines.append(tidied)
+    return "\n".join(lines)

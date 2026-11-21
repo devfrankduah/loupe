@@ -743,6 +743,23 @@
       return count;
     },
 
+    // The document's text as it stands, outside scripts, styles, templates
+    // and noscript, up to limit characters, so the HTML as served can be
+    // checked for text the page's scripts took out.
+    pageText(limit) {
+      const parts = [];
+      let size = 0;
+      const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (parent !== null && parent.closest("script, style, template, noscript") !== null) continue;
+        parts.push(node.data);
+        size += node.data.length + 1;
+        if (size > limit) return { text: "", complete: false };
+      }
+      return { text: parts.join(" "), complete: true };
+    },
+
     atBottom() {
       if (scrollTarget === null) return true;
       return scrollTarget.scrollTop + scrollTarget.clientHeight >= scrollTarget.scrollHeight - 2;

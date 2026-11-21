@@ -81,7 +81,7 @@ The kinds of finding:
 | `label-attribute` | `alt`, `title` or `aria-label` text |
 | `meta` | the content of a `<meta>` tag |
 | `noscript` | a `<noscript>` block |
-| `rendered-hidden` | text a real browser never showed, with the reason, such as `display:none` or `outside the page` |
+| `rendered-hidden` | text a real browser never showed, with the reason, such as `display:none` or `outside the page`, or text in the HTML that the page's scripts removed and that reaches the markdown (`removed by a script`) |
 
 A long list of findings is normal. Most are menus, link titles and meta tags. Start with the instruction-like ones, then look at hidden text that reaches the markdown, since an agent reading the markdown gets all of it. Pages that fade content in as you scroll look full of hidden text to the markup scan. [The animated test page](https://devfrankduah.github.io/loupe/animated-page/) is made of those false alarms, and `--render` clears every one.
 

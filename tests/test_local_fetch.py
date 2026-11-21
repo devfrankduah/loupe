@@ -343,9 +343,10 @@ def test_a_public_only_fetcher_checks_every_redirect_before_following_it() -> No
 
     routes = {"/robots.txt": _robots(""), "/away": Route(status=302, headers={"location": "http://router.internal/admin"})}
     with serve_routes(routes) as site:
-        # The test server is public as far as this resolver knows; the redirect's target isn't.
+        # The test server is public as far as this resolver knows; the redirect's target isn't. A plain
+        # session connects wherever the name resolves, so the server on 127.0.0.1 can stand in for a public site.
         addresses = {"127.0.0.1": ["93.184.215.14"], "router.internal": ["192.168.1.1"]}
-        fetcher = LocalFetcher(public_only=True, resolve=lambda host, port: addresses[host])
+        fetcher = LocalFetcher(public_only=True, resolve=lambda host, port: addresses[host], session=requests.Session())
         with pytest.raises(NonPublicAddressError, match="router.internal is at 192.168.1.1"):
             fetcher.fetch_html(site.url("/away"))
     assert site.requested() == ["/robots.txt", "/away"]

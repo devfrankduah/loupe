@@ -24,9 +24,13 @@ point to the Bright Data backend.
 
 With public_only, as loupe mcp uses it, every address a request goes to,
 redirects included, must resolve to public IP addresses only, so a page an
-agent is sent to can't reach this machine or its network. The name is looked
-up again when the request connects, so a site that answers differently the
-second time can still get past it.
+agent is sent to can't reach this machine or its network. The request then
+connects to one of the addresses that passed the check, and to nothing else,
+while the Host header and TLS's server name (SNI) and certificate check stay
+the site's own name. A name that answers with a public address for the check
+and a private one a moment later (DNS rebinding) can't send the request
+elsewhere. Such a fetcher connects directly, ignoring proxy and CA bundle
+settings in the environment, since a proxy would make its own connection.
 """
 
 from __future__ import annotations
@@ -35,6 +39,8 @@ import codecs
 import ipaddress
 import re
 import socket
+import sys
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -42,7 +48,12 @@ from typing import Any, Final, Protocol
 from urllib.parse import urljoin, urlsplit
 
 import requests
+import requests.adapters
 import urllib3
+import urllib3.connection
+import urllib3.connectionpool
+import urllib3.exceptions
+import urllib3.util.connection
 from bs4.dammit import EncodingDetector
 from protego import Protego
 from urllib3.response import BaseHTTPResponse
@@ -116,8 +127,8 @@ def _is_public(address: str) -> bool:
     return ip.is_global
 
 
-def require_public_address(url: str, resolve: Resolver = resolve_addresses) -> None:
-    """Raise NonPublicAddressError unless every address url's host resolves to is public."""
+def require_public_address(url: str, resolve: Resolver = resolve_addresses) -> list[str]:
+    """Every address url's host resolves to. Raises NonPublicAddressError unless all of them are public."""
     parts = urlsplit(url)
     host = parts.hostname or ""
     try:
@@ -136,6 +147,101 @@ def require_public_address(url: str, resolve: Resolver = resolve_addresses) -> N
             raise NonPublicAddressError(
                 f"Not fetching {url}: {host} is at {address}, a private, loopback or other non-public address"
             )
+    return list(addresses)
+
+
+def _host_key(host: str, port: int) -> tuple[str, int]:
+    # urlsplit and urllib3 differ on brackets, a trailing dot and case.
+    return host.strip("[]").rstrip(".").lower(), port
+
+
+class CheckedAddresses:
+    """The addresses each host had when it passed the public-address check, so its requests connect only there."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._addresses: dict[tuple[str, int], tuple[str, ...]] = {}
+
+    def __repr__(self) -> str:
+        return f"CheckedAddresses({len(self._addresses)} hosts)"
+
+    def remember(self, host: str, port: int, addresses: Sequence[str]) -> None:
+        with self._lock:
+            self._addresses[_host_key(host, port)] = tuple(addresses)
+
+    def lookup(self, host: str, port: int) -> tuple[str, ...]:
+        with self._lock:
+            return self._addresses.get(_host_key(host, port), ())
+
+
+def _connect_to_checked(connection: urllib3.connection.HTTPConnection, checked: CheckedAddresses) -> socket.socket:
+    """A socket to one of the addresses connection's host passed the check with, as urllib3 would open one."""
+    addresses = checked.lookup(connection.host, connection.port)
+    if not addresses:
+        # Fail closed: a host nobody checked is never looked up here.
+        raise urllib3.exceptions.NewConnectionError(
+            connection, f"Failed to establish a new connection: {connection.host} wasn't checked"
+        )
+    problem: OSError | None = None
+    for address in addresses:
+        try:
+            sock = urllib3.util.connection.create_connection(
+                (address, connection.port),
+                connection.timeout,
+                source_address=connection.source_address,
+                socket_options=connection.socket_options,
+            )
+        except TimeoutError as error:
+            raise urllib3.exceptions.ConnectTimeoutError(
+                connection, f"Connection to {connection.host} timed out. (connect timeout={connection.timeout})"
+            ) from error
+        except OSError as error:
+            problem = error
+            continue
+        sys.audit("http.client.connect", connection, connection.host, connection.port)
+        return sock
+    raise urllib3.exceptions.NewConnectionError(connection, f"Failed to establish a new connection: {problem}")
+
+
+def _checked_pool_classes(checked: CheckedAddresses) -> dict[str, type[urllib3.connectionpool.HTTPConnectionPool]]:
+    class CheckedHTTPConnection(urllib3.connection.HTTPConnection):
+        def _new_conn(self) -> socket.socket:
+            return _connect_to_checked(self, checked)
+
+    class CheckedHTTPSConnection(urllib3.connection.HTTPSConnection):
+        # Only the socket's address changes: the TLS handshake still sends
+        # and checks the certificate against the site's own name.
+        def _new_conn(self) -> socket.socket:
+            return _connect_to_checked(self, checked)
+
+    class CheckedHTTPConnectionPool(urllib3.connectionpool.HTTPConnectionPool):
+        ConnectionCls = CheckedHTTPConnection
+
+    class CheckedHTTPSConnectionPool(urllib3.connectionpool.HTTPSConnectionPool):
+        ConnectionCls = CheckedHTTPSConnection
+
+    return {"http": CheckedHTTPConnectionPool, "https": CheckedHTTPSConnectionPool}
+
+
+class _CheckedAdapter(requests.adapters.HTTPAdapter):
+    def __init__(self, checked: CheckedAddresses) -> None:
+        self._checked = checked
+        super().__init__()
+
+    def init_poolmanager(self, connections: int, maxsize: int, block: bool = False, **pool_kwargs: Any) -> None:
+        super().init_poolmanager(connections, maxsize, block, **pool_kwargs)
+        self.poolmanager.pool_classes_by_scheme = _checked_pool_classes(self._checked)
+
+
+def checked_session(checked: CheckedAddresses) -> requests.Session:
+    """A session whose requests connect only to the addresses checked has for their host."""
+    session = requests.Session()
+    # Proxies from the environment would make the connection themselves, to wherever they resolve the name.
+    session.trust_env = False
+    adapter = _CheckedAdapter(checked)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 class _ReadProblem(Exception):
@@ -249,7 +355,10 @@ class LocalFetcher:
         self._public_only = public_only
         self._resolve = resolve
         self._limits = limits
-        self._session: GetSession = session if session is not None else requests.Session()
+        self._checked = CheckedAddresses()
+        if session is None:
+            session = checked_session(self._checked) if public_only else requests.Session()
+        self._session: GetSession = session
         self._clock = clock
         self._sleep = sleep
         self._on_wait = on_wait
@@ -259,6 +368,11 @@ class LocalFetcher:
 
     def __repr__(self) -> str:
         return f"LocalFetcher(respect_robots={self._respect_robots}, public_only={self._public_only})"
+
+    @property
+    def checked_addresses(self) -> CheckedAddresses:
+        """Where each host was when it passed the public-address check. With public_only, requests connect only there."""
+        return self._checked
 
     @property
     def _timeout(self) -> tuple[float, float]:
@@ -271,7 +385,7 @@ class LocalFetcher:
         """
         _require_http_url(url)
         if self._public_only:
-            require_public_address(url, self._resolve)
+            self._check_address(url)
         if not self._respect_robots:
             return
         origin = _origin(url)
@@ -299,6 +413,12 @@ class LocalFetcher:
                 self._on_wait(f"waiting {wait:.1f} s before the next request to {urlsplit(url).netloc}, as its robots.txt asks")
                 self._sleep(wait)
         self._last_request[origin] = self._clock()
+
+    def _check_address(self, url: str) -> None:
+        # The check reads the port first, so a malformed one is a FetchError before it's read here.
+        addresses = require_public_address(url, self._resolve)
+        parts = urlsplit(url)
+        self._checked.remember(parts.hostname or "", parts.port or (443 if parts.scheme == "https" else 80), addresses)
 
     def fetch_html(self, url: str) -> str:
         """The page's HTML. Raises FetchError, or BlockedError when the site turns the request away."""
@@ -473,7 +593,7 @@ class LocalFetcher:
                 return _RobotsRules()
             if self._public_only:
                 try:
-                    require_public_address(current, self._resolve)
+                    self._check_address(current)
                 except FetchError:
                     return _RobotsRules(unreadable_because="it redirects to an address loupe won't fetch")
         return _RobotsRules()

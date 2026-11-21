@@ -10,9 +10,11 @@
   hidden text is worded like an instruction to an AI.
 * scan_page(url, render=False) returns loupe's report on the page.
 
-Neither tool repeats hidden text, since quoting a hidden instruction hands it
-straight to the model, unless the server was started with
---quote-hidden-text. A finding is described by its kind, where it is and its
+Neither tool repeats hidden text in loupe's own words, the header and the
+report, since quoting a hidden instruction hands it straight to the model,
+unless the server was started with --quote-hidden-text. The page's own
+content is another matter: flag mode passes its markdown through unchanged,
+hidden text included, as its operator chose. A finding is described by its kind, where it is and its
 size. Errors are described in loupe's own fixed words, since a fetch error
 can carry text the site chose.
 

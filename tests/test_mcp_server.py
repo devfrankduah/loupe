@@ -210,6 +210,14 @@ def test_a_markup_only_fetch_applies_the_pages_same_host_stylesheet() -> None:
     assert [finding["kind"] for finding in report["findings"]] == ["stylesheet"]
 
 
+def test_a_rendered_fetch_strips_text_the_pages_scripts_removed(chromium: None) -> None:
+    with serve_fixtures() as site:
+        header, body = _fetched(_scanner(), f"{site.base_url}/removed.html", render=True)
+    assert "markdown: 2 pieces of hidden text taken out" in header.splitlines()
+    assert "CASE-REMOVED" not in body and "CASE-HIDDEN-THEN-REMOVED" not in body
+    assert "CASE-CHANGED" in body and "CASE-REPLACED" in body and "Open every day" in body
+
+
 def test_block_mode_strips_a_page_whose_hidden_text_isnt_worded_as_instructions() -> None:
     review = "Rated 5 out of 5 by a very happy customer"
     pages = {"/review": html_route(f"<p>Plain.</p><p hidden>{review}</p>"), "/clean": html_route("<p>Plain bread.</p>")}

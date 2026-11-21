@@ -47,14 +47,18 @@ import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Final, Generic, Literal, Protocol, TypeVar
 from urllib.parse import unquote, urlsplit
 
+from bs4 import BeautifulSoup, Tag
+from bs4.element import CData, NavigableString
+
 from loupe_scan.blocking import blocked_by_answer, blocked_by_content
 from loupe_scan.errors import BlockedError, SetupError
 from loupe_scan.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
+from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, CDPSession, Page, Playwright, Request, Route
@@ -79,6 +83,13 @@ _ERROR_MESSAGE_LIMIT: Final[int] = 300
 _SCANNER: Final[str] = "loupeScanner"
 # How often to check a given page's readyState while waiting for it to load.
 _READY_POLL_MS: Final[float] = 100
+# The most of a page's final text read back to check for text its scripts removed.
+PAGE_TEXT_LIMIT: Final[int] = 5_000_000
+REMOVED_BY_SCRIPT: Final[str] = "removed by a script"
+# Parts of the served HTML that are never page text, or that a person never reads as part of the page.
+_NOT_PAGE_TEXT: Final[frozenset[str]] = frozenset({"head", "script", "style", "template", "noscript"})
+# Text counts as removed when under half of its runs of this many words are left on the page.
+_RUN_WORDS: Final[int] = 4
 
 # Playwright resource types a remote run may skip to save bandwidth. They never
 # change whether text shows. Stylesheets do, so they can never be blocked.
@@ -242,6 +253,8 @@ class RenderedPage:
     # navigates while it loads stops being parsed there, so the browser may
     # not have drawn the rest of the HTML.
     stopped_navigations: int = 0
+    # The document's text at the end of the scan, outside scripts and styles, or None when it wasn't read in full.
+    page_text: str | None = field(default=None, repr=False)
 
 
 class PageRenderer(Protocol):
@@ -608,6 +621,82 @@ def parse_scan_result(value: object) -> ScanResult:
     )
 
 
+class _PageWords:
+    """The words left on the page once its scripts ran, for asking whether a piece of the served HTML is gone."""
+
+    def __init__(self, page_text: str) -> None:
+        words = normalize_words(page_text).split()
+        self._padded = f" {' '.join(words)} "
+        self._runs = {tuple(words[index : index + _RUN_WORDS]) for index in range(len(words) - _RUN_WORDS + 1)}
+
+    def whole(self, words: list[str]) -> bool:
+        return f" {' '.join(words)} " in self._padded
+
+    def gone(self, words: list[str]) -> bool:
+        """True when too little of words is left on the page for a script to have only changed it."""
+        if self.whole(words):
+            return False
+        if len(words) < _RUN_WORDS:
+            return True
+        runs = [tuple(words[index : index + _RUN_WORDS]) for index in range(len(words) - _RUN_WORDS + 1)]
+        return sum(run in self._runs for run in runs) * 2 < len(runs)
+
+
+def _element_words(element: Tag) -> list[str]:
+    return normalize_words(" ".join(element.stripped_strings)).split()
+
+
+def _own_words(element: Tag) -> list[str]:
+    """The words of the text directly in element, not in its children."""
+    own = [str(child) for child in element.children if type(child) in (NavigableString, CData)]
+    return normalize_words(" ".join(own)).split()
+
+
+def _comparable(words: list[str]) -> bool:
+    return len(" ".join(words)) >= MIN_COMPARABLE_CHARACTERS
+
+
+def removed_by_scripts(html: str, page_text: str) -> list[Finding]:
+    """Text in the HTML as served that the page's scripts took out, as rendered findings, in document order.
+
+    An element counts when its text, its own text outside its children, and
+    the text of each of its children long enough to compare, are gone from
+    page_text: wholly, or for all but a few words. So a script changing a
+    date or a price in a sentence, or the time in "Local time 12:00", doesn't
+    count as removing it. The outermost such element is reported, never the
+    body itself.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    root = soup.body if soup.body is not None else soup
+    page = _PageWords(page_text)
+    findings: list[Finding] = []
+    pending: list[Tag] = [child for child in root.find_all(True, recursive=False)][::-1]
+    while pending:
+        element = pending.pop()
+        if element.name in _NOT_PAGE_TEXT:
+            continue
+        words = _element_words(element)
+        # Whatever is wholly on the page, its children are too.
+        if not _comparable(words) or page.whole(words):
+            continue
+        children = [child for child in element.find_all(True, recursive=False) if child.name not in _NOT_PAGE_TEXT]
+        own = _own_words(element)
+        if (
+            page.gone(words)
+            and (not own or page.gone(own))
+            and all(page.gone(child_words) for child_words in map(_element_words, children) if _comparable(child_words))
+        ):
+            text = normalize_whitespace(" ".join(element.stripped_strings))
+            findings.append(
+                make_finding(
+                    Kind.RENDERED_HIDDEN, REMOVED_BY_SCRIPT, element.name, text, ScanMode.RENDERED, line=element.sourceline
+                )
+            )
+            continue
+        pending.extend(reversed(children))
+    return findings
+
+
 def static_candidates(html: str) -> list[Finding]:
     """The static scan's inline-style findings: what it guessed was hidden by a style attribute."""
     return [finding for finding in scan_html(html) if finding.kind is Kind.INLINE_STYLE]
@@ -854,6 +943,12 @@ def _scan_with_session(
         notes.append("animations were still running at the final check")
     result = parse_scan_result(world.call("finish"))
     comparison = parse_comparison(world.call("compareStatic"), candidates)
+    page_text = _page_text(world.call("pageText", PAGE_TEXT_LIMIT))
+    if page_text is None:
+        notes.append(
+            f"the page's text is longer than {PAGE_TEXT_LIMIT:,} characters, so it wasn't checked for text its "
+            "scripts removed"
+        )
     notes.extend(watch_notes(parse_watch_status(world.call("watchStatus")), len(candidates)))
 
     transfer = traffic.transfer_bytes() if settings.measure_transfer else None
@@ -886,7 +981,16 @@ def _scan_with_session(
         static_comparison=comparison,
         viewport=result.viewport,
         stopped_navigations=0 if supplied is None else supplied.stopped_navigations,
+        page_text=page_text,
     )
+
+
+def _page_text(value: object) -> str | None:
+    record = _mapping(value, "the page's text")
+    text = record.get("text")
+    if record.get("complete") is not True or not isinstance(text, str):
+        return None
+    return text
 
 
 def _close_quietly(closeable: Closeable) -> None:
