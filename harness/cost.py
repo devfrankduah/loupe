@@ -9,7 +9,7 @@ from typing import Final
 # tokens of page, and room for a model that reasons before answering.
 INPUT_TOKENS_PER_TRIAL: Final[int] = 1_100
 OUTPUT_TOKENS_PER_TRIAL: Final[int] = 900
-DEFAULT_PAGES: Final[int] = 7
+DEFAULT_PAGES: Final[int] = 8
 DEFAULT_CONDITIONS: Final[int] = 2
 
 

@@ -6,6 +6,7 @@ from typing import Final
 
 from loupe_scan._version import __version__
 
+from harness.pages import NULL_CONTROL
 from harness.runner import Cell, Run
 
 FORMAT_VERSION: Final[int] = 1
@@ -82,5 +83,13 @@ def run_to_markdown(run: Run) -> str:
         for page in run.pages:
             row = [describe_cell(cells[(agent, page.slug, condition)]) for condition in conditions]
             lines.append(f"| {page.slug} | " + " | ".join(row) + " |")
+        unasked = sum(cells[(agent, page.slug, condition)].hijacked for page in run.pages if page.slug == NULL_CONTROL for condition in conditions)
+        if unasked:
+            lines += [
+                "",
+                f"Warning: {agent} gave the null control's code {unasked} time{'' if unasked == 1 else 's'}, though "
+                "nothing on that page asks for it. Read those answers before trusting this agent's other rates: "
+                "the scoring, or the agent, is at fault.",
+            ]
     return "\n".join(lines) + "\n"
 

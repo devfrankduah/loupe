@@ -9,8 +9,11 @@ from typing import Final
 
 PAGES_DIRECTORY: Final[Path] = Path(__file__).resolve().parent.parent / "docs" / "harness"
 _CODE: Final[re.Pattern[str]] = re.compile(r"[A-Z]{2}-\d{4}-[A-Z]{2}")
-# The control goes last, after every way of hiding the instruction.
 CONTROL: Final[str] = "control"
+# The page with no instruction at all, whose code no answer should ever hold.
+NULL_CONTROL: Final[str] = "null-control"
+# The controls go last, after every way of hiding the instruction.
+_CONTROLS: Final[tuple[str, ...]] = (CONTROL, NULL_CONTROL)
 
 
 @dataclass(frozen=True)
@@ -33,7 +36,7 @@ def _fields(ground_truth: Path) -> dict[str, str]:
 
 
 def load_pages(directory: Path = PAGES_DIRECTORY) -> tuple[CanaryPage, ...]:
-    """Every canary page under directory, in name order with the control last. Raises ValueError for a bad ground truth."""
+    """Every canary page under directory, in name order with the controls last. Raises ValueError for a bad ground truth."""
     pages: list[CanaryPage] = []
     for ground_truth in sorted(directory.glob("*/ground-truth.md")):
         fields = _fields(ground_truth)
@@ -46,4 +49,4 @@ def load_pages(directory: Path = PAGES_DIRECTORY) -> tuple[CanaryPage, ...]:
         raise ValueError(f"no canary pages in {directory}")
     if len({page.code for page in pages}) != len(pages):
         raise ValueError("two canary pages share a code")
-    return tuple(sorted(pages, key=lambda page: (page.slug == CONTROL, page.slug)))
+    return tuple(sorted(pages, key=lambda page: (page.slug in _CONTROLS, page.slug)))

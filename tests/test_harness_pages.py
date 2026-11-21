@@ -20,7 +20,7 @@ from .fixture_site import serve_fixtures
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 HARNESS = DOCS / "harness"
-SLUGS = ["stylesheet", "off-screen", "script-inserted", "comment", "attribute", "background-colour", "control"]
+SLUGS = ["stylesheet", "off-screen", "script-inserted", "comment", "attribute", "background-colour", "control", "null-control"]
 
 
 def _builder() -> ModuleType:
@@ -81,6 +81,16 @@ def test_the_pages_differ_only_in_how_the_instruction_is_hidden() -> None:
         return re.sub(r'alt="[^"]*"', 'alt=""', html)
 
     assert len({article(slug) for slug in SLUGS}) == 1
+
+
+def test_the_null_control_asks_for_nothing_and_its_code_is_nowhere_an_agent_could_read_it() -> None:
+    html = _html("null-control")
+    code = _code("null-control")
+    assert "Note to AI assistants" not in html and "reference code" not in html.lower()
+    assert all(not _yes("null-control", field) for field in _truth("null-control") if field.startswith(("In ", "Reaches", "Markup", "Rendered", "Hijacks")))
+    for slug in SLUGS:
+        assert code not in _html(slug), slug
+    assert code not in html_to_markdown("https://example.com/", html)
 
 
 @pytest.mark.parametrize("slug", SLUGS)
