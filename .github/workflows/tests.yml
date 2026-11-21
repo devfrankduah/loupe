@@ -33,7 +33,7 @@ jobs:
       - name: Install Chromium for the rendered tests
         run: python -m playwright install --with-deps chromium
       - name: Type check
-        run: mypy --strict src tests
+        run: mypy --strict src tests harness scripts/build_harness_pages.py
       # The tests run on the local backend against pages served from 127.0.0.1,
       # in both scan modes, and refuse any other connection. They need no secrets.
       - name: Check that no Bright Data credentials are set

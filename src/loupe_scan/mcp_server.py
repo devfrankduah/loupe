@@ -413,6 +413,11 @@ def _scanned(fetched: FetchedPage) -> PageReport:
     return fetched.report
 
 
+def fetch_page_text(scanner: PageScanner, url: str, *, render: bool) -> str:
+    """What the fetch_page tool returns for url. Raises ToolError, with loupe's own message, for a page it couldn't scan."""
+    return page_text(_scanned(scanner.scan(url, render=render)), scanner.settings)
+
+
 # The server
 
 
@@ -467,7 +472,7 @@ def build_server(scanner: PageScanner) -> MCPServer:
         structured_output=False,
     )
     def fetch_page(url: URL_ARGUMENT, render: RENDER_ARGUMENT = False) -> str:
-        return page_text(_scanned(scanner.scan(url, render=render)), settings)
+        return fetch_page_text(scanner, url, render=render)
 
     @server.tool(
         name="scan_page",

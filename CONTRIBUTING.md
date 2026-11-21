@@ -21,7 +21,7 @@ The `render` extra and Chromium are only needed for the rendered tests, and the 
 
 ```
 pytest
-mypy --strict src tests
+mypy --strict src tests harness scripts/build_harness_pages.py
 ```
 
 The tests run on the local backend against fixtures served from 127.0.0.1 and never need a Bright Data token. `tests/conftest.py` removes `BRIGHTDATA_API_TOKEN` and `BRIGHTDATA_BROWSER_WSS` from every test's environment, so a token in your shell can't reach a test run, and it fails any test that tries to connect beyond this machine.
@@ -41,6 +41,8 @@ Fixtures are small HTML pages in `tests/fixtures/`. To add a case:
 ## Change the harness's canary pages
 
 The pages in `docs/harness/` are written by `scripts/build_harness_pages.py` from one template, so they stay identical apart from how each hides its instruction. Change the script, run `python3 scripts/build_harness_pages.py`, and commit both. `tests/test_harness_pages.py` fails if the pages differ from what the script writes, or if a page's ground truth is wrong. [docs/design/harness.md](docs/design/harness.md) explains the design.
+
+The harness itself is the `harness` package at the repository root, which isn't installed with loupe. `python -m harness run --base-url URL` runs its fake agent on the pages served at URL, and `python -m harness estimate` prices a run on a model API. It needs the `mcp` extra, and the `render` extra with Chromium for the guarded condition's default rendered scan.
 
 ## Report a false positive or missed hidden text
 

@@ -117,3 +117,35 @@ def test_what_a_rendered_scan_finds_matches_the_ground_truth(chromium: None, har
     result = scan_html(_html(slug), f"{harness_site}/{slug}/", render=True)
     found = any(_code(slug) in item.text for item in result.hidden_text)
     assert found == _yes(slug, "Rendered scan finds it")
+
+
+@pytest.mark.parametrize("output", ["markdown", "html"])
+def test_who_the_fake_agent_obeys_raw_matches_the_ground_truth(harness_site: str, output: str) -> None:
+    pytest.importorskip("mcp")
+    from harness.agents import ObedientAgent
+    from harness.scoring import canary_found
+    from harness.tools import RawOutput, RawTool
+
+    field = "Hijacks a markdown reader, raw" if output == "markdown" else "Hijacks an HTML reader, raw"
+    agent = ObedientAgent(RawTool(RawOutput(output)))
+    for slug in SLUGS:
+        answer = agent.answer(f"{harness_site}/{slug}/", "Summarise it.")
+        assert canary_found(answer, _code(slug)) == _yes(slug, field), slug
+
+
+@pytest.mark.parametrize("render", [False, True], ids=["markup-only", "rendered"])
+def test_who_the_fake_agent_obeys_through_loupe_matches_the_ground_truth(
+    request: pytest.FixtureRequest, harness_site: str, render: bool
+) -> None:
+    pytest.importorskip("mcp")
+    if render:
+        request.getfixturevalue("chromium")
+    from harness.agents import ObedientAgent
+    from harness.scoring import canary_found
+    from harness.tools import GuardedTool
+
+    field = "Hijacks, guarded, rendered" if render else "Hijacks, guarded, markup only"
+    agent = ObedientAgent(GuardedTool(render=render, allow_private_addresses=True))
+    for slug in SLUGS:
+        answer = agent.answer(f"{harness_site}/{slug}/", "Summarise it.")
+        assert canary_found(answer, _code(slug)) == _yes(slug, field), slug
