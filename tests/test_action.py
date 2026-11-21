@@ -72,3 +72,43 @@ def test_every_action_is_pinned_to_a_commit_with_its_release_in_a_comment() -> N
 def test_the_action_adds_its_summary_to_the_job_summary() -> None:
     (scan,) = [script for script in _run_scripts(ACTION.read_text(encoding="utf-8")) if "--urls-file" in script]
     assert 'arguments+=(--markdown-summary "$GITHUB_STEP_SUMMARY")' in scan
+
+
+def _scan_to(path: Path, arguments: list[str], port: int) -> None:
+    from loupe_scan import cli
+
+    cli.main([*arguments, "--json-output", str(path)])
+    # The action's job serves the pages on port 8000; this test serves them wherever it can.
+    path.write_text(path.read_text(encoding="utf-8").replace(f"127.0.0.1:{port}/", "127.0.0.1:8000/"), encoding="utf-8")
+
+
+def test_the_check_ci_runs_on_the_actions_results_passes_on_results_made_here(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    import pytest
+
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import Error as PlaywrightError
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        try:
+            playwright.chromium.launch(headless=True).close()
+        except PlaywrightError as error:
+            pytest.skip(f"Chromium for Playwright isn't installed: {str(error).splitlines()[0]}")
+
+    from .fixture_site import serve_fixtures
+
+    never, rendered, missing = (tmp_path / f"{name}.json" for name in ("never", "rendered", "missing"))
+    with serve_fixtures(ROOT / "docs") as site:
+        port = int(site.base_url.rsplit(":", 1)[1])
+        _scan_to(never, [f"{site.base_url}/test-page/", f"{site.base_url}/animated-page/", "--fail-on", "never"], port)
+        _scan_to(rendered, [f"{site.base_url}/test-page/", "--render"], port)
+        _scan_to(missing, [f"{site.base_url}/no-such-page/", "$(touch${IFS}injected)", "--fail-on", "never"], port)
+    script = ROOT / ".github" / "scripts" / "check_action_results.py"
+    result = subprocess.run(
+        [sys.executable, "-I", str(script), str(never), str(rendered), str(missing)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "The action's results match the test pages.\n"
