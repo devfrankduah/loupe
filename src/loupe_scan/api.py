@@ -33,6 +33,7 @@ from loupe_scan.report import (
 from loupe_scan.render import open_renderer
 from loupe_scan.scan import Kind, ScanMode
 from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scan_supplied_html, scrub_strings
+from loupe_scan.stylesheets import StylesheetCheck
 
 BackendName = Literal["local", "brightdata"]
 FailOnName = Literal["instructions", "hidden", "never"]
@@ -96,6 +97,8 @@ class ScanResult:
     markdown_characters: int | None
     # Why the markdown couldn't be compared. The page itself was still scanned.
     markdown_error: str | None
+    # What the markup scan's partial stylesheet check read, or None for a rendered scan.
+    stylesheet_check: StylesheetCheck | None
     _report: PageReport = field(repr=False, compare=False)
     _redact: Callable[[str], str] = field(repr=False, compare=False)
 
@@ -134,6 +137,7 @@ def _result(report: PageReport, redact: Callable[[str], str]) -> ScanResult:
         hidden_text=tuple(_hidden_text(item, redact) for item in report.findings),
         markdown_characters=report.markdown_characters,
         markdown_error=None if report.markdown_error is None else redact(report.markdown_error),
+        stylesheet_check=report.stylesheet_check,
         _report=report,
         _redact=redact,
     )
@@ -219,7 +223,9 @@ def scan_html(html: str, url: str, *, render: bool = False, markdown: bool = Tru
     agents something different from what loupe would have fetched can't slip
     past. The markdown compared is made here from the same HTML.
 
-    url must be an http(s) URL. Without render it only names the page. With
+    url must be an http(s) URL. Without render it only names the page, and
+    the stylesheet check reads the HTML's <style> blocks but no linked
+    stylesheet. With
     render, local Chromium is given the HTML as the page at url, so relative
     links resolve against it, and its stylesheets and scripts load from the
     network; docs/python.md says how that can differ from a live load. It

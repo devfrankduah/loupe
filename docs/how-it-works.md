@@ -45,7 +45,7 @@ loupe gets a markdown version of the same page and records whether each finding'
 
 ## Rendered scan
 
-The markup checks read markup only, so they miss text hidden by a stylesheet class or by a script, and they flag text that starts invisible and fades in as you scroll. `--render` asks a real browser instead.
+The markup checks don't run the page, so they miss text a script hides or adds, and they flag text that starts invisible and fades in as you scroll. They apply stylesheets only in part: the page's `<style>` blocks and up to five stylesheets linked from its own host, judged at the rendered scan's 1280 by 800 viewport, for `display:none`, `visibility:hidden`, `opacity:0`, `font-size:0`, offsets of 1000px or more off the page and clipping to nothing. Selectors are matched with soupsieve and the cascade is applied (importance, the style attribute, specificity, order). A rule in a condition the markup can't settle, such as `@supports`, `@layer` or a media query about anything but width, height, orientation or media type, never counts as hiding, and if it could show an element another rule hides, that element isn't reported, so the check misses text rather than guess. `--render` asks a real browser instead.
 
 For each page, loupe opens Chromium at 1280 by 800, loads the page, and waits for the load event, for the network to go quiet and for opening animations to finish. Then it records whether each element's own text is visible. Visible means all of these:
 

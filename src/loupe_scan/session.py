@@ -37,7 +37,8 @@ from loupe_scan.render import (
     rendered_findings,
 )
 from loupe_scan.report import FailureKind, PageReport, check_findings
-from loupe_scan.scan import ScanMode, scan_html
+from loupe_scan.scan import ScanMode, scan_html, scan_markup
+from loupe_scan.stylesheets import StylesheetSource
 
 # The README section on the Bright Data backend, for sites that turn loupe away.
 BRIGHT_DATA_SECTION: Final[str] = "sites-that-block-bots-and-scanning-at-scale"
@@ -84,6 +85,14 @@ class HtmlSource(Protocol):
     def fetch_html(self, url: str) -> str: ...
 
 
+def fetch_with_address(source: HtmlSource, url: str) -> tuple[str, str]:
+    """url's HTML from source, and where it came from: after redirects when the local fetcher followed them."""
+    if isinstance(source, LocalFetcher):
+        fetched = source.fetch_page(url)
+        return fetched.html, fetched.final_url
+    return source.fetch_html(url), url
+
+
 def record_failure(page: PageReport, error: PageFetchError | RenderError, *, otherwise: FailureKind) -> None:
     """Record why page wasn't scanned, pointing to Bright Data when a site blocked the local backend."""
     page.html_error = str(error)
@@ -97,16 +106,28 @@ def record_failure(page: PageReport, error: PageFetchError | RenderError, *, oth
         page.failure = otherwise
 
 
-def scan_page(source: HtmlSource, markdown: MarkdownMaker | None, url: str, *, backend: Backend) -> PageReport:
-    """Fetch url's HTML from source and scan the markup. Markdown is compared only when a maker is given."""
+def scan_page(
+    source: HtmlSource,
+    markdown: MarkdownMaker | None,
+    url: str,
+    *,
+    backend: Backend,
+    stylesheets: StylesheetSource | None = None,
+) -> PageReport:
+    """Fetch url's HTML from source and scan the markup. Markdown is compared only when a maker is given.
+
+    The stylesheet check reads linked stylesheets only when stylesheets is given to fetch them.
+    """
     page = PageReport(url=url, backend=backend)
     try:
-        html = source.fetch_html(url)
+        html, address = fetch_with_address(source, url)
     except PageFetchError as error:
         record_failure(page, error, otherwise=FailureKind.FETCH)
         return page
     page.html_characters = len(html)
-    page.findings = check_findings(scan_html(html), _markdown_for(markdown, url, html, page))
+    scanned = scan_markup(html, page_url=address, stylesheets=stylesheets)
+    page.stylesheet_check = scanned.stylesheets
+    page.findings = check_findings(scanned.findings, _markdown_for(markdown, url, html, page))
     return page
 
 
@@ -164,20 +185,27 @@ def scan_html_once(
     renderer: PageRenderer | None = None,
     supplied: bool,
     keep_markdown: bool = False,
+    stylesheets: StylesheetSource | None = None,
+    address: str | None = None,
 ) -> PageReport:
     """Scan html as the page at url without fetching url, whoever fetched the HTML.
 
     The markdown is always made here from that same HTML, so what's compared
     is what was scanned, and keep_markdown keeps it on the report. With a
     renderer, the browser is given the HTML as the page at url and loads its
-    stylesheets and scripts from the network. backend records where the HTML
-    came from, and supplied whether the caller gave it to loupe.
+    stylesheets and scripts from the network. Without one, the stylesheet
+    check reads linked stylesheets only when stylesheets is given to fetch
+    them, from the host of address, where the HTML came from (url when not
+    given). backend records where the HTML came from, and supplied whether
+    the caller gave it to loupe.
     """
     maker = local_markdown() if markdown else None
     if renderer is None:
         page = PageReport(url=url, backend=backend, supplied_html=supplied)
         page.html_characters = len(html)
-        page.findings = check_findings(scan_html(html), _markdown_for(maker, url, html, page, keep=keep_markdown))
+        scanned = scan_markup(html, page_url=url if address is None else address, stylesheets=stylesheets)
+        page.stylesheet_check = scanned.stylesheets
+        page.findings = check_findings(scanned.findings, _markdown_for(maker, url, html, page, keep=keep_markdown))
         return page
     page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source, supplied_html=supplied)
     try:
@@ -303,4 +331,4 @@ class ScanSession:
         source: HtmlSource | None = self._fetcher if self._fetcher is not None else self._client
         if source is None:
             raise RuntimeError("a session needs a local fetcher or a Bright Data client")
-        return scan_page(source, self._markdown, url, backend=self.backend)
+        return scan_page(source, self._markdown, url, backend=self.backend, stylesheets=self._fetcher)

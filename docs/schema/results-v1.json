@@ -14,6 +14,7 @@
         "comment",
         "hidden-attribute",
         "inline-style",
+        "stylesheet",
         "aria-hidden",
         "label-attribute",
         "meta",
@@ -118,6 +119,23 @@
             "dropped": { "$ref": "#/$defs/count" },
             "not_compared": { "$ref": "#/$defs/count" }
           }
+        },
+        "stylesheet_check": {
+          "description": "What the markup scan's stylesheet check read: style_blocks, the linked stylesheets it read and didn't, and the rules bearing on hiding it couldn't be sure apply. The check is always partial. null for rendered scans, where the browser applies the stylesheets, and for pages with an error. Added in version 1, so a reader should treat it as null when it's missing.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["style_blocks", "linked_read", "linked_not_read", "uncertain_rules"],
+              "additionalProperties": false,
+              "properties": {
+                "style_blocks": { "$ref": "#/$defs/count" },
+                "linked_read": { "$ref": "#/$defs/count" },
+                "linked_not_read": { "$ref": "#/$defs/count" },
+                "uncertain_rules": { "$ref": "#/$defs/count" }
+              }
+            }
+          ]
         },
         "rendering": {
           "description": "How the browser loaded the page. null for static scans and for pages with an error.",

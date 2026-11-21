@@ -62,6 +62,7 @@ Line by line:
 - The `rendered` line says how the browser check went. "Reached the bottom" means it scrolled the whole page, and "centred" counts elements it moved to the middle of the screen to give scroll animations a chance to show them.
 - `revealed on scroll` counts text that started invisible and appeared as the page scrolled. People see it, so it isn't counted as hidden.
 - `static inline-style candidates` are the elements the markup check flagged for an inline style, and where each one ended up in the browser.
+- Without `--render`, a `stylesheets` line says what the markup scan's stylesheet check read: the page's `<style>` blocks, the stylesheets linked from its own host, and how many rules it couldn't be sure apply. It's always a partial check.
 - `findings` counts every piece of text a reader can't see but an agent gets, by kind.
 - `in markdown`, `not in markdown` and `not compared` say how many findings appear in the markdown version. Text shorter than 12 characters isn't compared, because short words match by accident.
 - `instruction-like` counts findings worded like orders to a model. Each one is listed with the phrase it matched and whether it reached the markdown, so you can judge it yourself.
@@ -75,6 +76,7 @@ The kinds of finding:
 | `comment` | an HTML comment |
 | `hidden-attribute` | an element with the `hidden` attribute (markup scan only) |
 | `inline-style` | an element whose inline style hides it, such as `display:none` or `opacity:0` (markup scan only) |
+| `stylesheet` | an element a rule in the page's own stylesheets hides, such as a class set to `display:none` (markup scan only, a partial check) |
 | `aria-hidden` | an element screen readers skip, which sighted readers may still see |
 | `label-attribute` | `alt`, `title` or `aria-label` text |
 | `meta` | the content of a `<meta>` tag |
@@ -205,7 +207,7 @@ The two test pages show both sides. [The blender page](https://devfrankduah.gith
 
 - Phrase matching is a heuristic, and it produces false positives. On the four public pages, all five instruction-like findings were Wikipedia link titles, such as "You are encouraged to create an account". A real injection worded to avoid the list won't be flagged.
 - The markup-only scan can't tell real hiding from presentation. All five inline-style findings on the animated test page are `opacity:0`, the starting state of a scroll-reveal animation. JavaScript fades that content in, so people do see it, but nothing in the HTML says so. `--render` is there to separate the two.
-- The markup-only scan reads inline styles only. An element hidden by a class in a stylesheet isn't detected without `--render`.
+- The markup-only scan applies stylesheets only in part. It reads the page's `<style>` blocks and up to five stylesheets linked from the page's own host, for the simple ways CSS hides text: `display:none`, `visibility:hidden`, `opacity:0`, `font-size:0`, pushed 1000px or more off the page, or clipped to nothing. A rule inside a condition it can't settle, such as a media query about anything but the screen's width, height or orientation, `@supports` or `@layer`, never counts as hiding, and stylesheets on other hosts, `@import` and anything a script does go unread. HTML given to loupe with `--html-file` or `scan_html` gets its `<style>` blocks checked but no linked stylesheet fetched. `--render` checks all of it in a browser.
 - The markdown comparison is exact word-sequence matching. If the markdown converter splits or reorders a hidden string, it counts as not present.
 - Markdown made on your machine is an approximation. Agent tools each use a converter of their own, and they keep or drop different things: markdownify keeps link titles, for one, and some converters don't.
 - Through Bright Data, the HTML comes from Web Unlocker and the markdown from the Fetch API, two separate services that could receive different versions of a page. A difference between them can come from either service as well as from the markdown conversion.

@@ -7,7 +7,11 @@ This is the local backend's fetch, and it needs no account. Every request:
 * gives up after 10 seconds connecting, 30 seconds without data, or about
   60 seconds in all;
 * follows at most 5 redirects, checking each new address as it goes;
-* stops reading at 10 MB.
+* stops reading at 10 MB, or 2 MB for a stylesheet.
+
+Stylesheets, which the markup scan reads to see what they hide, are fetched
+under the same rules as pages, from the page's own host only, and only when
+they're served as text/css.
 
 robots.txt is read once per site, again after a day, and obeyed unless the
 caller turns that off for pages the user owns. As RFC 9309 says, a robots.txt that's missing or
@@ -64,6 +68,7 @@ class FetchLimits:
     total_seconds: float = 60.0
     max_redirects: int = 5
     max_page_bytes: int = 10_000_000
+    max_stylesheet_bytes: int = 2_000_000
     # RFC 9309 asks parsers to read at least 500 KiB of a robots.txt.
     max_robots_bytes: int = 500 * 1024
     max_crawl_delay_seconds: float = MAX_CRAWL_DELAY_SECONDS
@@ -74,7 +79,7 @@ class FetchLimits:
         for name in ("connect_timeout_seconds", "read_timeout_seconds", "total_seconds", "robots_max_age_seconds"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be more than 0")
-        for name in ("max_page_bytes", "max_robots_bytes"):
+        for name in ("max_page_bytes", "max_stylesheet_bytes", "max_robots_bytes"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be at least 1")
         if self.max_redirects < 0 or self.max_crawl_delay_seconds < 0:
@@ -192,6 +197,34 @@ def decode_html(body: bytes, content_type: str) -> str:
     return body_without_mark.decode(encoding, errors="replace")
 
 
+_CSS_CHARSET: Final[re.Pattern[bytes]] = re.compile(rb'^@charset "([\w.:-]{1,40})";')
+
+
+def decode_css(body: bytes, content_type: str) -> str:
+    """A stylesheet's text, using a byte order mark, the header's charset or its @charset rule, else UTF-8."""
+    body_without_mark, marked = EncodingDetector.strip_byte_order_mark(body)
+    header = _CHARSET.search(content_type)
+    declared = _CSS_CHARSET.match(body_without_mark)
+    encoding = (
+        _codec(marked)
+        or _codec(header.group(1) if header else None)
+        or _codec(declared.group(1).decode("ascii") if declared else None)
+        or "utf-8"
+    )
+    return body_without_mark.decode(encoding, errors="replace")
+
+
+def _media_type(content_type: str) -> str:
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+@dataclass(frozen=True)
+class FetchedHtml:
+    html: str
+    # Where the HTML came from, after any redirects.
+    final_url: str
+
+
 def _is_html(content_type: str) -> bool:
     media_type = content_type.split(";", 1)[0].strip().lower()
     return not media_type or "html" in media_type or "xml" in media_type
@@ -269,6 +302,10 @@ class LocalFetcher:
 
     def fetch_html(self, url: str) -> str:
         """The page's HTML. Raises FetchError, or BlockedError when the site turns the request away."""
+        return self.fetch_page(url).html
+
+    def fetch_page(self, url: str) -> FetchedHtml:
+        """The page's HTML and where it came from after redirects. Raises as fetch_html does."""
         current = url
         for _ in range(self._limits.max_redirects + 1):
             self.admit(current)
@@ -280,12 +317,39 @@ class LocalFetcher:
             try:
                 location = response.headers.get("location") if response.is_redirect else None
                 if location is None:
-                    return self._read_page(url, response, deadline)
+                    return FetchedHtml(self._read_page(url, response, deadline), current)
             finally:
                 response.close()
             current = urljoin(current, location)
             if urlsplit(current).scheme not in ("http", "https"):
                 raise FetchError(f"Fetching {url} failed: it redirects to a non-web address")
+        raise FetchError(f"Fetching {url} failed: more than {self._limits.max_redirects} redirects")
+
+    def fetch_stylesheet(self, url: str) -> str:
+        """A stylesheet's text, under the same rules as a page. Its redirects must stay on its host.
+
+        Raises FetchError when it can't be read, isn't served as text/css or
+        is larger than max_stylesheet_bytes.
+        """
+        host = urlsplit(url).hostname
+        current = url
+        for _ in range(self._limits.max_redirects + 1):
+            self.admit(current)
+            deadline = self._clock() + self._limits.total_seconds
+            try:
+                response = self._get(current, "text/css,*/*;q=0.1")
+            except requests.RequestException as error:
+                raise FetchError(f"Fetching {url} failed: {self._network_problem(error)}") from None
+            try:
+                location = response.headers.get("location") if response.is_redirect else None
+                if location is None:
+                    return self._read_stylesheet(url, response, deadline)
+            finally:
+                response.close()
+            current = urljoin(current, location)
+            parts = urlsplit(current)
+            if parts.scheme not in ("http", "https") or parts.hostname != host:
+                raise FetchError(f"Fetching {url} failed: it redirects to another host")
         raise FetchError(f"Fetching {url} failed: more than {self._limits.max_redirects} redirects")
 
     def _get(self, url: str, accept: str) -> requests.Response:
@@ -329,6 +393,19 @@ class LocalFetcher:
         if not html.strip():
             raise FetchError(f"Fetching {url} failed: the page is empty")
         return html
+
+    def _read_stylesheet(self, url: str, response: requests.Response, deadline: float) -> str:
+        if response.status_code >= 300:
+            raise FetchError(f"Fetching {url} failed: HTTP {response.status_code}")
+        content_type = response.headers.get("content-type", "")
+        # Browsers apply a stylesheet only when it's served as text/css.
+        if _media_type(content_type) != "text/css":
+            raise FetchError(f"Fetching {url} failed: it isn't served as text/css")
+        try:
+            body = self._read_body(response, self._limits.max_stylesheet_bytes, deadline, truncate=False)
+        except _ReadProblem as problem:
+            raise FetchError(f"Fetching {url} failed: {problem}") from None
+        return decode_css(body, content_type)
 
     def _read_body(self, response: requests.Response, limit: int, deadline: float, *, truncate: bool) -> bytes:
         """Up to limit bytes of the body. Past the limit it's cut short when truncate is set, a _ReadProblem otherwise."""

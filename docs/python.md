@@ -54,7 +54,7 @@ if result.fails("instructions"):
     print("not handing this page over:", result.verdict)
 ```
 
-Without `render`, the URL only names the page. With `render=True`, local Chromium is given the HTML as the page at that URL, so relative links resolve against it and its stylesheets, scripts and images load from the site as usual. The page's own URL is never requested. The command line does the same with `loupe --html-file PATH URL`, and `--html-file -` reads the HTML from standard input.
+Without `render`, the URL only names the page, and nothing is fetched: the markup scan's stylesheet check applies the HTML's `<style>` blocks but no linked stylesheet, and `result.stylesheet_check` counts what it read. With `render=True`, local Chromium is given the HTML as the page at that URL, so relative links resolve against it and its stylesheets, scripts and images load from the site as usual. The page's own URL is never requested. The command line does the same with `loupe --html-file PATH URL`, and `--html-file -` reads the HTML from standard input.
 
 A page loaded this way can behave differently from a live load:
 
@@ -104,6 +104,7 @@ with Scanner(render=True) as scanner:
 | `instruction_like` | `tuple[HiddenText, ...]` | The pieces worded like an instruction to an AI. |
 | `markdown_characters` | `int \| None` | The markdown's length, or None when no markdown was compared. |
 | `markdown_error` | `str \| None` | Why the markdown couldn't be compared. The page itself was still scanned. |
+| `stylesheet_check` | `StylesheetCheck \| None` | What the markup scan's partial stylesheet check read: `style_blocks`, `linked_read`, `linked_not_read` and `uncertain_rules`. None for a rendered scan, where the browser applies every stylesheet. |
 | `fails(fail_on="instructions")` | `bool` | Whether `loupe --fail-on` would count a finding on this page: `"instructions"`, `"hidden"` or `"never"`, or a `FailOn`. |
 | `to_dict(quote_characters=160)` | `dict` | The page as one object of `loupe --json`'s array, in the format [json.md](json.md) describes, with text cut to `quote_characters` (0 keeps it whole). |
 | `to_json(quote_characters=160, indent=2)` | `str` | The same, as JSON text. |

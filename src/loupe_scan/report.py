@@ -14,6 +14,7 @@ from loupe_scan.backend import Backend
 from loupe_scan.convert import MarkdownSource
 from loupe_scan.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
 from loupe_scan.scan import Finding, Kind, ScanMode
+from loupe_scan.stylesheets import StylesheetCheck
 from loupe_scan.survival import MarkdownIndex
 
 DEFAULT_QUOTE_CHARACTERS: Final[int] = 160
@@ -82,6 +83,8 @@ class PageReport:
     rendered: RenderedPage | None = None
     # True when loupe was given the HTML (scan_html, --html-file) rather than fetching the page itself.
     supplied_html: bool = False
+    # What the markup scan's partial stylesheet check read. None for a rendered scan, where the browser applies them.
+    stylesheet_check: StylesheetCheck | None = None
     # The markdown compared, kept only when the caller asks, as loupe mcp does to hand it on.
     markdown: str | None = field(default=None, repr=False)
 
@@ -216,6 +219,7 @@ def page_to_dict(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) 
         "counts_by_kind": page.count_by_kind(),
         "instruction_like_count": len(page.instruction_like),
         "survival": page.survival_counts(),
+        "stylesheet_check": None if page.stylesheet_check is None else page.stylesheet_check.to_dict(),
         "rendering": _rendering_to_dict(page, quote_limit),
         "findings": [
             {
@@ -391,6 +395,8 @@ def _text_lines(page: PageReport, quote_limit: int) -> list[str]:
     lines.append(f"  html: {page.html_characters} chars{given}, markdown: {markdown_size}")
     if page.markdown_error is not None:
         lines.append(f"  markdown error: {page.markdown_error}")
+    if page.stylesheet_check is not None:
+        lines.append(f"  stylesheets: {page.stylesheet_check.description()}")
     if page.rendered is not None:
         lines.extend(_rendering_lines(page.rendered, page.browser))
 

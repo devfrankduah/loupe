@@ -63,7 +63,7 @@ BROWSER_ENDPOINT_VARIABLE: Final[str] = "BRIGHTDATA_BROWSER_WSS"
 
 # A browser decides directly whether these show, whatever hid them, so a
 # rendered scan drops the static guesses about them and keeps its own result.
-SUPERSEDED_BY_RENDERING: Final[frozenset[Kind]] = frozenset({Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE})
+SUPERSEDED_BY_RENDERING: Final[frozenset[Kind]] = frozenset({Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE, Kind.STYLESHEET})
 
 # loupe installs from its repository until it's published, and "loupe" on PyPI is a different package.
 PLAYWRIGHT_INSTALL_HINT: Final[str] = "from the loupe folder, run pip install -e '.[render]' && playwright install chromium"

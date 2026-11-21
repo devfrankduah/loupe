@@ -45,8 +45,8 @@ TECHNIQUES: tuple[Technique, ...] = (
         "Hidden by a stylesheet",
         "a class the page's own stylesheet sets to `display:none`",
         "RX-2093-KD",
-        True, True, False, True, True, True, True, False,
-        "The markup alone doesn't say the paragraph is hidden, so only a rendered scan catches it.",
+        True, True, True, True, True, True, False, False,
+        "The markup scan's stylesheet check applies the page's own `<style>` block, so both scans catch it.",
     ),
     Technique(
         "off-screen",

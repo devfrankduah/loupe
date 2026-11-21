@@ -14,6 +14,7 @@ from loupe_scan.backend import Backend
 from loupe_scan.errors import SetupError
 from loupe_scan.report import FailOn, FailureKind
 from loupe_scan.scan import Kind, ScanMode
+from loupe_scan.stylesheets import StylesheetCheck
 
 __all__ = [
     "Backend",
@@ -26,6 +27,7 @@ __all__ = [
     "ScanResult",
     "Scanner",
     "SetupError",
+    "StylesheetCheck",
     "__version__",
     "scan",
     "scan_html",

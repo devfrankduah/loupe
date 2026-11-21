@@ -353,8 +353,12 @@ def _all_findings(pages: tuple[PageRecord, ...]) -> list[FindingRecord]:
     return [finding for page in pages for finding in page.findings]
 
 
+# Hidden by a style attribute, or by a rule the markup scan's stylesheet check applied.
+_STYLE_KINDS: Final[frozenset[Kind]] = frozenset({Kind.INLINE_STYLE, Kind.STYLESHEET})
+
+
 def _has_reason(finding: FindingRecord, reason: str) -> bool:
-    return finding.kind is Kind.INLINE_STYLE and reason in finding.detail.split(", ")
+    return finding.kind in _STYLE_KINDS and reason in finding.detail.split(", ")
 
 
 def _element_hiding(findings: list[FindingRecord]) -> list[FindingRecord]:
@@ -409,7 +413,7 @@ HIDING_METHODS: Final[tuple[HidingMethod, ...]] = (
     HidingMethod(
         "Other hiding styles",
         "Zero-size text, visibility:hidden, or pushed far off the screen.",
-        lambda finding: finding.kind is Kind.INLINE_STYLE,
+        lambda finding: finding.kind in _STYLE_KINDS,
     ),
     HidingMethod(
         "Hidden from screen readers",
@@ -739,7 +743,7 @@ def _markup_side(page: PageRecord | None) -> str:
             f'<div class="pair-side">{heading}'
             f'<p class="card-note">The HTML could not be fetched: {_escape(page.html_error)}</p></div>'
         )
-    styled = sum(finding.kind in (Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE) for finding in page.findings)
+    styled = sum(finding.kind in (Kind.HIDDEN_ATTRIBUTE, *_STYLE_KINDS) for finding in page.findings)
     stats = _stat(styled, "Hidden by a style or the hidden attribute") + _stat(
         len(page.instruction_like), "Sound like an order to an AI"
     )

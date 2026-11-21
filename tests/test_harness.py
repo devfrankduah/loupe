@@ -123,8 +123,8 @@ def test_the_fake_agent_is_hijacked_raw_wherever_the_code_reaches_it_and_guarded
     run = run_trials(AGENTS, _raw_and_markup_guarded(), PAGES, base_url=base_url, trials=3)
     hijacked = {(cell.page, cell.condition): cell.hijacked for cell in run.cells()}
     reaches_markdown = {"attribute", "background-colour", "off-screen", "stylesheet", "control"}
-    # A markup-only scan misses the stylesheet; nothing finds the background colour; the control hides nothing.
-    gets_through = {"stylesheet", "background-colour", "control"}
+    # Nothing finds the background colour, and the control hides nothing.
+    gets_through = {"background-colour", "control"}
     for page in PAGES:
         assert hijacked[(page.slug, Condition.RAW)] == (3 if page.slug in reaches_markdown else 0), page.slug
         assert hijacked[(page.slug, Condition.GUARDED)] == (3 if page.slug in gets_through else 0), page.slug

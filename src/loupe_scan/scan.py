@@ -1,8 +1,9 @@
 """Find text in an HTML document that a person looking at the page won't see.
 
-Only the markup is inspected. Stylesheets, scripts and layout are not
-evaluated, so an element hidden by a CSS class is invisible to this scanner;
-loupe_scan.render covers that case by asking a real browser.
+The markup is inspected without a browser. Style attributes and the page's
+own stylesheets are applied for the simple ways CSS hides text, a partial
+check that loupe_scan.stylesheets describes. Scripts and layout are not
+evaluated; loupe_scan.render covers those by asking a real browser.
 """
 
 from __future__ import annotations
@@ -15,21 +16,17 @@ from typing import Final
 from bs4 import BeautifulSoup, Comment, Tag
 
 from loupe_scan.phrases import find_instruction_phrases
-
-# Offsets at or beyond this many pixels to the left or top push content far
-# outside any real viewport. Smaller negative offsets are common in normal
-# layouts (pulling a badge over a border, for example) and would be noise.
-OFFSCREEN_THRESHOLD_PX: Final[float] = 1000.0
-
-# Browsers resolve em and rem against the font size; 16px is the default
-# root size and is close enough for deciding whether something is off-screen.
-_PX_PER_EM: Final[float] = 16.0
+from loupe_scan.stylesheets import (
+    StyleCascade,
+    StylesheetCheck,
+    StylesheetSource,
+    read_page_styles,
+    style_attribute_hiding_reasons,
+)
 
 _LABEL_ATTRIBUTES: Final[tuple[str, ...]] = ("alt", "title", "aria-label")
 _META_KEY_ATTRIBUTES: Final[tuple[str, ...]] = ("name", "property", "http-equiv", "itemprop")
 _NON_CONTENT_TAGS: Final[frozenset[str]] = frozenset({"script", "style", "template"})
-_OFFSET_PROPERTIES: Final[tuple[str, ...]] = ("left", "top", "right", "bottom")
-_LENGTH_PATTERN: Final[re.Pattern[str]] = re.compile(r"^([+-]?(?:\d+\.?\d*|\.\d+))([a-z%]*)$")
 _WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
 
 PER_REQUEST_PLACEHOLDER: Final[str] = "[per-request value removed]"
@@ -49,6 +46,8 @@ class Kind(str, Enum):
     COMMENT = "comment"
     HIDDEN_ATTRIBUTE = "hidden-attribute"
     INLINE_STYLE = "inline-style"
+    # Hidden by a rule in the page's <style> blocks or linked stylesheets, found by the partial stylesheet check.
+    STYLESHEET = "stylesheet"
     ARIA_HIDDEN = "aria-hidden"
     LABEL_ATTRIBUTE = "label-attribute"
     META = "meta"
@@ -105,60 +104,18 @@ def parse_inline_style(style: str) -> dict[str, str]:
     return declarations
 
 
-def _length_in_px(value: str) -> float | None:
-    match = _LENGTH_PATTERN.match(value)
-    if match is None:
-        return None
-    number = float(match.group(1))
-    unit = match.group(2)
-    if unit in ("", "px"):
-        return number
-    if unit in ("em", "rem"):
-        return number * _PX_PER_EM
-    return None
-
-
-def _is_zero_quantity(value: str) -> bool:
-    match = _LENGTH_PATTERN.match(value)
-    return match is not None and float(match.group(1)) == 0.0
-
-
 def inline_style_hiding_reasons(style: str) -> tuple[str, ...]:
-    """Return the declarations in style that make an element invisible to a reader."""
-    declarations = parse_inline_style(style)
-    reasons: list[str] = []
-
-    if declarations.get("display") == "none":
-        reasons.append("display:none")
-    if declarations.get("visibility") in ("hidden", "collapse"):
-        reasons.append(f"visibility:{declarations['visibility']}")
-    if _is_zero_quantity(declarations.get("font-size", "")):
-        reasons.append("font-size:0")
-    if _is_zero_quantity(declarations.get("opacity", "")):
-        reasons.append("opacity:0")
-
-    if declarations.get("position") in ("absolute", "fixed"):
-        for property_name in _OFFSET_PROPERTIES:
-            offset = _length_in_px(declarations.get(property_name, ""))
-            if offset is not None and offset <= -OFFSCREEN_THRESHOLD_PX:
-                reasons.append(f"off-screen {property_name}:{declarations[property_name]}")
-                break
-
-    indent = _length_in_px(declarations.get("text-indent", ""))
-    if indent is not None and indent <= -OFFSCREEN_THRESHOLD_PX:
-        reasons.append(f"off-screen text-indent:{declarations['text-indent']}")
-
-    return tuple(reasons)
+    """Return the declarations in style that make an element invisible to a reader, with no stylesheet applied."""
+    return style_attribute_hiding_reasons(style)
 
 
-def _element_hiding(element: Tag) -> tuple[Kind, str] | None:
+def _element_hiding(element: Tag, cascade: StyleCascade) -> tuple[Kind, str] | None:
     if element.has_attr("hidden"):
         return Kind.HIDDEN_ATTRIBUTE, "hidden"
-    style = element.get("style")
-    if isinstance(style, str):
-        reasons = inline_style_hiding_reasons(style)
-        if reasons:
-            return Kind.INLINE_STYLE, ", ".join(reasons)
+    styled = cascade.hiding(element)
+    if styled is not None:
+        kind = Kind.STYLESHEET if styled.from_stylesheet else Kind.INLINE_STYLE
+        return kind, ", ".join(styled.reasons)
     aria_hidden = element.get("aria-hidden")
     if isinstance(aria_hidden, str) and aria_hidden.strip().lower() == "true":
         return Kind.ARIA_HIDDEN, 'aria-hidden="true"'
@@ -219,13 +176,30 @@ def _is_inside(element: Tag, containers: set[int]) -> bool:
     return any(id(parent) in containers for parent in element.parents)
 
 
+@dataclass(frozen=True)
+class MarkupScan:
+    findings: list[Finding]
+    # What the partial stylesheet check read.
+    stylesheets: StylesheetCheck
+
+
 def scan_html(html: str) -> list[Finding]:
-    """Return findings in document order. Findings with no text are dropped.
+    """Return findings in document order, applying the page's <style> blocks but no linked stylesheet."""
+    return scan_markup(html).findings
+
+
+def scan_markup(html: str, *, page_url: str | None = None, stylesheets: StylesheetSource | None = None) -> MarkupScan:
+    """Return findings in document order, and what the stylesheet check read. Findings with no text are dropped.
+
+    page_url is where the HTML came from, after any redirects. With it and
+    stylesheets, up to MAX_LINKED_STYLESHEETS stylesheets linked from the
+    same host are fetched from stylesheets and applied too.
 
     Text inside a hidden element is reported once, on the outermost hidden
     element, so nested hiding doesn't inflate the counts.
     """
     soup = BeautifulSoup(html, "html.parser")
+    styles = read_page_styles(soup, page_url, stylesheets)
     findings: list[Finding] = []
     hidden_containers: set[int] = set()
 
@@ -266,7 +240,7 @@ def scan_html(html: str) -> list[Finding]:
         if tag_name in _NON_CONTENT_TAGS or _is_inside(node, hidden_containers):
             continue
 
-        hiding = _element_hiding(node)
+        hiding = _element_hiding(node, styles.cascade)
         if hiding is not None:
             hidden_containers.add(id(node))
             text = _visible_text(node)
@@ -280,4 +254,4 @@ def scan_html(html: str) -> list[Finding]:
             if text:
                 findings.append(make_finding(Kind.NOSCRIPT, "<noscript>", tag_name, text, line=node.sourceline))
 
-    return findings
+    return MarkupScan(findings, styles.check)

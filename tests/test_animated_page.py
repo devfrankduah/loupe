@@ -24,7 +24,7 @@ GROUND_TRUTH = PUBLISHED / "ground-truth.md"
 NOT_FLAGGED = "not flagged"
 CLEARED = "cleared"
 NO_TRACE = "none"
-HIDDEN_TEXT_KINDS = frozenset({Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE})
+HIDDEN_TEXT_KINDS = frozenset({Kind.HIDDEN_ATTRIBUTE, Kind.INLINE_STYLE, Kind.STYLESHEET})
 
 
 @dataclass(frozen=True)
@@ -97,8 +97,13 @@ def test_ground_truth_lists_nine_distinct_elements() -> None:
     assert [row.number for row in rows] == list(range(1, 10))
     assert len({row.starts_with for row in rows}) == len(rows)
     assert set(expected_totals()) == {"markup", "rendered"}
-    # Every element the markup scan flags must be one the browser clears.
-    assert {row.number for row in rows if row.markup != NOT_FLAGGED} == {row.number for row in rows if row.rendered == CLEARED}
+    # Every element the markup scan flags for its inline style must be one the browser clears, and every
+    # element its stylesheet check flags must be one the browser also finds hidden.
+    assert {row.number for row in rows if row.markup == "inline-style"} == {
+        row.number for row in rows if row.rendered == CLEARED
+    }
+    assert {row.number for row in rows if row.markup == "stylesheet"} == {6}
+    assert rows[5].rendered.startswith("rendered-hidden")
 
 
 def test_the_fixture_is_the_published_page_and_holds_no_instructions() -> None:

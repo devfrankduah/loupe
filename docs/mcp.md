@@ -17,17 +17,17 @@ Add the `render` extra and `playwright install chromium` too if the agent will a
 ```
 loupe: this page hides text worded like instructions to an AI
 page: https://devfrankduah.github.io/loupe/test-page/
-scan: markup only, fetched from this machine
-found: 7 pieces of hidden text, 3 worded like instructions to an AI, 3 reaching the markdown
-markdown: 3 pieces of hidden text taken out
-note: a markup-only scan misses text hidden by stylesheets and scripts; render=true checks those too
+scan: markup only, with a partial stylesheet check, fetched from this machine
+found: 9 pieces of hidden text, 4 worded like instructions to an AI, 5 reaching the markdown
+markdown: 5 pieces of hidden text taken out
+note: a markup-only scan applies only simple stylesheet rules and runs no scripts; render=true checks both in a browser
 ---
 Quillmore Q6 blender (loupe test page)
 ```
 
 `scan_page(url, render=false)` returns loupe's report on the page as structured data: the verdict, the counts, and each piece of hidden text's kind, how it was hidden, its element, the line its element starts on, its size, whether it's worded like an instruction and whether it reaches the markdown.
 
-With `render=true` the page's HTML is loaded in local Chromium, which also catches text hidden by stylesheets and scripts. It takes seconds to minutes a page, against well under a second for the markup alone.
+Without `render`, the scan applies the page's `<style>` blocks and up to five stylesheets linked from its own host for the simple ways CSS hides text, fetching those stylesheets under the same robots.txt, address and size rules as the page. With `render=true` the page's HTML is loaded in local Chromium, which applies every stylesheet and runs the page's scripts. It takes seconds to minutes a page, against well under a second for the markup alone.
 
 Neither tool quotes hidden text, because repeating a hidden instruction hands it straight to the model. A finding is described by its kind, location and size, and errors are given in loupe's own words, since an error from a site can carry text the site chose. `loupe mcp --quote-hidden-text` lets `scan_page` include each piece of hidden text, cut to 160 characters, for when you're the one reading the report.
 
@@ -45,7 +45,7 @@ loupe decides whether text is worded like an instruction from a short list of ph
 
 - The markdown is loupe's own conversion, made with markdownify, and approximates what other tools produce. Strip guarantees only that loupe's markdown no longer contains the hidden text loupe found. If the agent also fetches the page another way, that copy wasn't checked.
 - Text coloured like its background gets through. loupe doesn't compare text colour with the background, so it counts that text as visible, in both scan modes. Row 8 of the [test page's ground truth](test-page/ground-truth.md) is such a line, and strip leaves it in.
-- Without `render`, text a stylesheet or script hides gets through too. A markup-only scan reads the HTML alone, so on the test page two planted items hidden by a stylesheet class stay in the markdown. The header's `note:` line says so whenever the scan was markup only.
+- Without `render`, text a script hides gets through, and so does text hidden by a stylesheet rule the partial check doesn't apply: one on another host, behind `@import`, or inside `@supports`, `@layer` or a media query it can't settle. On the test page the two items a stylesheet class hides are caught either way. The header's `note:` line says the check was partial whenever the scan was markup only.
 - Hidden text shorter than 12 characters, once punctuation is dropped, stays unless it's worded like an instruction. Words like "Menu" are hidden on many pages and shown elsewhere on them, and taking out every copy would damage the visible text.
 - A finding is matched on its words in order, so hidden text that reaches the markdown with its words changed or reordered can be missed.
 

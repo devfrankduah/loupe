@@ -48,7 +48,7 @@ from loupe_scan.local_fetch import FetchLimits, LocalFetcher, NonPublicAddressEr
 from loupe_scan.render import open_renderer
 from loupe_scan.report import DEFAULT_QUOTE_CHARACTERS, CheckedFinding, PageReport, page_result, quote, verdict
 from loupe_scan.scan import Kind, ScanMode
-from loupe_scan.session import bright_data_client, endpoint_redactor, scan_html_once
+from loupe_scan.session import bright_data_client, endpoint_redactor, fetch_with_address, scan_html_once
 from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words, remove_hidden_text
 
 # About 15,000 tokens of English, which a model can read in one tool result.
@@ -193,6 +193,8 @@ class PageScan(TypedDict):
     in_markdown_count: int
     counts_by_kind: dict[str, int]
     markdown_characters: int | None
+    # What the markup scan's partial stylesheet check read, or None for a rendered scan.
+    stylesheet_check: dict[str, int] | None
     findings: list[FindingDescription]
 
 
@@ -225,6 +227,7 @@ def describe_page(report: PageReport, *, quote_with: Callable[[str], str] | None
         in_markdown_count=sum(item.in_markdown is True for item in report.findings),
         counts_by_kind=report.count_by_kind(),
         markdown_characters=report.markdown_characters,
+        stylesheet_check=None if report.stylesheet_check is None else report.stylesheet_check.to_dict(),
         findings=[
             describe_finding(item, quoted=None if quote_with is None else quote_with(item.finding.text))
             for item in report.findings
@@ -285,7 +288,7 @@ def page_text(report: PageReport, settings: ServerSettings) -> str:
     markdown = report.markdown
     if markdown is None:
         raise ToolError(f"loupe scanned {report.url} but couldn't make markdown from its HTML")
-    how = "rendered in Chromium" if report.mode is ScanMode.RENDERED else "markup only"
+    how = "rendered in Chromium" if report.mode is ScanMode.RENDERED else "markup only, with a partial stylesheet check"
     where = "from this machine" if report.backend is Backend.LOCAL else "through Bright Data"
     lines = [_verdict_line(report), f"page: {report.url}", f"scan: {how}, fetched {where}", _found_line(report)]
     reached = sum(item.in_markdown is True for item in report.findings)
@@ -313,7 +316,10 @@ def page_text(report: PageReport, settings: ServerSettings) -> str:
         lines.append(f"cut: to the first {len(cut):,} of {len(body):,} characters")
         body = cut
     if report.mode is ScanMode.STATIC:
-        lines.append("note: a markup-only scan misses text hidden by stylesheets and scripts; render=true checks those too")
+        lines.append(
+            "note: a markup-only scan applies only simple stylesheet rules and runs no scripts; "
+            "render=true checks both in a browser"
+        )
     lines.append("---")
     text = "\n".join(lines) + "\n"
     return text if body is None else text + body
@@ -374,7 +380,7 @@ class PageScanner:
     def _scan(self, url: str, render: bool) -> FetchedPage:
         mode = ScanMode.RENDERED if render else ScanMode.STATIC
         try:
-            html = self._source.fetch_html(url)
+            html, address = fetch_with_address(self._source, url)
         except PageFetchError as error:
             return FetchedPage(PageReport(url=url, backend=self.backend, mode=mode), _fetch_problem(error))
         if len(html) > self._limits.max_page_bytes:
@@ -386,7 +392,14 @@ class PageScanner:
         try:
             if not render:
                 report = scan_html_once(
-                    html, url, backend=self.backend, markdown=True, supplied=False, keep_markdown=True
+                    html,
+                    url,
+                    backend=self.backend,
+                    markdown=True,
+                    supplied=False,
+                    keep_markdown=True,
+                    stylesheets=self._source if isinstance(self._source, LocalFetcher) else None,
+                    address=address,
                 )
             else:
                 with open_renderer(None) as renderer:

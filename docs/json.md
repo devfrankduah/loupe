@@ -35,6 +35,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 | `counts_by_kind` | object | Findings per kind, leaving out kinds with none. |
 | `instruction_like_count` | integer | Findings worded like an instruction to an AI. These are what `--fail-on instructions` counts. |
 | `survival` | object | How many findings reached the markdown (`survived`), didn't (`dropped`), or weren't compared (`not_compared`). |
+| `stylesheet_check` | object or null | What the markup scan's stylesheet check read, for static scans: `style_blocks`, `linked_read` and `linked_not_read` (other hosts, past the first five, `@import`, or failed), and `uncertain_rules`, rules bearing on hiding it couldn't be sure apply. The check is always partial. null for rendered scans and pages with an error; treat it as null when it's missing, as in files from before it was added. |
 | `rendering` | object or null | How the browser loaded the page, for rendered scans that loaded it. |
 | `findings` | array | Each piece of hidden text. |
 
@@ -43,7 +44,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `mode` | `"static"` or `"rendered"` | Found in the markup, or by the browser. |
-| `kind` | string | `comment`, `hidden-attribute`, `inline-style`, `aria-hidden`, `label-attribute`, `meta`, `noscript` or `rendered-hidden`. |
+| `kind` | string | `comment`, `hidden-attribute`, `inline-style`, `stylesheet`, `aria-hidden`, `label-attribute`, `meta`, `noscript` or `rendered-hidden`. |
 | `detail` | string | How it was hidden, such as `display:none` or `alt`. |
 | `tag` | string | The element it was in. |
 | `text` | string | The hidden text, cut to `--quote-chars` characters (160 unless set; 0 keeps it whole). Per-request meta values such as nonces and CSRF tokens are replaced with a placeholder. |
