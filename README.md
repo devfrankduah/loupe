@@ -122,6 +122,7 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 ## Other ways to run it
 
 - [Use in CI](docs/ci.md): the GitHub Action, with a workflow that scans your site after each deploy and fails when a page hides instructions.
+- [Use with an agent](docs/mcp.md): `loupe mcp`, an MCP server whose `fetch_page` tool hands an agent a page's markdown with its hidden text taken out, set up for Claude Code and Claude Desktop.
 - [Use from Python](docs/python.md): `scan()`, `scan_html()` and `Scanner`, typed, with an example of checking a page before handing it to a model.
 - [Scan many pages](docs/many-pages.md): `--urls-file`, the summary table, and how loupe paces its requests to each site.
 

@@ -51,8 +51,7 @@ from loupe_scan.scan import Kind, ScanMode
 from loupe_scan.session import bright_data_client, endpoint_redactor, scan_html_once
 from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words, remove_hidden_text
 
-# About 15,000 tokens of English: well inside the 25,000-token default that
-# Claude Code allows a tool's output, with room for the header.
+# About 15,000 tokens of English, which a model can read in one tool result.
 DEFAULT_MAX_CHARACTERS: Final[int] = 60_000
 EXIT_SETUP_FAILED: Final[int] = 2
 
