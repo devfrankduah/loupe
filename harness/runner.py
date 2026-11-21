@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import random
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Final
+from typing import Final, Protocol
 
-from harness.agents import DEFAULT_TASK, AgentFactory
+from harness.agents import DEFAULT_TASK, Agent, AgentFactory, Metered, Usage
 from harness.pages import CanaryPage
 from harness.scoring import canary_found, wilson_interval
 from harness.tools import CachedTool, PageTool
@@ -32,6 +33,9 @@ class Trial:
     hijacked: bool | None
     answer: str | None
     error: str | None = None
+    # What the answer used, from an agent that counts it, and how long the trial took.
+    usage: Usage | None = None
+    seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,8 @@ class Run:
     # How each condition's tool was set up, in words, for the results.
     conditions: Mapping[Condition, str]
     trials: tuple[Trial, ...] = field(repr=False)
+    # Why the run stopped before every trial ran, or None when it finished.
+    stopped: str | None = None
 
     def cells(self) -> list[Cell]:
         """Every agent, page and condition, in agent, page and condition order."""
@@ -92,18 +98,39 @@ class Run:
         return cells
 
 
+class Budget(Protocol):
+    """Decides before each trial whether the run may go on, and hears what each trial used."""
+
+    def stop_reason(self, agent: str) -> str | None: ...
+
+    def charge(self, agent: str, usage: Usage) -> None: ...
+
+
+def _usage(agent: Agent | None) -> Usage | None:
+    return agent.usage if isinstance(agent, Metered) else None
+
+
 def _one_trial(
     agent_name: str, factory: AgentFactory, tool: PageTool, page: CanaryPage, url: str, task: str, number: int, condition: Condition
 ) -> Trial:
+    started = time.monotonic()
+    agent: Agent | None = None
     try:
-        answer = factory(tool).answer(url, task)
+        agent = factory(tool)
+        answer = agent.answer(url, task)
     except Exception as error:
         # An adapter talks to a model API, and any failure there, from a rate
         # limit to a bug, should cost one trial rather than the run. It is
-        # recorded, not counted.
+        # recorded, not counted, with whatever the failed answer had used.
         message = f"{type(error).__name__}: {error}"[:_ERROR_CHARACTERS]
-        return Trial(agent_name, page.slug, condition, number, hijacked=None, answer=None, error=message)
-    return Trial(agent_name, page.slug, condition, number, hijacked=canary_found(answer, page.code), answer=answer)
+        return Trial(
+            agent_name, page.slug, condition, number, hijacked=None, answer=None, error=message,
+            usage=_usage(agent), seconds=time.monotonic() - started,
+        )
+    return Trial(
+        agent_name, page.slug, condition, number, hijacked=canary_found(answer, page.code), answer=answer,
+        usage=_usage(agent), seconds=time.monotonic() - started,
+    )
 
 
 def run_trials(
@@ -117,12 +144,15 @@ def run_trials(
     seed: int = 0,
     describe: Callable[[PageTool], str] = repr,
     on_trial: Callable[[Trial], None] = lambda trial: None,
+    budget: Budget | None = None,
 ) -> Run:
     """Run every agent on every page in every condition, trials times each, in an order shuffled by seed.
 
     Each condition's tool fetches each URL once for the whole run. Each trial
     builds a fresh agent around the condition's tool, so no conversation
-    carries over from one trial to the next.
+    carries over from one trial to the next. A budget, when given, is asked
+    before every trial and can stop the run there; the trials run so far
+    are kept.
     """
     if trials < 1:
         raise ValueError("a run needs at least one trial per cell")
@@ -140,10 +170,17 @@ def run_trials(
     ]
     random.Random(seed).shuffle(order)
     results: list[Trial] = []
+    stopped: str | None = None
     for agent, page, condition, number in order:
+        if budget is not None:
+            stopped = budget.stop_reason(agent)
+            if stopped is not None:
+                break
         url = page.url(base_url)
         trial = _one_trial(agent, agents[agent], cached[condition], page, url, task.format(url=url), number, condition)
         results.append(trial)
+        if budget is not None and trial.usage is not None:
+            budget.charge(agent, trial.usage)
         on_trial(trial)
     return Run(
         pages=tuple(pages),
@@ -154,4 +191,5 @@ def run_trials(
         base_url=base_url,
         conditions={condition: describe(tool) for condition, tool in tools.items()},
         trials=tuple(results),
+        stopped=stopped,
     )

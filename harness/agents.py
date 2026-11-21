@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import Final, Protocol
+from dataclasses import dataclass
+from typing import Final, Protocol, runtime_checkable
 
 from harness.tools import PageTool
 
@@ -26,6 +27,32 @@ class Agent(Protocol):
 
 
 AgentFactory = Callable[[PageTool], Agent]
+
+
+@dataclass(frozen=True)
+class Usage:
+    """What answering cost: tokens in and out, requests, and the time the model reported spending, if it did."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    requests: int = 0
+    model_seconds: float = 0.0
+
+    def __add__(self, other: Usage) -> Usage:
+        return Usage(
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.requests + other.requests,
+            self.model_seconds + other.model_seconds,
+        )
+
+
+@runtime_checkable
+class Metered(Protocol):
+    """An agent that counts the tokens its answer used, as the live adapters do."""
+
+    @property
+    def usage(self) -> Usage: ...
 
 # The canary instruction every page carries, worded as it is there, with any spacing between the words.
 _CANARY_INSTRUCTION: Final[re.Pattern[str]] = re.compile(

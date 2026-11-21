@@ -1,16 +1,55 @@
-"""What a run costs on a model API, from the tokens a trial uses and the model's prices."""
+"""What a run costs: dollars on a model API, time on a local model, and the guard that keeps spending under a limit."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from harness.agents import Usage
+
 # docs/design/harness.md explains these: two requests a trial, a few hundred
-# tokens of page, and room for a model that reasons before answering.
+# tokens of page, and every request capped at 150 output tokens, thinking
+# included, so a trial is at most 300 out.
 INPUT_TOKENS_PER_TRIAL: Final[int] = 1_100
-OUTPUT_TOKENS_PER_TRIAL: Final[int] = 900
+REQUESTS_PER_TRIAL: Final[int] = 2
+DEFAULT_MAX_TOKENS: Final[int] = 150
+OUTPUT_TOKENS_PER_TRIAL: Final[int] = REQUESTS_PER_TRIAL * DEFAULT_MAX_TOKENS
 DEFAULT_PAGES: Final[int] = 8
 DEFAULT_CONDITIONS: Final[int] = 2
+# A guess at a small model on an Apple silicon laptop, until a pilot measures it.
+DEFAULT_PROMPT_TOKENS_PER_SECOND: Final[float] = 400.0
+DEFAULT_OUTPUT_TOKENS_PER_SECOND: Final[float] = 30.0
+
+
+@dataclass(frozen=True)
+class Price:
+    """Dollars per million tokens."""
+
+    input: float
+    output: float
+
+    def __post_init__(self) -> None:
+        if self.input < 0 or self.output < 0:
+            raise ValueError("a price must not be negative")
+
+    def dollars(self, usage: Usage) -> float:
+        return (usage.input_tokens * self.input + usage.output_tokens * self.output) / 1_000_000
+
+
+FREE: Final[Price] = Price(0.0, 0.0)
+
+# List prices read on 20 November 2026, as in docs/design/harness.md, by the
+# model's harness name. Gemini's API names weren't on its pricing page, so a
+# Gemini model is priced with --price.
+PRICES: Final[dict[str, Price]] = {
+    "anthropic:claude-opus-5-5": Price(4.00, 20.00),
+    "anthropic:claude-sonnet-5-5": Price(2.00, 10.00),
+    "anthropic:claude-haiku-5-5": Price(0.10, 0.50),
+    "openai:gpt-6.2-astra": Price(8.00, 40.00),
+    "openai:gpt-6.2-sol": Price(2.00, 10.00),
+    "openai:gpt-6-luna": Price(0.10, 0.50),
+}
 
 
 @dataclass(frozen=True)
@@ -49,3 +88,59 @@ def estimate(
     output_tokens = trials * output_tokens_per_trial
     dollars = (input_tokens * input_price + output_tokens * output_price) / 1_000_000
     return Estimate(trials=trials, input_tokens=input_tokens, output_tokens=output_tokens, dollars=dollars)
+
+
+@dataclass(frozen=True)
+class Speed:
+    """How fast a local model reads a prompt and writes its answer, in tokens a second."""
+
+    prompt: float = DEFAULT_PROMPT_TOKENS_PER_SECOND
+    output: float = DEFAULT_OUTPUT_TOKENS_PER_SECOND
+
+    def __post_init__(self) -> None:
+        if self.prompt <= 0 or self.output <= 0:
+            raise ValueError("a speed must be more than 0 tokens a second")
+
+    def seconds(self, input_tokens: int, output_tokens: int) -> float:
+        return input_tokens / self.prompt + output_tokens / self.output
+
+
+class Spend:
+    """Keeps a run's spending at or under max_dollars: no trial starts that its estimate says would go over.
+
+    A trial's estimate is the larger of the planned cost of one trial and the
+    average of what that agent's trials have cost so far. Free agents, local
+    models and the fake, never stop a run.
+    """
+
+    def __init__(self, max_dollars: float, prices: Mapping[str, Price], planned_per_trial: Mapping[str, float]) -> None:
+        if max_dollars < 0:
+            raise ValueError("max_dollars must not be negative")
+        self.max_dollars = max_dollars
+        self.spent = 0.0
+        self._prices = dict(prices)
+        self._planned = dict(planned_per_trial)
+        self._charged: dict[str, tuple[float, int]] = {}
+
+    def __repr__(self) -> str:
+        return f"Spend(${self.spent:.4f} of ${self.max_dollars:.2f})"
+
+    def _next_trial(self, agent: str) -> float:
+        dollars, trials = self._charged.get(agent, (0.0, 0))
+        average = dollars / trials if trials else 0.0
+        return max(self._planned.get(agent, 0.0), average)
+
+    def stop_reason(self, agent: str) -> str | None:
+        next_trial = self._next_trial(agent)
+        if next_trial > 0 and self.spent + next_trial > self.max_dollars:
+            return (
+                f"stopped at ${self.spent:.2f} spent: the next trial of {agent} would cost about ${next_trial:.4f}, "
+                f"going over --max-cost ${self.max_dollars:.2f}"
+            )
+        return None
+
+    def charge(self, agent: str, usage: Usage) -> None:
+        dollars = self._prices.get(agent, FREE).dollars(usage)
+        self.spent += dollars
+        previous, trials = self._charged.get(agent, (0.0, 0))
+        self._charged[agent] = (previous + dollars, trials + 1)

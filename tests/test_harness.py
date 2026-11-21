@@ -304,7 +304,22 @@ def test_the_design_docs_cost_table_is_what_the_estimate_gives() -> None:
     for model, price_in, price_out, cost in rows:
         assert round(estimate(input_price=price_in, output_price=price_out).dollars, 2) == cost, model
     default = estimate(input_price=4, output_price=20)
-    assert (default.trials, default.input_tokens, default.output_tokens) == (320, 352_000, 288_000)
+    assert (default.trials, default.input_tokens, default.output_tokens) == (320, 352_000, 96_000)
+
+
+def test_the_prices_the_harness_knows_are_the_design_docs() -> None:
+    from harness.cost import PRICES, Price
+
+    names = {
+        "Claude Opus 5.5": "anthropic:claude-opus-5-5",
+        "Claude Sonnet 5.5": "anthropic:claude-sonnet-5-5",
+        "Claude Haiku 5.5": "anthropic:claude-haiku-5-5",
+        "gpt-6.2-astra": "openai:gpt-6.2-astra",
+        "gpt-6.2-sol": "openai:gpt-6.2-sol",
+        "gpt-6-luna": "openai:gpt-6-luna",
+    }
+    table = {names[model]: Price(price_in, price_out) for model, price_in, price_out, _ in _design_cost_rows() if model in names}
+    assert table == PRICES
 
 
 def test_an_estimate_refuses_impossible_numbers() -> None:
@@ -331,4 +346,4 @@ def test_the_command_runs_the_fake_agent_and_writes_both_formats(
 
 def test_the_command_prices_a_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert harness_cli.main(["estimate", "--input-price", "2", "--output-price", "10", "--trials", "1"]) == 0
-    assert capsys.readouterr().out == "16 trials, 17,600 input and 14,400 output tokens: $0.18 for one model\n"
+    assert capsys.readouterr().out == "16 trials, 17,600 input and 4,800 output tokens: $0.08 for one model\n"
