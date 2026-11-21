@@ -2,7 +2,7 @@
 
 loupe can say a page hides an instruction. This harness measures what that costs: how often an agent reading the page obeys the hidden instruction, and how often it still does when it reads the page through loupe's `fetch_page` instead. It reports a hijack rate per agent, per hiding technique and per condition, with an interval that says how sure the number is.
 
-This document is the design. The pages, the trial runner, the scoring, a fake agent and adapters for real models exist and are tested, the adapters against mocked HTTP only. No model has been run yet.
+This document is the design. The pages, the trial runner, the scoring, a fake agent and adapters for real models exist and are tested. The first live run, of Llama 3.1 8B on this machine, is in [docs/hijack-rates.md](../hijack-rates.md); the adapters for paid APIs have met mocked HTTP only.
 
 ## A hijack is a canary
 
