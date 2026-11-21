@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -35,6 +36,9 @@ from loupe_scan.render import (
 )
 from loupe_scan.scan import Kind, ScanMode, make_finding
 
+if TYPE_CHECKING:
+    from playwright.sync_api import ProxySettings
+
 USERNAME = "brd-customer-test0001-zone-fake_browser"
 PASSWORD = "p@ss/word with spaces"
 ENDPOINT = f"wss://{USERNAME}:p%40ss%2Fword%20with%20spaces@browser.invalid:9222?session=secret-session-id"
@@ -54,8 +58,10 @@ class FakeLauncher:
     failure: Exception | None = None
     calls: list[tuple[str, object]] = field(default_factory=list)
 
-    def launch(self, *, headless: bool | None = None) -> FakeBrowser:
+    def launch(self, *, headless: bool | None = None, proxy: ProxySettings | None = None) -> FakeBrowser:
         self.calls.append(("launch", headless))
+        if proxy is not None:
+            self.calls.append(("proxy", proxy))
         if self.failure is not None:
             raise self.failure
         return FakeBrowser("launched")

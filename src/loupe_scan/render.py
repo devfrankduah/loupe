@@ -40,13 +40,14 @@ a page whose count is zero, or whose images weren't blocked, fails.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import importlib.resources
 import json
 import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Final, Generic, Literal, Protocol, TypeVar
@@ -57,11 +58,12 @@ from bs4.element import CData, NavigableString
 
 from loupe_scan.blocking import blocked_by_answer, blocked_by_content
 from loupe_scan.errors import BlockedError, SetupError
+from loupe_scan.public_proxy import Admit, PublicOnlyProxy
 from loupe_scan.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
 from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Browser, CDPSession, Page, Playwright, Request, Route
+    from playwright.sync_api import Browser, CDPSession, Page, Playwright, ProxySettings, Request, Route
 
 BROWSER_ENDPOINT_VARIABLE: Final[str] = "BRIGHTDATA_BROWSER_WSS"
 
@@ -283,7 +285,7 @@ BrowserT = TypeVar("BrowserT", bound=Closeable)
 class BrowserLauncher(Protocol[BrowserT_co]):
     """The part of Playwright's BrowserType used here, so tests can pass a fake."""
 
-    def launch(self, *, headless: bool | None = None) -> BrowserT_co: ...
+    def launch(self, *, headless: bool | None = None, proxy: ProxySettings | None = None) -> BrowserT_co: ...
 
     def connect_over_cdp(self, endpoint_url: str, *, timeout: float | None = None) -> BrowserT_co: ...
 
@@ -366,10 +368,12 @@ def _first_line(error: BaseException) -> str:
     return line[:_ERROR_MESSAGE_LIMIT]
 
 
-def acquire_browser(launcher: BrowserLauncher[BrowserT], endpoint: str | None, settings: RenderSettings) -> BrowserT:
+def acquire_browser(
+    launcher: BrowserLauncher[BrowserT], endpoint: str | None, settings: RenderSettings, proxy: ProxySettings | None = None
+) -> BrowserT:
     if endpoint is None:
         try:
-            return launcher.launch(headless=True)
+            return launcher.launch(headless=True) if proxy is None else launcher.launch(headless=True, proxy=proxy)
         except Exception as error:
             message = _first_line(error)
             if "Executable doesn't exist" in message:
@@ -1029,7 +1033,11 @@ def render_page(
 
 
 class Renderer(Generic[BrowserT]):
-    """Renders pages one at a time, each in a browser of its own."""
+    """Renders pages one at a time, each in a browser of its own.
+
+    With a guard, local Chromium sends every request through it, loopback
+    included, and each page's notes say how many requests it refused.
+    """
 
     def __init__(
         self,
@@ -1037,12 +1045,16 @@ class Renderer(Generic[BrowserT]):
         endpoint: str | None,
         settings: RenderSettings,
         render_in: Callable[[BrowserT, str, RenderSettings, Callable[[str], str], str | None], RenderedPage],
+        guard: PublicOnlyProxy | None = None,
     ) -> None:
+        if guard is not None and endpoint is not None:
+            raise RenderSetupError("only local Chromium can be kept to public addresses")
         self._launcher = launcher
         self._endpoint = endpoint
         self._settings = settings
         self._render_in = render_in
         self._redact = EndpointRedactor(endpoint)
+        self._guard = guard
 
     def __repr__(self) -> str:
         return f"Renderer(source={self.source.value!r})"
@@ -1069,11 +1081,25 @@ class Renderer(Generic[BrowserT]):
         # A fresh browser per page keeps one site's state from reaching the
         # next, and doesn't rely on a remote session allowing more than one
         # navigation.
-        browser = acquire_browser(self._launcher, self._endpoint, self._settings)
+        proxy: ProxySettings | None = None
+        refused_before = 0
+        if self._guard is not None:
+            # Chromium skips its proxy for loopback unless told otherwise.
+            proxy = {"server": self._guard.url, "bypass": "<-loopback>"}
+            refused_before = self._guard.refused
+        browser = acquire_browser(self._launcher, self._endpoint, self._settings, proxy)
         try:
-            return self._render_in(browser, url, self._settings, self._redact, html)
+            rendered = self._render_in(browser, url, self._settings, self._redact, html)
         finally:
             _close_quietly(browser)
+        if self._guard is None or self._guard.refused == refused_before:
+            return rendered
+        refused = self._guard.refused - refused_before
+        note = (
+            f"refused {refused} request{'' if refused == 1 else 's'} the page made to a private, loopback or other "
+            "non-public address"
+        )
+        return dataclasses.replace(rendered, notes=(*rendered.notes, note))
 
 
 def _start_playwright() -> Playwright:
@@ -1088,10 +1114,25 @@ def _start_playwright() -> Playwright:
 
 
 @contextmanager
-def open_renderer(endpoint: str | None, settings: RenderSettings | None = None) -> Iterator[Renderer[Browser]]:
-    """A renderer that connects to endpoint, a CDP websocket URL, or launches local Chromium when it's None."""
+def open_renderer(
+    endpoint: str | None,
+    settings: RenderSettings | None = None,
+    *,
+    public_only: bool = False,
+    admit: Admit | None = None,
+) -> Iterator[Renderer[Browser]]:
+    """A renderer that connects to endpoint, a CDP websocket URL, or launches local Chromium when it's None.
+
+    With public_only, local Chromium reaches public addresses only, as loupe
+    mcp's fetches do: every request it makes goes through a PublicOnlyProxy,
+    which checks each one with admit (public addresses, unless given).
+    """
+    if public_only and endpoint is not None:
+        raise RenderSetupError("only local Chromium can be kept to public addresses")
     playwright = _start_playwright()
     try:
-        yield Renderer(playwright.chromium, endpoint, settings or settings_for(endpoint), render_page)
+        with ExitStack() as guards:
+            guard = guards.enter_context(PublicOnlyProxy(admit)) if public_only else None
+            yield Renderer(playwright.chromium, endpoint, settings or settings_for(endpoint), render_page, guard)
     finally:
         playwright.stop()

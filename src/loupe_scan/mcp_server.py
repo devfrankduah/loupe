@@ -19,7 +19,8 @@ size. Errors are described in loupe's own fixed words, since a fetch error
 can carry text the site chose.
 
 robots.txt, Crawl-delay, the timeouts, the 10 MB page limit, public
-addresses only and one page at a time are all set when the server starts. A
+addresses only (for Chromium's requests in a rendered scan too) and one page
+at a time are all set when the server starts. A
 tool call has only a URL and render to give, so nothing in one can turn them
 off.
 """
@@ -404,7 +405,8 @@ class PageScanner:
                     address=address,
                 )
             else:
-                with open_renderer(None) as renderer:
+                # Chromium fetches the page's stylesheets, scripts and frames itself, so it's held to the same addresses.
+                with open_renderer(None, public_only=not self.settings.allow_private_addresses) as renderer:
                     report = scan_html_once(
                         html,
                         url,
