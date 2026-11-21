@@ -49,6 +49,8 @@ def run_to_dict(run: Run) -> dict[str, object]:
                 "input_tokens": None if trial.usage is None else trial.usage.input_tokens,
                 "output_tokens": None if trial.usage is None else trial.usage.output_tokens,
                 "requests": None if trial.usage is None else trial.usage.requests,
+                "prompt_seconds": None if trial.usage is None else round(trial.usage.prompt_seconds, 3),
+                "output_seconds": None if trial.usage is None else round(trial.usage.output_seconds, 3),
                 "seconds": round(trial.seconds, 3),
             }
             for trial in run.trials
@@ -81,12 +83,19 @@ def _usage_lines(run: Run, agent: str) -> list[str]:
     input_tokens = sum(trial.usage.input_tokens for trial in measured if trial.usage is not None)
     output_tokens = sum(trial.usage.output_tokens for trial in measured if trial.usage is not None)
     seconds = sum(trial.seconds for trial in measured)
+    prompt_seconds = sum(trial.usage.prompt_seconds for trial in measured if trial.usage is not None)
+    output_seconds = sum(trial.usage.output_seconds for trial in measured if trial.usage is not None)
     count = len(measured)
-    return [
-        "",
+    line = (
         f"Used {input_tokens:,} input and {output_tokens:,} output tokens over {count:,} trial{'' if count == 1 else 's'}: "
-        f"{input_tokens / count:,.0f} in, {output_tokens / count:,.0f} out and {seconds / count:,.1f} s a trial.",
-    ]
+        f"{input_tokens / count:,.0f} in, {output_tokens / count:,.0f} out and {seconds / count:,.1f} s a trial."
+    )
+    if prompt_seconds > 0 and output_seconds > 0:
+        line += (
+            f" The model read {input_tokens / prompt_seconds:,.0f} prompt tokens and wrote "
+            f"{output_tokens / output_seconds:,.0f} output tokens a second."
+        )
+    return ["", line]
 
 
 def run_to_markdown(run: Run) -> str:

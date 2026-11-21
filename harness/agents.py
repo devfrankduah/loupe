@@ -31,19 +31,22 @@ AgentFactory = Callable[[PageTool], Agent]
 
 @dataclass(frozen=True)
 class Usage:
-    """What answering cost: tokens in and out, requests, and the time the model reported spending, if it did."""
+    """What answering cost: tokens in and out, requests, and the time a local model reported reading and writing."""
 
     input_tokens: int = 0
     output_tokens: int = 0
     requests: int = 0
-    model_seconds: float = 0.0
+    # Seconds spent reading the prompt and writing the output, as Ollama reports them; 0 when not reported.
+    prompt_seconds: float = 0.0
+    output_seconds: float = 0.0
 
     def __add__(self, other: Usage) -> Usage:
         return Usage(
             self.input_tokens + other.input_tokens,
             self.output_tokens + other.output_tokens,
             self.requests + other.requests,
-            self.model_seconds + other.model_seconds,
+            self.prompt_seconds + other.prompt_seconds,
+            self.output_seconds + other.output_seconds,
         )
 
 

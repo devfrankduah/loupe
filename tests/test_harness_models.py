@@ -89,7 +89,8 @@ def _call_reply(provider: Provider, url: str) -> dict[str, object]:
     if provider is Provider.OLLAMA:
         return {
             "message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "fetch_page", "arguments": {"url": url}}}]},
-            "done": True, "done_reason": "stop", "prompt_eval_count": 120, "eval_count": 20, "total_duration": 2_000_000_000,
+            "done": True, "done_reason": "stop", "prompt_eval_count": 120, "eval_count": 20,
+            "prompt_eval_duration": 300_000_000, "eval_duration": 1_000_000_000,
         }
     if provider is Provider.ANTHROPIC:
         return {
@@ -122,7 +123,7 @@ def _call_reply(provider: Provider, url: str) -> dict[str, object]:
 
 def _answer_reply(provider: Provider, text: str) -> dict[str, object]:
     if provider is Provider.OLLAMA:
-        return {"message": {"role": "assistant", "content": text}, "done": True, "done_reason": "stop", "prompt_eval_count": 400, "eval_count": 30, "total_duration": 3_000_000_000}
+        return {"message": {"role": "assistant", "content": text}, "done": True, "done_reason": "stop", "prompt_eval_count": 400, "eval_count": 30, "prompt_eval_duration": 700_000_000, "eval_duration": 1_500_000_000}
     if provider is Provider.ANTHROPIC:
         return {"id": "msg_2", "type": "message", "role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 700, "output_tokens": 60}}
     if provider is Provider.OPENAI:
@@ -323,6 +324,35 @@ def test_the_tool_fetches_only_the_trials_page() -> None:
     assert api.sent[1].body["messages"][-1]["content"] == f"Error: this tool fetches only {URL}."  # type: ignore[index]
 
 
+def _written(text: str) -> dict[str, object]:
+    return {"message": {"role": "assistant", "content": text}, "done": True, "done_reason": "stop"}
+
+
+def test_a_tool_call_a_local_model_writes_out_as_its_reply_is_run_as_a_call() -> None:
+    # Llama 3.1 sometimes writes a call to a tool it wasn't given instead of answering.
+    api = ScriptedApi([(200, _call_reply(Provider.OLLAMA, URL)), (200, _written('{"name": "parse_html", "parameters": {"url": "x"}}')), (200, _answer_reply(Provider.OLLAMA, "Done."))])
+    tool = Tool()
+    assert _model(Provider.OLLAMA, api)(tool).answer(URL, TASK) == "Done."
+    assert tool.fetched == [URL]
+    assert api.sent[2].body["messages"][-1] == {"role": "tool", "tool_name": "parse_html", "content": "Error: there's no tool called 'parse_html'; the tool is fetch_page."}  # type: ignore[index]
+    written = '<|python_tag|>{"name": "fetch_page", "arguments": "{\\"url\\": \\"' + URL + '\\"}"}'
+    api = ScriptedApi([(200, _written(written)), (200, _answer_reply(Provider.OLLAMA, "Read it."))])
+    tool = Tool()
+    assert _model(Provider.OLLAMA, api)(tool).answer(URL, TASK) == "Read it."
+    assert tool.fetched == [URL]
+
+
+@pytest.mark.parametrize("text", ['{"summary": "bread"}', '{"name": "Ann", "age": 3}', '{"name": 3, "parameters": {}}', '{"name": "x"} and more', "{not json}"])
+def test_a_reply_that_only_looks_like_json_is_an_answer(text: str) -> None:
+    assert _model(Provider.OLLAMA, ScriptedApi([(200, _written(text))]))(Tool()).answer(URL, TASK) == text
+
+
+def test_writing_out_tool_calls_forever_is_an_error() -> None:
+    api = ScriptedApi([(200, _written('{"name": "parse_html", "parameters": {}}'))] * (MAX_TOOL_CALLS + 1))
+    with pytest.raises(ModelError, match=f"more than {MAX_TOOL_CALLS} times"):
+        _model(Provider.OLLAMA, api)(Tool()).answer(URL, TASK)
+
+
 def test_an_answer_that_keeps_calling_the_tool_is_an_error() -> None:
     api = ScriptedApi([(200, _call_reply(Provider.ANTHROPIC, URL))] * (MAX_TOOL_CALLS + 1))
     with pytest.raises(ModelError, match=f"more than {MAX_TOOL_CALLS} times"):
@@ -367,10 +397,11 @@ def test_a_live_model_runs_like_the_fake_and_its_usage_is_kept(base_url: str) ->
     for page in pages:
         assert hijacked[("ollama:obedient", page.slug)] == hijacked[("obedient-fake", page.slug)], page.slug
     live = [trial for trial in run.trials if trial.agent == "ollama:obedient"]
-    assert all(trial.usage == Usage(520, 50, 2, 5.0) for trial in live)
+    assert all(trial.usage == Usage(520, 50, 2, 1.0, 2.5) for trial in live)
     trials = json.loads(json.dumps(run_to_dict(run)))["trials"]
     assert {(trial["input_tokens"], trial["output_tokens"]) for trial in trials if trial["agent"] == "ollama:obedient"} == {(520, 50)}
     assert "Used 4,160 input and 400 output tokens over 8 trials: 520 in, 50 out" in run_to_markdown(run)
+    assert "The model read 520 prompt tokens and wrote 20 output tokens a second." in run_to_markdown(run)
 
 
 @dataclass

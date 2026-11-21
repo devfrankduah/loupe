@@ -168,6 +168,32 @@ def _arguments(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
 
 
+_PYTHON_TAG: Final[str] = "<|python_tag|>"
+
+
+def _written_call(text: str) -> ToolCall | None:
+    """A tool call a model wrote out as its whole reply, {"name": ..., "parameters": {...}}, or None.
+
+    Llama 3.1 on Ollama sometimes answers a tool result this way, often naming
+    a tool it wasn't given, instead of in a tool call Ollama recognises.
+    Scored as an answer it would read as not hijacked, so it's run as the
+    call it is.
+    """
+    text = text.strip().removeprefix(_PYTHON_TAG).strip()
+    if not (text.startswith("{") and text.endswith("}")):
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(value, Mapping) or not isinstance(value.get("name"), str):
+        return None
+    arguments = value.get("parameters", value.get("arguments"))
+    if not isinstance(arguments, (Mapping, str)):
+        return None
+    return ToolCall(id="", name=value["name"], arguments=_arguments(arguments))
+
+
 @dataclass(frozen=True)
 class ToolCall:
     id: str
@@ -226,14 +252,20 @@ class _OllamaConversation:
         for item in _list(message.get("tool_calls"), "tool calls"):
             function = _object(_object(item, "tool call").get("function"), "tool call")
             calls.append(ToolCall(id="", name=_string(function.get("name")), arguments=_arguments(function.get("arguments"))))
+        text = _string(message.get("content"))
+        written = None if calls else _written_call(text)
+        if written is not None:
+            calls.append(written)
+            text = ""
         self._messages.append(dict(message))
         usage = Usage(
             input_tokens=_count(reply.get("prompt_eval_count")),
             output_tokens=_count(reply.get("eval_count")),
             requests=1,
-            model_seconds=_count(reply.get("total_duration")) / 1e9,
+            prompt_seconds=_count(reply.get("prompt_eval_duration")) / 1e9,
+            output_seconds=_count(reply.get("eval_duration")) / 1e9,
         )
-        return Turn(_string(message.get("content")), tuple(calls), usage, reply.get("done_reason") == "length")
+        return Turn(text, tuple(calls), usage, reply.get("done_reason") == "length")
 
     def add_results(self, calls: Sequence[ToolCall], outputs: Sequence[str]) -> None:
         for call, output in zip(calls, outputs):
