@@ -14,7 +14,16 @@ Only the project's owner can do these, on pypi.org and on GitHub, and nothing is
    - Environment name: `pypi`
 
    PyPI's guide is [Creating a PyPI project with a Trusted Publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/). A pending publisher doesn't reserve the name: if someone else registers `loupe-scan` before the first release, the pending publisher stops working. Once the project exists, its publishers are managed from the project's own settings, as in [Adding a Trusted Publisher to an existing PyPI project](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
-2. On GitHub, in the repository's Settings, under Environments, create an environment named `pypi`, as GitHub's [Managing environments for deployment](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment) describes. Adding yourself as a required reviewer makes every publish wait for your approval, and limiting its deployments to tags matching `v*` keeps anything else from using it. PyPI calls the environment optional but strongly recommends it.
+2. On GitHub, in the repository's Settings, under Environments, create an environment named `pypi`, as GitHub's [Managing environments for deployment](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment) describes. Adding yourself as a required reviewer makes every publish wait for your approval, and limiting its deployments to tags matching `v*` keeps anything else from using it. PyPI calls the environment optional but strongly recommends it. With the GitHub CLI signed in as the repository's owner, these two commands create it with you as its required reviewer, `56163058` being your GitHub user id, and deployments limited to tags matching `v*`:
+
+   ```
+   gh api --method PUT repos/devfrankduah/loupe/environments/pypi --input - <<'EOF'
+   {"reviewers": [{"type": "User", "id": 56163058}], "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+   EOF
+   gh api --method POST repos/devfrankduah/loupe/environments/pypi/deployment-branch-policies -f name='v*' -f type=tag
+   ```
+
+   `gh api repos/devfrankduah/loupe/environments/pypi` shows the result.
 
 There's no token or secret to add anywhere.
 
