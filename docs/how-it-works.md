@@ -8,7 +8,7 @@ loupe has two backends. The local backend loads pages from this machine and need
 
 ### The local backend
 
-A markup scan on the local backend fetches the HTML with one GET per page, sent as `loupe/0.1.0 (+https://github.com/devfrankduah/loupe)` so a site can see who's asking. It gives up after 10 seconds connecting, 30 seconds without data or about 60 seconds in all, follows at most 5 redirects and stops reading at 10 MB. A page that isn't HTML, such as a PDF, is an error.
+A markup scan on the local backend fetches the HTML with one GET per page, sent as `loupe/0.2.0 (+https://github.com/devfrankduah/loupe)` so a site can see who's asking. It gives up after 10 seconds connecting, 30 seconds without data or about 60 seconds in all, follows at most 5 redirects and stops reading at 10 MB. A page that isn't HTML, such as a PDF, is an error.
 
 Before each request, including each redirect, loupe reads the site's robots.txt (once per site per run) and obeys it, using [Protego](https://github.com/scrapy/protego) for the `*` and `$` patterns of RFC 9309. Following RFC 9309, a robots.txt that's missing or answers with a 4xx allows everything, and one that can't be read (a 5xx, a 429 or a network error) disallows everything. A `Crawl-delay` is waited out between requests to the same site, up to 30 seconds; a longer one stops the second page from that site. `--ignore-robots` skips all of this, for pages you own or have permission to scan.
 

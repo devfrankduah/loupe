@@ -6,7 +6,7 @@ abstract: Scans web pages for hidden text that reaches AI agents, using Bright D
 authors:
   - given-names: Frank
     family-names: Duah
-version: 0.1.0
+version: 0.2.0
 license: MIT
 repository-code: https://github.com/devfrankduah/loupe
 url: https://devfrankduah.github.io/loupe/
