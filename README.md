@@ -3,14 +3,14 @@
 Scans web pages for hidden text that reaches AI agents. It runs on your own machine with Playwright, or through Bright Data's APIs for sites that block bots.
 
 [![Tests](https://github.com/devfrankduah/loupe/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/devfrankduah/loupe/actions/workflows/tests.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Python 3.10 or newer](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/devfrankduah/loupe/blob/main/LICENSE)
+[![Python 3.10 or newer](https://img.shields.io/badge/python-3.10%2B-blue)](https://github.com/devfrankduah/loupe/blob/main/pyproject.toml)
 
 loupe shows what a web page feeds an AI agent that a person reading the same page never sees: HTML comments, text hidden with markup or CSS, `alt` and `title` text, and anything a real browser never draws. It checks whether that text survives into the markdown many agents are given, and flags the pieces worded like instructions to a model. It's for anyone building an agent that reads web pages and wants to know what those pages put in front of the model.
 
 On a [made-up product page](https://devfrankduah.github.io/loupe/test-page/) with five mostly negative reviews, the browser scan finds all six hidden instructions telling an AI to call the blender the best one available, and two hidden fake five-star reviews. Four of those instructions and both reviews also reach the markdown.
 
-![A terminal running loupe --render --quote-chars 80 on the blender test page with no account. A few seconds later it prints a plain-English verdict, that 5 pieces of hidden text read like instructions to an AI and 3 of them reach the markdown, then the 10 findings and which ones reached the markdown.](docs/demo.gif)
+![A terminal running loupe --render --quote-chars 80 on the blender test page with no account. A few seconds later it prints a plain-English verdict, that 5 pieces of hidden text read like instructions to an AI and 3 of them reach the markdown, then the 10 findings and which ones reached the markdown.](https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/demo.gif)
 
 ## Quickstart
 
@@ -123,21 +123,21 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 
 ## Other ways to run it
 
-- [Use in CI](docs/ci.md): the GitHub Action, with a workflow that scans your site after each deploy and fails when a page hides instructions.
-- [Use with an agent](docs/mcp.md): `loupe mcp`, an MCP server whose `fetch_page` tool hands an agent a page's markdown with its hidden text taken out, set up for Claude Code and Claude Desktop.
-- [Use from Python](docs/python.md): `scan()`, `scan_html()` and `Scanner`, typed, with an example of checking a page before handing it to a model.
-- [Scan many pages](docs/many-pages.md): `--urls-file`, the summary table, and how loupe paces its requests to each site.
+- [Use in CI](https://github.com/devfrankduah/loupe/blob/main/docs/ci.md): the GitHub Action, with a workflow that scans your site after each deploy and fails when a page hides instructions.
+- [Use with an agent](https://github.com/devfrankduah/loupe/blob/main/docs/mcp.md): `loupe mcp`, an MCP server whose `fetch_page` tool hands an agent a page's markdown with its hidden text taken out, set up for Claude Code and Claude Desktop.
+- [Use from Python](https://github.com/devfrankduah/loupe/blob/main/docs/python.md): `scan()`, `scan_html()` and `Scanner`, typed, with an example of checking a page before handing it to a model.
+- [Scan many pages](https://github.com/devfrankduah/loupe/blob/main/docs/many-pages.md): `--urls-file`, the summary table, and how loupe paces its requests to each site.
 
 ## Options
 
 - `--render` loads each page in a browser and checks what actually shows.
-- `--urls-file PATH` scans the URLs listed in PATH too, one per line, and `-` reads them from standard input. Several pages end with a summary table, and [docs/many-pages.md](docs/many-pages.md) has the rest.
-- `--html-file PATH URL` scans the HTML saved in PATH as the page at URL and fetches nothing, so it checks the exact copy an agent got. `-` reads it from standard input. [docs/python.md](docs/python.md#scan-html-you-already-have) says how a rendered scan of it can differ from a live load.
+- `--urls-file PATH` scans the URLs listed in PATH too, one per line, and `-` reads them from standard input. Several pages end with a summary table, and [docs/many-pages.md](https://github.com/devfrankduah/loupe/blob/main/docs/many-pages.md) has the rest.
+- `--html-file PATH URL` scans the HTML saved in PATH as the page at URL and fetches nothing, so it checks the exact copy an agent got. `-` reads it from standard input. [docs/python.md](https://github.com/devfrankduah/loupe/blob/main/docs/python.md#scan-html-you-already-have) says how a rendered scan of it can differ from a live load.
 - `--skip-markdown` scans the HTML only and skips the markdown comparison.
 - `--backend local` or `--backend brightdata` picks where pages come from. Without it, loupe uses Bright Data when either of its values is set, and your machine otherwise.
 - `--ignore-robots` fetches pages even where robots.txt asks loupe not to. Use it only for pages you own or have permission to scan.
-- `--json` prints the results as JSON instead of text, and `--json-output PATH` writes the same JSON to a file. [docs/json.md](docs/json.md) describes every field, and each page carries a `schema_version`.
-- `--fail-on instructions`, `hidden` or `never` picks which findings make loupe exit 1 (see [Exit codes](#exit-codes)).
+- `--json` prints the results as JSON instead of text, and `--json-output PATH` writes the same JSON to a file. [docs/json.md](https://github.com/devfrankduah/loupe/blob/main/docs/json.md) describes every field, and each page carries a `schema_version`.
+- `--fail-on instructions`, `hidden` or `never` picks which findings make loupe exit 1 (see [Exit codes](https://github.com/devfrankduah/loupe#exit-codes)).
 - `--markdown-summary PATH` adds the summary table and the exit code to the end of PATH as Markdown. The GitHub Action uses it for the job summary.
 - `--quote-chars N` cuts quoted hidden text to N characters (default 160, 0 for no limit).
 - `--zone NAME` picks the Web Unlocker zone on the Bright Data backend (default `mcp_unlocker`).
@@ -172,9 +172,9 @@ loupe report results/2026-11-19.json results/2026-11-19-rendered.json -o /tmp/lo
 
 `docs/index.html` is built from that pair, so `cmp /tmp/loupe-report.html docs/index.html` prints nothing. Given a markup-only run and a `--render` run of the same pages, the report sets them side by side, page by page. One results file works too, and a report built from local runs says its markdown is an approximation.
 
-![The loupe report page in light mode on a desktop. Under the headline "A web page can hide text from you and still hand it to the AI reading it", two panels show a real line from github.com: the panel for what a person sees is empty, and the panel for what an AI reads says "You can't perform that action at this time."](docs/screenshot-desktop-2026-11-19.png)
+![The loupe report page in light mode on a desktop. Under the headline "A web page can hide text from you and still hand it to the AI reading it", two panels show a real line from github.com: the panel for what a person sees is empty, and the panel for what an AI reads says "You can't perform that action at this time."](https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/screenshot-desktop-2026-11-19.png)
 
-<img src="docs/screenshot-phone-2026-11-19.png" alt="The same report page on a phone, light mode, with the two panels stacked" width="300">
+<img src="https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/screenshot-phone-2026-11-19.png" alt="The same report page on a phone, light mode, with the two panels stacked" width="300">
 
 Both screenshots show that page, taken on 19 November 2026.
 
@@ -186,7 +186,7 @@ With `--render`, loupe loads the page in Chromium at 1280 by 800 and scrolls it 
 
 Each element the markup scan flagged for an inline style is also traced in the browser from the moment its HTML arrives, checked every 250 milliseconds and whenever nodes are added. A headline that rotates every few seconds over an invisible copy of all its statements is the reason: if the first check came after the first statement had rotated out, the only copy left would be the invisible one, and the statement would look never shown. The animated test page has a headline like that.
 
-[docs/how-it-works.md](docs/how-it-works.md) has the rest: both backends' requests, every check, the visibility test, and how the local backend compared with Bright Data. [docs/json.md](docs/json.md) describes the JSON.
+[docs/how-it-works.md](https://github.com/devfrankduah/loupe/blob/main/docs/how-it-works.md) has the rest: both backends' requests, every check, the visibility test, and how the local backend compared with Bright Data. [docs/json.md](https://github.com/devfrankduah/loupe/blob/main/docs/json.md) describes the JSON.
 
 ## Hijack rates with and without loupe
 
@@ -229,7 +229,7 @@ It took 40 minutes on an Apple M5 MacBook Pro and calls no paid API.
 
 Measured through Bright Data on 19 November 2026 by running `loupe --quote-chars 80 --json-output out.json` on these six URLs, once as is and once with `--render` (output in `results/2026-11-19.json` and `results/2026-11-19-rendered.json`). On 20 November the local backend scanned both test pages the same two ways and matched those results finding for finding, including which findings reached the markdown (`results/2026-11-20-local.json` and `results/2026-11-20-local-rendered.json`).
 
-The two test pages show both sides. [The blender page](https://devfrankduah.github.io/loupe/test-page/) hides text aimed at AI on purpose, and [the animated page](https://devfrankduah.github.io/loupe/animated-page/) hides nothing but looks full of hidden text to a code-only scan. Their ground truths ([blender](docs/test-page/ground-truth.md), [animated](docs/animated-page/ground-truth.md)) say what each scan should find, and the tests check both scans against them.
+The two test pages show both sides. [The blender page](https://devfrankduah.github.io/loupe/test-page/) hides text aimed at AI on purpose, and [the animated page](https://devfrankduah.github.io/loupe/animated-page/) hides nothing but looks full of hidden text to a code-only scan. Their ground truths ([blender](https://github.com/devfrankduah/loupe/blob/main/docs/test-page/ground-truth.md), [animated](https://github.com/devfrankduah/loupe/blob/main/docs/animated-page/ground-truth.md)) say what each scan should find, and the tests check both scans against them.
 
 ## Limitations
 
@@ -265,8 +265,8 @@ The browser tests are skipped when Playwright or its Chromium isn't installed, a
 
 ## Contributing, security and license
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the tests, adding a fixture and reporting a false positive or missed hidden text.
-- Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
-- Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
-- What changed and when is in [CHANGELOG.md](CHANGELOG.md).
-- loupe is MIT licensed. See [LICENSE](LICENSE).
+- [CONTRIBUTING.md](https://github.com/devfrankduah/loupe/blob/main/CONTRIBUTING.md) covers setup, the tests, adding a fixture and reporting a false positive or missed hidden text.
+- Report security problems privately, as [SECURITY.md](https://github.com/devfrankduah/loupe/blob/main/SECURITY.md) describes.
+- Everyone taking part follows the [code of conduct](https://github.com/devfrankduah/loupe/blob/main/CODE_OF_CONDUCT.md).
+- What changed and when is in [CHANGELOG.md](https://github.com/devfrankduah/loupe/blob/main/CHANGELOG.md).
+- loupe is MIT licensed. See [LICENSE](https://github.com/devfrankduah/loupe/blob/main/LICENSE).
