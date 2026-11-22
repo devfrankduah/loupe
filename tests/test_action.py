@@ -66,7 +66,7 @@ def test_every_action_is_pinned_to_a_commit_with_its_release_in_a_comment() -> N
             assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", match.group(1)), line
             assert re.fullmatch(r" # v\d+\.\d+\.\d+", match.group(2)), line
             pinned += 1
-    assert pinned == 7
+    assert pinned == 12
 
 
 def test_the_action_adds_its_summary_to_the_job_summary() -> None:
