@@ -122,7 +122,7 @@
           }
         },
         "stylesheet_check": {
-          "description": "What the markup scan's stylesheet check read: style_blocks, the linked stylesheets it read and didn't, and the rules bearing on hiding it couldn't be sure apply. The check is always partial. null for rendered scans, where the browser applies the stylesheets, and for pages with an error. Added in version 1, so a reader should treat it as null when it's missing.",
+          "description": "What the markup scan's stylesheet check read: style_blocks, the linked stylesheets it read and didn't, the rules bearing on hiding it couldn't be sure apply, and shadow_roots, the shadow roots declared in the HTML that it checked with their own styles, whose style blocks and stylesheets the other counts include. The check is always partial. null for rendered scans, where the browser applies the stylesheets, and for pages with an error. Added in version 1, so a reader should treat it as null when it's missing.",
           "oneOf": [
             { "type": "null" },
             {
@@ -133,7 +133,8 @@
                 "style_blocks": { "$ref": "#/$defs/count" },
                 "linked_read": { "$ref": "#/$defs/count" },
                 "linked_not_read": { "$ref": "#/$defs/count" },
-                "uncertain_rules": { "$ref": "#/$defs/count" }
+                "uncertain_rules": { "$ref": "#/$defs/count" },
+                "shadow_roots": { "$ref": "#/$defs/count", "description": "Absent from files written before it was added: treat it as 0 when it's missing." }
               }
             }
           ]

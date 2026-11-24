@@ -12,6 +12,14 @@ contrast ratio under 1.5:1, where the styles declare both the text's colour,
 on the element or inherited, and a solid background behind it; a colour it
 can't read, an image or a gradient of several colours leaves it unjudged.
 
+A shadow root declared in the HTML, with <template shadowrootmode>, is
+checked with the <style> blocks and linked stylesheets inside it, and the
+page's own rules don't reach it, as in a browser. Its selectors are matched
+in a copy of the shadow root on its own, so they can't see past it. That's
+partial too: :host, ::slotted and ::part rules can't be matched, the colours
+the host passes down aren't followed, and the host's own children are judged
+as if every one of them were slotted in.
+
 It's a partial check, and it would rather miss hidden text than report text
 a reader can see. Rules it can't be sure apply to the 1280 by 800 desktop
 viewport the rendered scan uses never hide anything here, and when one of
@@ -19,14 +27,15 @@ them could show an element another rule hides, the element isn't reported.
 Those are rules inside @supports, @layer, @container and @scope, media
 queries asking about anything but the media type, width, height and
 orientation, and selectors that can't be matched. It doesn't follow
-@import, read stylesheets from other hosts, resolve var(), lay the page out
-or compare colours, and it can't see what scripts do. A rendered scan
-checks all of that in a real browser.
+@import, read stylesheets from other hosts, resolve var() or lay the page
+out, and it can't see what scripts do. A rendered scan checks all of that in
+a real browser.
 """
 
 from __future__ import annotations
 
 import bisect
+import copy
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -115,6 +124,9 @@ class StylesheetCheck:
     linked_not_read: int = 0
     # Rules bearing on hiding that it couldn't be sure apply.
     uncertain_rules: int = 0
+    # Shadow roots declared in the HTML, each checked with its own styles. style_blocks and the linked counts
+    # include theirs.
+    shadow_roots: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -122,14 +134,21 @@ class StylesheetCheck:
             "linked_read": self.linked_read,
             "linked_not_read": self.linked_not_read,
             "uncertain_rules": self.uncertain_rules,
+            "shadow_roots": self.shadow_roots,
         }
 
     def description(self) -> str:
-        return (
+        text = (
             f"partial check of {_count(self.style_blocks, '<style> block')} and "
             f"{_count(self.linked_read, 'linked stylesheet')}; {self.linked_not_read:,} linked not read, "
             f"{_count(self.uncertain_rules, 'rule')} it couldn't be sure of"
         )
+        if self.shadow_roots:
+            text += (
+                f"; {_count(self.shadow_roots, 'shadow root')} checked with its own styles, "
+                "partially (no :host, ::slotted or slots)"
+            )
+        return text
 
 
 def _count(number: int, noun: str) -> str:
@@ -1110,10 +1129,146 @@ def _could_be_undone(
 # A page's stylesheets
 
 
+# Elements attachShadow() accepts, besides custom elements, and so the ones a declared shadow root can attach to.
+_SHADOW_HOST_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "article", "aside", "blockquote", "body", "div", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header",
+        "main", "nav", "p", "section", "span",
+    }
+)
+_CUSTOM_ELEMENT_NAME: Final[re.Pattern[str]] = re.compile(r"[a-z][^\sA-Z/>]*-[^\sA-Z/>]*")
+_RESERVED_ELEMENT_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "annotation-xml", "color-profile", "font-face", "font-face-src", "font-face-uri", "font-face-format",
+        "font-face-name", "missing-glyph",
+    }
+)
+
+
+def _can_host_shadow_root(element: Tag) -> bool:
+    name = element.name
+    if name in _SHADOW_HOST_TAGS:
+        return True
+    return _CUSTOM_ELEMENT_NAME.fullmatch(name) is not None and name not in _RESERVED_ELEMENT_NAMES
+
+
+def _declares_shadow_root(element: Tag) -> bool:
+    return element.name == "template" and _attribute(element, "shadowrootmode").strip().lower() in ("open", "closed")
+
+
+class ShadowTree:
+    """A shadow root declared in the HTML: its template, and its own rules, matched in a copy of it on its own."""
+
+    def __init__(self, template: Tag) -> None:
+        self.template = template
+        self.rules = _RuleList()
+        self.cascade = StyleCascade(())
+        # id of each element in the shadow root to its copy in a tree of the shadow root's own.
+        self.copies: dict[int, Tag] = {}
+
+    def __repr__(self) -> str:
+        return f"ShadowTree(rules={len(self.rules.rules)}, elements={len(self.copies)})"
+
+    def hiding(self, element: Tag) -> StyleHiding | None:
+        copied = self.copies.get(id(element))
+        return None if copied is None else self.cascade.hiding(copied)
+
+
+class _Inert:
+    """The content of an ordinary <template>, which a browser never shows or styles."""
+
+    def __repr__(self) -> str:
+        return "INERT"
+
+
+INERT: Final[_Inert] = _Inert()
+Scope = ShadowTree | _Inert
+
+
+def _scopes(soup: BeautifulSoup) -> tuple[dict[int, Scope], list[ShadowTree]]:
+    """The scope of every element inside a template, and each shadow root declared in the HTML, in one walk.
+
+    A browser turns a <template shadowrootmode> into its parent's shadow root
+    as it reads the page when the parent can have one and doesn't yet: any
+    later one, any other template, and everything inside an ordinary template,
+    is content that never shows.
+    """
+    scopes: dict[int, Scope] = {}
+    trees: list[ShadowTree] = []
+    hosts: set[int] = set()
+    pending: list[tuple[Tag, Scope | None]] = [(soup, None)]
+    while pending:
+        node, scope = pending.pop()
+        children: list[tuple[Tag, Scope | None]] = []
+        for child in node.contents:
+            if not isinstance(child, Tag):
+                continue
+            inner = scope
+            if child.name == "template":
+                if (
+                    scope is not INERT
+                    and _declares_shadow_root(child)
+                    and id(node) not in hosts
+                    and _can_host_shadow_root(node)
+                ):
+                    hosts.add(id(node))
+                    tree = ShadowTree(child)
+                    trees.append(tree)
+                    inner = tree
+                else:
+                    inner = INERT
+            if scope is not None:
+                scopes[id(child)] = scope
+            children.append((child, inner))
+        pending.extend(reversed(children))
+    return scopes, trees
+
+
+def _copy_on_its_own(tree: ShadowTree) -> None:
+    """Map each element of tree to a copy of it in a document holding only the shadow root's content.
+
+    Elements of a shadow root inside it are mapped too, but they're judged with their own tree's copies.
+    """
+    fragment = BeautifulSoup("", "html.parser")
+    for child in list(tree.template.contents):
+        fragment.append(copy.copy(child))
+    originals = [node for node in tree.template.descendants if isinstance(node, Tag)]
+    copies = [node for node in fragment.descendants if isinstance(node, Tag)]
+    if len(originals) != len(copies):
+        return
+    tree.copies = {id(original): copied for original, copied in zip(originals, copies)}
+
+
 @dataclass(frozen=True)
 class PageStyles:
     cascade: StyleCascade
     check: StylesheetCheck
+    # The scope of each element inside a template: a shadow root declared in the HTML, or INERT. Every other
+    # element is the page's own.
+    scopes: Mapping[int, Scope] = field(default_factory=dict)
+    # The templates a browser makes shadow roots of.
+    shadow_templates: frozenset[int] = frozenset()
+
+    def hiding(self, element: Tag) -> StyleHiding | None:
+        """How element's styles hide it, from the rules of the tree it's in, or None. Content that never shows isn't
+        judged."""
+        scope = self.scopes.get(id(element))
+        if scope is None:
+            return self.cascade.hiding(element)
+        if isinstance(scope, ShadowTree):
+            return scope.hiding(element)
+        return None
+
+    def in_shadow_root(self, element: Tag) -> bool:
+        return isinstance(self.scopes.get(id(element)), ShadowTree)
+
+    def never_shown(self, element: Tag) -> bool:
+        """True inside an ordinary <template>, whose content a browser never shows."""
+        return self.scopes.get(id(element)) is INERT
+
+    def is_shadow_root(self, template: Tag) -> bool:
+        """True for a <template> that a browser makes its parent's shadow root."""
+        return id(template) in self.shadow_templates
 
 
 def _inside(element: Tag, names: frozenset[str]) -> bool:
@@ -1153,48 +1308,88 @@ def _same_host(url: str, page_url: str) -> bool:
     return not (page.scheme == "https" and sheet.scheme != "https")
 
 
-_NO_ELEMENT_STYLES: Final[frozenset[str]] = frozenset({"template", "noscript"})
+# A browser running scripts never reads what's in a <noscript>. Templates are left out by scope instead.
+_NO_STYLES_INSIDE: Final[frozenset[str]] = frozenset({"noscript"})
 
 
 def read_page_styles(soup: BeautifulSoup, page_url: str | None, source: StylesheetSource | None) -> PageStyles:
     """Every rule bearing on hiding from soup's <style> blocks and the same-host stylesheets source can fetch.
 
     page_url is the address the HTML came from, after any redirects. Without
-    it or a source, linked stylesheets are counted but not read.
+    it or a source, linked stylesheets are counted but not read. Each shadow
+    root declared in the HTML gets the rules of the styles inside it, and the
+    page the rest.
     """
-    rules = _RuleList()
-    style_blocks = linked_read = linked_not_read = 0
-    fetched: dict[str, str | None] = {}
-    base = _base_url(soup, page_url) if page_url is not None else None
-    for element in soup.find_all(["style", "link"]):
-        if not isinstance(element, Tag) or _inside(element, _NO_ELEMENT_STYLES) or not _is_css_type(element):
-            continue
-        applies = media_applies(_attribute(element, "media"))
-        if element.name == "style":
-            style_blocks += 1
-            if applies is not False:
-                parse_stylesheet(element.get_text(), rules, certain=applies is True)
-            continue
-        relations = _attribute(element, "rel").lower().split()
-        href = _attribute(element, "href").strip()
-        if "stylesheet" not in relations or "alternate" in relations or element.has_attr("disabled") or not href:
-            continue
-        if applies is False:
-            continue
-        url = urljoin(base, href) if base is not None else None
-        text = _fetch_once(fetched, url, page_url, source, len(fetched) >= MAX_LINKED_STYLESHEETS)
-        if text is None:
-            linked_not_read += 1
-            continue
-        linked_read += 1
-        parse_stylesheet(text, rules, certain=applies is True)
-    check = StylesheetCheck(
-        style_blocks=style_blocks,
-        linked_read=linked_read,
-        linked_not_read=linked_not_read + rules.imports,
-        uncertain_rules=rules.uncertain,
+    scopes, trees = _scopes(soup)
+    reader = _StyleReader(page_url, source, _base_url(soup, page_url) if page_url is not None else None)
+    page_rules = _RuleList()
+    reader.read(
+        (element for element in soup.find_all(["style", "link"]) if id(element) not in scopes),
+        page_rules,
     )
-    return PageStyles(StyleCascade(rules.rules), check)
+    for tree in trees:
+        reader.read(
+            (element for element in tree.template.find_all(["style", "link"]) if scopes.get(id(element)) is tree),
+            tree.rules,
+        )
+        _copy_on_its_own(tree)
+        tree.cascade = StyleCascade(tree.rules.rules)
+    rule_lists = [page_rules, *(tree.rules for tree in trees)]
+    check = StylesheetCheck(
+        style_blocks=reader.style_blocks,
+        linked_read=reader.linked_read,
+        linked_not_read=reader.linked_not_read + sum(rules.imports for rules in rule_lists),
+        uncertain_rules=sum(rules.uncertain for rules in rule_lists),
+        shadow_roots=len(trees),
+    )
+    return PageStyles(
+        StyleCascade(page_rules.rules),
+        check,
+        scopes,
+        frozenset(id(tree.template) for tree in trees),
+    )
+
+
+class _StyleReader:
+    """Reads <style> and <link> elements into rule lists, counting what it read and sharing one fetch of each URL."""
+
+    def __init__(self, page_url: str | None, source: StylesheetSource | None, base: str | None) -> None:
+        self._page_url = page_url
+        self._source = source
+        self._base = base
+        self._fetched: dict[str, str | None] = {}
+        self.style_blocks = 0
+        self.linked_read = 0
+        self.linked_not_read = 0
+
+    def __repr__(self) -> str:
+        return f"_StyleReader(style_blocks={self.style_blocks}, linked_read={self.linked_read})"
+
+    def read(self, elements: Iterable[Tag], rules: _RuleList) -> None:
+        for element in elements:
+            if not isinstance(element, Tag) or _inside(element, _NO_STYLES_INSIDE) or not _is_css_type(element):
+                continue
+            applies = media_applies(_attribute(element, "media"))
+            if element.name == "style":
+                self.style_blocks += 1
+                if applies is not False:
+                    parse_stylesheet(element.get_text(), rules, certain=applies is True)
+                continue
+            relations = _attribute(element, "rel").lower().split()
+            href = _attribute(element, "href").strip()
+            if "stylesheet" not in relations or "alternate" in relations or element.has_attr("disabled") or not href:
+                continue
+            if applies is False:
+                continue
+            url = urljoin(self._base, href) if self._base is not None else None
+            text = _fetch_once(
+                self._fetched, url, self._page_url, self._source, len(self._fetched) >= MAX_LINKED_STYLESHEETS
+            )
+            if text is None:
+                self.linked_not_read += 1
+                continue
+            self.linked_read += 1
+            parse_stylesheet(text, rules, certain=applies is True)
 
 
 def _fetch_once(

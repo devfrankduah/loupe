@@ -207,7 +207,7 @@ def test_a_markup_only_fetch_applies_the_pages_same_host_stylesheet() -> None:
     assert "markdown: 1 piece of hidden text taken out" in header.splitlines()
     assert "praise" not in body and "Fresh bread" in body
     assert report is not None
-    assert report["stylesheet_check"] == {"style_blocks": 0, "linked_read": 1, "linked_not_read": 0, "uncertain_rules": 0}
+    assert report["stylesheet_check"] == {"style_blocks": 0, "linked_read": 1, "linked_not_read": 0, "uncertain_rules": 0, "shadow_roots": 0}
     assert [finding["kind"] for finding in report["findings"]] == ["stylesheet"]
 
 

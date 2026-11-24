@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 from bs4 import BeautifulSoup
@@ -451,7 +452,7 @@ def test_a_local_scan_reads_the_pages_same_host_stylesheet_and_says_the_check_is
     assert report.stylesheet_check == StylesheetCheck(style_blocks=0, linked_read=1, linked_not_read=0, uncertain_rules=0)
     assert "  stylesheets: partial check of 0 <style> blocks and 1 linked stylesheet; 0 linked not read, 0 rules it couldn't be sure of" in render_text(report).splitlines()
     document = page_to_dict(report)
-    assert document["stylesheet_check"] == {"style_blocks": 0, "linked_read": 1, "linked_not_read": 0, "uncertain_rules": 0}
+    assert document["stylesheet_check"] == {"style_blocks": 0, "linked_read": 1, "linked_not_read": 0, "uncertain_rules": 0, "shadow_roots": 0}
     check_results([document])
 
 
@@ -552,3 +553,150 @@ def test_text_coloured_like_its_declared_background_is_found(html: str, kind: st
 )
 def test_text_whose_colours_it_cant_settle_is_left_alone(html: str) -> None:
     assert _style_findings(scan_html(html.replace("{t}", SECRET))) == []
+
+
+# Shadow roots declared in the HTML
+
+
+def _shadow(html: str) -> list[tuple[str, str, str]]:
+    return [(finding.kind.value, finding.detail, finding.text) for finding in scan_html(html)]
+
+
+def _host(shadow: str, *, tag: str = "div", light: str = "", mode: str = "open") -> str:
+    return f'<{tag}><template shadowrootmode="{mode}">{shadow}</template>{light}</{tag}>'
+
+
+def test_a_declared_shadow_roots_own_style_hides_its_content() -> None:
+    html = _host(f"<style>p {{ position: absolute; left: -9999px }}</style><p>{SECRET}</p>")
+    assert _shadow(html) == [("stylesheet", "off-screen left:-9999px (in a shadow root)", SECRET)]
+
+
+def test_the_harness_shadow_root_page_is_found_without_rendering() -> None:
+    html = (Path(__file__).parents[1] / "docs" / "harness" / "shadow-root" / "index.html").read_text(encoding="utf-8")
+    found = [(kind, detail) for kind, detail, text in _shadow(html) if "PZ-3871-WE" in text]
+    assert found == [("stylesheet", "off-screen left:-9999px (in a shadow root)")]
+
+
+@pytest.mark.parametrize("mode", ["open", "closed", "OPEN"])
+@pytest.mark.parametrize("tag", ["div", "span", "section", "my-card", "x-a.b"])
+def test_any_element_that_can_have_a_shadow_root_gets_one(mode: str, tag: str) -> None:
+    html = _host(f'<p style="display:none">{SECRET}</p>', tag=tag, mode=mode)
+    assert _shadow(html) == [("inline-style", "display:none (in a shadow root)", SECRET)]
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        # Elements that can't have a shadow root, a mode a browser doesn't know, and a template that isn't one.
+        _host(f'<p style="display:none">{SECRET}</p>', tag="a"),
+        _host(f'<p style="display:none">{SECRET}</p>', tag="button"),
+        _host(f'<p style="display:none">{SECRET}</p>', tag="font-face"),
+        _host(f'<p style="display:none">{SECRET}</p>', mode="none"),
+        f'<div><template><p style="display:none">{SECRET}</p><p hidden>{SECRET}</p><noscript>{SECRET}</noscript></template></div>',
+        # Inside an ordinary template, a declared shadow root never attaches.
+        f'<template><div><template shadowrootmode="open"><p style="display:none">{SECRET}</p></template></div></template>',
+    ],
+    ids=["link", "button", "reserved-name", "unknown-mode", "plain-template", "inside-plain-template"],
+)
+def test_content_that_never_shows_is_left_alone(html: str) -> None:
+    assert _shadow(html) == []
+    assert scan_markup(html).stylesheets.shadow_roots == 0
+
+
+def test_only_the_first_declared_shadow_root_in_an_element_attaches() -> None:
+    first = "<p>The first template becomes the shadow root.</p>"
+    second = f"<style>p {{ display: none }}</style><p>{SECRET}</p>"
+    html = f'<div><template shadowrootmode="open">{first}</template><template shadowrootmode="open">{second}</template></div>'
+    assert _shadow(html) == []
+    assert scan_markup(html).stylesheets.shadow_roots == 1
+
+
+def test_the_pages_rules_dont_reach_into_a_shadow_root() -> None:
+    html = _page("p { display: none } .note { opacity: 0 }", _host(f'<p class="note">{SECRET}</p>'))
+    assert _shadow(html) == []
+
+
+def test_a_shadow_roots_rules_dont_reach_the_page_or_another_shadow_root() -> None:
+    body = _host("<style>p { display: none }</style>") + f"<p>{SECRET}</p>" + _host("<p>Another shadow root's text.</p>")
+    assert _shadow(_page("", body)) == []
+
+
+def test_a_shadow_roots_selectors_cant_see_past_it() -> None:
+    styles = "<style>.outside p, div p, :root p { display: none } span + p { opacity: 0 }</style>"
+    html = f'<main class="outside"><div><span></span>{_host(f"{styles}<p>{SECRET}</p>")}</div></main>'
+    assert _shadow(html) == []
+
+
+def test_a_shadow_root_inside_another_has_only_its_own_rules() -> None:
+    inner = _host("<p>The inner root's text shows.</p>", tag="span")
+    html = _host(f"<style>p {{ display: none }}</style><p>{SECRET}</p>{inner}")
+    assert _shadow(html) == [("stylesheet", "display:none (in a shadow root)", SECRET)]
+    inner_hidden = _host("<style>b { visibility: hidden }</style><b>The inner root hides this.</b>", tag="span")
+    assert _shadow(_host(f"<b>The outer root's text shows.</b>{inner_hidden}")) == [
+        ("stylesheet", "visibility:hidden (in a shadow root)", "The inner root hides this.")
+    ]
+
+
+def test_a_hidden_host_hides_its_shadow_root_and_the_finding_holds_both() -> None:
+    html = _page(".gone { display: none }", f'<div class="gone"><template shadowrootmode="open"><p>{SECRET}</p></template>light text</div>')
+    assert _shadow(html) == [("stylesheet", "display:none", f"{SECRET} light text")]
+    # An ordinary template never shows, so a hidden element's finding leaves its text out.
+    assert _shadow(f"<div hidden><template><p>{SECRET}</p></template>light text</div>") == [
+        ("hidden-attribute", "hidden", "light text")
+    ]
+
+
+def test_content_that_never_shows_isnt_judged_by_any_rule() -> None:
+    soup = BeautifulSoup(_page("p { display: none }", f"<p>{SECRET}</p><template><p>{SECRET}</p></template>"), "html.parser")
+    styles = read_page_styles(soup, None, None)
+    shown, inert = soup.find_all("p")
+    assert styles.hiding(shown) is not None and not styles.never_shown(shown)
+    assert styles.hiding(inert) is None and styles.never_shown(inert)
+
+
+def test_a_shadow_root_is_judged_with_the_cascade_and_its_conditions() -> None:
+    shadow = (
+        "<style>@media print { .a { display: none } } .b { display: none } @supports (display: grid) { .b { display: "
+        "block } } .c { display: none } #c { display: block }</style>"
+        f'<p class="a">{SECRET} a</p><p class="b">{SECRET} b</p><p class="c" id="c">{SECRET} c</p>'
+    )
+    assert _shadow(_host(shadow)) == []
+    check = scan_markup(_host(shadow)).stylesheets
+    assert (check.style_blocks, check.uncertain_rules, check.shadow_roots) == (1, 1, 1)
+
+
+def test_text_coloured_like_its_background_in_a_shadow_root_is_found() -> None:
+    html = _host(f"<style>p {{ color: #fff; background: #fff }}</style><p>{SECRET}</p>")
+    assert _shadow(html) == [("stylesheet", "coloured like its background (in a shadow root)", SECRET)]
+    # A host the page colours like its background takes its shadow root's text with it.
+    host_hidden = _page("div { color: #fff; background: #fff }", _host(f"<p>{SECRET}</p>"))
+    assert _shadow(host_hidden) == [("stylesheet", "coloured like its background", SECRET)]
+    # The colour a host passes down isn't followed into the shadow root, so this is left unjudged.
+    passed_down = _page("div { color: #fff }", _host(f"<style>p {{ background: #fff }}</style><p>{SECRET}</p>"))
+    assert _shadow(passed_down) == []
+
+
+def test_aria_hidden_and_noscript_inside_a_shadow_root_say_where_they_are() -> None:
+    html = _host(f'<p aria-hidden="true">{SECRET}</p><noscript>Turn scripts on, please.</noscript>')
+    assert _shadow(html) == [
+        ("aria-hidden", 'aria-hidden="true" (in a shadow root)', SECRET),
+        ("noscript", "<noscript> (in a shadow root)", "Turn scripts on, please."),
+    ]
+
+
+def test_a_same_host_stylesheet_linked_in_a_shadow_root_applies_only_there() -> None:
+    source = FakeStylesheets({"https://shop.example/card.css": ".note { display: none }"})
+    shadow = f'<link rel="stylesheet" href="/card.css"><p class="note">{SECRET}</p>'
+    html = f'<html><body>{_host(shadow)}<p class="note">Light text the sheet never reaches.</p></body></html>'
+    scanned = scan_markup(html, page_url="https://shop.example/", stylesheets=source)
+    assert [(finding.detail, finding.text) for finding in scanned.findings] == [("display:none (in a shadow root)", SECRET)]
+    assert scanned.stylesheets == StylesheetCheck(style_blocks=0, linked_read=1, linked_not_read=0, uncertain_rules=0, shadow_roots=1)
+
+
+def test_the_check_says_it_read_shadow_roots_in_part() -> None:
+    shadows = _host("<style>@import url(/card.css); p { color: red }</style>") + _host("<p>Two.</p>", tag="span")
+    check = scan_markup(shadows).stylesheets
+    assert check == StylesheetCheck(style_blocks=1, linked_read=0, linked_not_read=1, uncertain_rules=0, shadow_roots=2)
+    assert check.to_dict()["shadow_roots"] == 2
+    assert check.description().endswith("; 2 shadow roots checked with its own styles, partially (no :host, ::slotted or slots)")
+    assert "shadow root" not in StylesheetCheck(style_blocks=1).description()

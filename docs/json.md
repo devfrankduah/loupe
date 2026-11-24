@@ -35,7 +35,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 | `counts_by_kind` | object | Findings per kind, leaving out kinds with none. |
 | `instruction_like_count` | integer | Findings worded like an instruction to an AI. These are what `--fail-on instructions` counts. |
 | `survival` | object | How many findings reached the markdown (`survived`), didn't (`dropped`), or weren't compared (`not_compared`). |
-| `stylesheet_check` | object or null | What the markup scan's stylesheet check read, for static scans: `style_blocks`, `linked_read` and `linked_not_read` (other hosts, past the first five, `@import`, or failed), and `uncertain_rules`, rules bearing on hiding it couldn't be sure apply. The check is always partial. null for rendered scans and pages with an error; treat it as null when it's missing, as in files from before it was added. |
+| `stylesheet_check` | object or null | What the markup scan's stylesheet check read, for static scans: `style_blocks`, `linked_read` and `linked_not_read` (other hosts, past the first five, `@import`, or failed), `uncertain_rules`, rules bearing on hiding it couldn't be sure apply, and `shadow_roots`, the shadow roots declared in the HTML that it checked with their own styles (the other counts include theirs; absent from files written before 24 November 2026, so treat it as 0 when it's missing). The check is always partial. null for rendered scans and pages with an error; treat it as null when it's missing, as in files from before it was added. |
 | `rendering` | object or null | How the browser loaded the page, for rendered scans that loaded it. |
 | `findings` | array | Each piece of hidden text. |
 

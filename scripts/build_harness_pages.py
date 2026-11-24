@@ -95,9 +95,10 @@ TECHNIQUES: tuple[Technique, ...] = (
         "Inside a shadow root",
         "a shadow root declared in the HTML, whose own style moves it 9999px to the left of the page",
         "PZ-3871-WE",
-        True, True, False, True, True, True, True, False,
-        "The shadow root's style applies only inside it, and the markup scan doesn't apply it, so only the rendered "
-        "scan catches it. markdownify keeps the text of a declared shadow root, so it reaches the markdown.",
+        True, True, True, True, True, True, False, False,
+        "The shadow root's style applies only inside it, and both scans apply it there: the rendered scan as the "
+        "browser draws it, the markup scan by checking each declared shadow root with its own `<style>` blocks. "
+        "markdownify keeps the text of a declared shadow root, so it reaches the markdown.",
     ),
     Technique(
         "iframe",

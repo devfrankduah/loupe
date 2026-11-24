@@ -14,11 +14,11 @@ from enum import Enum
 from typing import Final
 
 from bs4 import BeautifulSoup, CData, Comment, Tag
-from bs4.element import NavigableString, PageElement
+from bs4.element import NavigableString, PageElement, TemplateString
 
 from loupe_scan.phrases import find_instruction_phrases
 from loupe_scan.stylesheets import (
-    StyleCascade,
+    PageStyles,
     StylesheetCheck,
     StylesheetSource,
     read_page_styles,
@@ -37,8 +37,10 @@ FALLBACK_CONTENT_TAGS: Final[frozenset[str]] = frozenset({"iframe", "noframes", 
 # even inside another hidden element, whose finding then leaves it out.
 _REPORTED_APART: Final[frozenset[str]] = FALLBACK_CONTENT_TAGS | {"noscript"}
 _WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
-# The strings stripped_strings reads in an ordinary element: not comments, scripts, styles or templates.
-_TEXT_TYPES: Final[tuple[type[NavigableString], ...]] = (NavigableString, CData)
+# Text, not comments, scripts or styles. Beautiful Soup makes all the text inside a template a TemplateString.
+_TEXT_TYPES: Final[tuple[type[NavigableString], ...]] = (NavigableString, CData, TemplateString)
+# Added to the detail of a finding inside a shadow root declared in the HTML, as a rendered scan's are.
+IN_SHADOW_ROOT: Final[str] = " (in a shadow root)"
 
 PER_REQUEST_PLACEHOLDER: Final[str] = "[per-request value removed]"
 
@@ -122,10 +124,10 @@ def inline_style_hiding_reasons(style: str) -> tuple[str, ...]:
     return style_attribute_hiding_reasons(style)
 
 
-def _element_hiding(element: Tag, cascade: StyleCascade) -> tuple[Kind, str] | None:
+def _element_hiding(element: Tag, styles: PageStyles) -> tuple[Kind, str] | None:
     if element.has_attr("hidden"):
         return Kind.HIDDEN_ATTRIBUTE, "hidden"
-    styled = cascade.hiding(element)
+    styled = styles.hiding(element)
     if styled is not None:
         kind = Kind.STYLESHEET if styled.from_stylesheet else Kind.INLINE_STYLE
         return kind, ", ".join(styled.reasons)
@@ -135,18 +137,16 @@ def _element_hiding(element: Tag, cascade: StyleCascade) -> tuple[Kind, str] | N
     return None
 
 
-def _visible_text(element: Tag) -> str:
-    return normalize_whitespace(" ".join(element.stripped_strings))
-
-
-def _text_outside(element: Tag, skipped: frozenset[str]) -> str:
-    """element's text, as _visible_text reads it, leaving out what's inside any descendant named in skipped."""
+def _text_of(element: Tag, styles: PageStyles, skipped: frozenset[str] = frozenset()) -> str:
+    """element's text: that of any shadow root declared in it too, but not of an ordinary <template>, whose
+    content never shows, nor of any descendant named in skipped."""
     parts: list[str] = []
     pending: list[PageElement] = list(reversed(element.contents))
     while pending:
         node = pending.pop()
         if isinstance(node, Tag):
-            if node.name.lower() not in skipped:
+            name = node.name.lower()
+            if name not in skipped and (name != "template" or styles.is_shadow_root(node)):
                 pending.extend(reversed(node.contents))
         elif isinstance(node, NavigableString) and type(node) in _TEXT_TYPES:
             text = node.strip()
@@ -228,6 +228,10 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
     element, so nested hiding doesn't inflate the counts. Text inside noscript
     or an element in FALLBACK_CONTENT_TAGS is the exception: it's reported on
     that element, on its own, and left out of any hidden element around it.
+
+    A shadow root declared in the HTML is checked with its own styles, as
+    loupe_scan.stylesheets describes, and its findings say so in their
+    detail. The content of an ordinary <template> is left alone.
     """
     soup = BeautifulSoup(html, "html.parser")
     styles = read_page_styles(soup, page_url, stylesheets)
@@ -270,28 +274,29 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
                     findings.append(make_finding(Kind.META, label, tag_name, text, line=node.sourceline))
             continue
 
-        if tag_name in _NON_CONTENT_TAGS:
+        if tag_name in _NON_CONTENT_TAGS or styles.never_shown(node):
             continue
+        where = IN_SHADOW_ROOT if styles.in_shadow_root(node) else ""
 
         if tag_name in _REPORTED_APART:
             if not _is_inside(node, apart):
                 apart.add(id(node))
                 hidden_containers.add(id(node))
-                text = _visible_text(node)
+                text = _text_of(node, styles)
                 if text:
                     kind = Kind.NOSCRIPT if tag_name == "noscript" else Kind.FALLBACK_CONTENT
-                    findings.append(make_finding(kind, f"<{tag_name}>", tag_name, text, line=node.sourceline))
+                    findings.append(make_finding(kind, f"<{tag_name}>{where}", tag_name, text, line=node.sourceline))
             continue
 
         if _is_inside(node, hidden_containers):
             continue
 
-        hiding = _element_hiding(node, styles.cascade)
+        hiding = _element_hiding(node, styles)
         if hiding is not None:
             hidden_containers.add(id(node))
-            text = _text_outside(node, _REPORTED_APART)
+            text = _text_of(node, styles, _REPORTED_APART)
             if text:
                 kind, detail = hiding
-                findings.append(make_finding(kind, detail, tag_name, text, line=node.sourceline))
+                findings.append(make_finding(kind, f"{detail}{where}", tag_name, text, line=node.sourceline))
 
     return MarkupScan(findings, styles.check)
