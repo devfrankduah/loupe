@@ -46,6 +46,7 @@ import importlib.resources
 import json
 import re
 import time
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -58,7 +59,7 @@ from bs4.element import CData, NavigableString
 
 from loupe_scan.blocking import blocked_by_answer, blocked_by_content
 from loupe_scan.errors import BlockedError, SetupError
-from loupe_scan.public_proxy import Admit, PublicOnlyProxy
+from loupe_scan.public_proxy import REFUSED_MESSAGE, Admit, PublicOnlyProxy
 from loupe_scan.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
 from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words
 
@@ -144,16 +145,23 @@ class RenderSettings:
     # Stop at a challenge page, and at a challenge header whatever the
     # status, as a block. Off for the Browser API, which solves challenges.
     stop_at_challenges: bool = False
+    # Frames are checked after the page itself: at most this many, within
+    # this much time in all, each scrolled through at most this many steps.
+    # 0 frames turns it off.
+    max_frames: int = 20
+    frame_budget_ms: float = 30_000
+    max_frame_scroll_steps: int = 10
 
     def __post_init__(self) -> None:
         unknown = self.blocked_resource_types - BLOCKABLE_RESOURCE_TYPES
         if unknown:
             raise ValueError(f"can't block {sorted(unknown)}; only {sorted(BLOCKABLE_RESOURCE_TYPES)} may be blocked")
-        for name in ("viewport_width", "viewport_height", "max_scroll_steps"):
+        for name in ("viewport_width", "viewport_height", "max_scroll_steps", "max_frame_scroll_steps"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be at least 1")
-        if self.max_centre_steps < 0:
-            raise ValueError("max_centre_steps must not be negative")
+        for name in ("max_centre_steps", "max_frames"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must not be negative")
         for name in (
             "connect_timeout_ms",
             "navigation_timeout_ms",
@@ -163,6 +171,7 @@ class RenderSettings:
             "scroll_pause_ms",
             "settle_timeout_ms",
             "centre_budget_ms",
+            "frame_budget_ms",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
@@ -185,12 +194,30 @@ def settings_for(endpoint: str | None) -> RenderSettings:
     return LOCAL_SETTINGS if endpoint is None else REMOTE_SETTINGS
 
 
+class Where(str, Enum):
+    """Where in the rendered page a piece of text is, when that's anywhere but the page's own document."""
+
+    PAGE = ""
+    SHADOW_ROOT = "a shadow root"
+    FRAME = "a frame"
+    SHADOW_ROOT_IN_FRAME = "a shadow root in a frame"
+    # A frame whose own box a reader can't see, so none of its text shows.
+    HIDDEN_FRAME = "a hidden frame"
+
+
 @dataclass(frozen=True)
 class RenderedText:
     tag: str
     text: str
     # Why it couldn't be seen, such as "opacity:0" or "clipped". Empty for revealed text.
     reasons: tuple[str, ...] = ()
+    where: Where = Where.PAGE
+
+    @property
+    def detail(self) -> str:
+        """The reasons, and where the text is when that isn't the page's own document."""
+        reasons = ", ".join(self.reasons)
+        return reasons if self.where is Where.PAGE else f"{reasons} (in {self.where.value})"
 
 
 class Landing(str, Enum):
@@ -257,6 +284,8 @@ class RenderedPage:
     stopped_navigations: int = 0
     # The document's text at the end of the scan, outside scripts and styles, or None when it wasn't read in full.
     page_text: str | None = field(default=None, repr=False)
+    # Frames whose text was checked, the page's own document not counted.
+    frames_checked: int = 0
 
 
 class PageRenderer(Protocol):
@@ -297,10 +326,7 @@ class CdpSender(Protocol):
 
 
 def rendered_findings(page: RenderedPage) -> list[Finding]:
-    return [
-        make_finding(Kind.RENDERED_HIDDEN, ", ".join(item.reasons), item.tag, item.text, ScanMode.RENDERED)
-        for item in page.hidden
-    ]
+    return [make_finding(Kind.RENDERED_HIDDEN, item.detail, item.tag, item.text, ScanMode.RENDERED) for item in page.hidden]
 
 
 # The endpoint
@@ -403,27 +429,50 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
     return value
 
 
-class _IsolatedWorld:
-    """A JavaScript world on the page's main frame that the page's own scripts can't reach."""
+def _root_frame_id(session: CdpSender) -> str:
+    """The id of the frame at the top of what session controls: the page's main frame, or a frame in a process of its own."""
+    tree = _mapping(session.send("Page.getFrameTree"), "the frame tree")
+    frame = _mapping(_mapping(tree.get("frameTree"), "the frame tree").get("frame"), "the main frame")
+    frame_id = frame.get("id")
+    if not isinstance(frame_id, str):
+        raise RenderError("the browser didn't report a main frame")
+    return frame_id
 
-    def __init__(self, session: CdpSender) -> None:
+
+def _int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+# Handles to page objects that loupe asks the browser for are kept in this
+# group, so they can all be released at once.
+_OBJECT_GROUP: Final[str] = "loupe"
+
+
+class _IsolatedWorld:
+    """A JavaScript world on one frame, the page's main frame unless another is given, that the page's own scripts can't reach."""
+
+    def __init__(self, session: CdpSender, frame_id: str | None = None) -> None:
         self._session = session
-        tree = _mapping(self._session.send("Page.getFrameTree"), "the frame tree")
-        frame = _mapping(_mapping(tree.get("frameTree"), "the frame tree").get("frame"), "the main frame")
-        frame_id = frame.get("id")
-        if not isinstance(frame_id, str):
-            raise RenderError("the browser didn't report a main frame")
+        self.frame_id = _root_frame_id(session) if frame_id is None else frame_id
         world = _mapping(
-            self._session.send("Page.createIsolatedWorld", {"frameId": frame_id, "worldName": "loupe"}),
+            self._session.send("Page.createIsolatedWorld", {"frameId": self.frame_id, "worldName": "loupe"}),
             "the isolated world",
         )
-        context_id = world.get("executionContextId")
-        if not isinstance(context_id, int) or isinstance(context_id, bool):
+        context_id = _int(world.get("executionContextId"))
+        if context_id is None:
             raise RenderError("the browser didn't create an isolated world")
         self._context_id = context_id
 
+    def _value(self, reply: object) -> object:
+        record = _mapping(reply, "the evaluation result")
+        details = record.get("exceptionDetails")
+        if details is not None:
+            raise RenderError(f"the scan script failed: {_exception_text(details)}")
+        result = record.get("result")
+        return result.get("value") if isinstance(result, dict) else None
+
     def evaluate(self, expression: str) -> object:
-        reply = _mapping(
+        return self._value(
             self._session.send(
                 "Runtime.evaluate",
                 {
@@ -432,14 +481,55 @@ class _IsolatedWorld:
                     "awaitPromise": True,
                     "returnByValue": True,
                 },
-            ),
-            "the evaluation result",
+            )
         )
-        details = reply.get("exceptionDetails")
-        if details is not None:
-            raise RenderError(f"the scan script failed: {_exception_text(details)}")
-        result = reply.get("result")
-        return result.get("value") if isinstance(result, dict) else None
+
+    def _object_id(self, backend_node_id: int) -> str:
+        """A handle, in this world, to the DOM node the browser knows by backend_node_id."""
+        resolved = _mapping(
+            self._session.send(
+                "DOM.resolveNode",
+                {"backendNodeId": backend_node_id, "executionContextId": self._context_id, "objectGroup": _OBJECT_GROUP},
+            ),
+            "the resolved node",
+        )
+        object_id = _mapping(resolved.get("object"), "the resolved node").get("objectId")
+        if not isinstance(object_id, str):
+            raise RenderError("the browser didn't hand over the node")
+        return object_id
+
+    def call_on_node(self, backend_node_id: int, method: str) -> object:
+        """loupeScanner.method(node), where node is the DOM node the browser knows by backend_node_id."""
+        return self._value(
+            self._session.send(
+                "Runtime.callFunctionOn",
+                {
+                    "functionDeclaration": f"function () {{ return globalThis.{_SCANNER}.{method}(this); }}",
+                    "objectId": self._object_id(backend_node_id),
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+        )
+
+    def call_with_nodes(self, method: str, backend_node_ids: Sequence[int]) -> object:
+        """loupeScanner.method(...nodes), where nodes are the DOM nodes the browser knows by backend_node_ids."""
+        arguments = [{"objectId": self._object_id(node)} for node in backend_node_ids]
+        return self._value(
+            self._session.send(
+                "Runtime.callFunctionOn",
+                {
+                    "functionDeclaration": f"function (...nodes) {{ return globalThis.{_SCANNER}.{method}(...nodes); }}",
+                    "executionContextId": self._context_id,
+                    "arguments": arguments,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+        )
+
+    def release_handles(self) -> None:
+        self._session.send("Runtime.releaseObjectGroup", {"objectGroup": _OBJECT_GROUP})
 
     def alive(self) -> bool:
         """Whether the world still exists: a page that replaces its document takes its worlds with it."""
@@ -585,9 +675,13 @@ def _texts(record: Mapping[str, object], name: str, *, with_reasons: bool) -> tu
             if not isinstance(raw_reasons, list) or not all(isinstance(reason, str) for reason in raw_reasons):
                 raise RenderError(f"an entry in {name} had no reasons")
             reasons = tuple(str(reason) for reason in raw_reasons)
+        shadow = unit.get("shadow", False)
+        if not isinstance(shadow, bool):
+            raise RenderError(f"an entry in {name} said neither yes nor no to being in a shadow root")
         normalized = normalize_whitespace(text)
         if normalized:
-            texts.append(RenderedText(tag=tag, text=normalized, reasons=reasons))
+            where = Where.SHADOW_ROOT if shadow else Where.PAGE
+            texts.append(RenderedText(tag=tag, text=normalized, reasons=reasons, where=where))
     return tuple(texts)
 
 
@@ -817,6 +911,471 @@ def _early_watching_world(session: CdpSender, candidates: Sequence[Finding]) -> 
         return None
 
 
+# Closed shadow roots
+
+
+def _closed_shadow_roots(document: Mapping[str, object], root_frame: str) -> dict[str, list[int]]:
+    """Every closed shadow root in a DOM.getDocument tree, as backend node ids, by the frame whose document holds it.
+
+    The tree's own document belongs to root_frame. A frame running in the
+    same process has its document inside its owner element, which names it.
+    """
+    found: dict[str, list[int]] = {}
+    # A stack, not recursion: a page can nest elements deeper than Python's recursion limit.
+    pending: list[tuple[object, str]] = [(document.get("root"), root_frame)]
+    while pending:
+        node, frame = pending.pop()
+        if not isinstance(node, dict):
+            continue
+        shadow_roots = node.get("shadowRoots")
+        for shadow in shadow_roots if isinstance(shadow_roots, list) else []:
+            if not isinstance(shadow, dict):
+                continue
+            backend_node_id = _int(shadow.get("backendNodeId"))
+            if shadow.get("shadowRootType") == "closed" and backend_node_id is not None:
+                found.setdefault(frame, []).append(backend_node_id)
+            pending.append((shadow, frame))
+        children = node.get("children")
+        pending.extend((child, frame) for child in (children if isinstance(children, list) else []))
+        content = node.get("contentDocument")
+        owner_frame = node.get("frameId")
+        if isinstance(content, dict) and isinstance(owner_frame, str):
+            pending.append((content, owner_frame))
+    return found
+
+
+def _quietly(session: CdpSender, method: str, params: dict[str, object] | None = None) -> None:
+    from playwright.sync_api import Error as PlaywrightError
+
+    try:
+        session.send(method, params)
+    except PlaywrightError:
+        # Tidying up after a check: a session or frame already gone has nothing left to tidy.
+        pass
+
+
+def _adopt_closed_shadow_roots(session: CdpSender, world: _IsolatedWorld, root_frame: str) -> int | None:
+    """Hands every closed shadow root in world's frame to its scanner, so their text is checked.
+
+    session controls world's frame, and root_frame is the frame at the top
+    of what session controls. Returns how many roots couldn't be handed
+    over, or None when they couldn't be looked for at all.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    try:
+        document = _mapping(session.send("DOM.getDocument", {"depth": -1, "pierce": True}), "the document")
+    except PlaywrightError:
+        return None
+    finally:
+        # Reading the document turns on DOM events, which loupe doesn't use and a busy page sends plenty of.
+        _quietly(session, "DOM.disable")
+    roots = _closed_shadow_roots(document, root_frame).get(world.frame_id, [])
+    if not roots:
+        return 0
+    handed_over = 0
+    try:
+        for root in roots:
+            try:
+                handed_over += world.call_with_nodes("adoptShadowRoots", [root]) is not None
+            except (PlaywrightError, RenderError):
+                continue
+    finally:
+        _quietly(session, "Runtime.releaseObjectGroup", {"objectGroup": _OBJECT_GROUP})
+    return len(roots) - handed_over
+
+
+# Checking one document
+
+
+@dataclass(frozen=True)
+class _PassLimits:
+    max_scroll_steps: int
+    max_centre_steps: int
+    centre_budget_ms: float
+
+
+@dataclass(frozen=True)
+class _DocumentCheck:
+    result: ScanResult
+    steps: int
+    reached_bottom: bool
+    centre_checks: int
+    # Still-hidden elements that could have been centred but weren't, when a limit ran out.
+    uncentred: int
+    centring_ran_out_of_time: bool
+    settled_at_first_check: bool
+    settled_at_final_check: bool
+    # Closed shadow roots that couldn't be handed to the scanner, or None when they couldn't be looked for.
+    unopened_shadow_roots: int | None
+
+
+def _check_document(
+    page: Page,
+    session: CdpSender,
+    world: _IsolatedWorld,
+    root_frame: str,
+    settings: RenderSettings,
+    limits: _PassLimits,
+    after_first_check: Callable[[], object] | None = None,
+) -> _DocumentCheck:
+    """Check the document in world once it settles, at each scroll step and centred, then once it settles again."""
+    settled_first = world.call("settle", int(settings.settle_timeout_ms)) is True
+    _adopt_closed_shadow_roots(session, world, root_frame)
+    world.call("recordLoad")
+    if after_first_check is not None:
+        after_first_check()
+    world.call("scrollToTop")
+    page.wait_for_timeout(settings.scroll_pause_ms)
+    world.call("recheck")
+
+    steps = 0
+    reached_bottom = False
+    while steps < limits.max_scroll_steps:
+        at_bottom = world.call("scrollOneViewport") is True
+        steps += 1
+        page.wait_for_timeout(settings.scroll_pause_ms)
+        world.call("recheck")
+        if at_bottom:
+            _wait_for(page, "networkidle", settings.growth_timeout_ms)
+            if world.call("atBottom") is True:
+                reached_bottom = True
+                break
+
+    centre_checks = 0
+    centre_started = time.monotonic()
+    out_of_time = False
+    while centre_checks < limits.max_centre_steps:
+        if (time.monotonic() - centre_started) * 1000 >= limits.centre_budget_ms:
+            out_of_time = True
+            break
+        if world.call("centreNext") is not True:
+            break
+        centre_checks += 1
+        page.wait_for_timeout(settings.scroll_pause_ms)
+        world.call("recheck")
+    uncentred = _int(world.call("uncentredCount")) or 0
+
+    settled_last = world.call("settle", int(settings.settle_timeout_ms)) is True
+    # Again, for roots a script attached since.
+    unopened = _adopt_closed_shadow_roots(session, world, root_frame)
+    return _DocumentCheck(
+        result=parse_scan_result(world.call("finish")),
+        steps=steps,
+        reached_bottom=reached_bottom,
+        centre_checks=centre_checks,
+        uncentred=uncentred,
+        centring_ran_out_of_time=out_of_time,
+        settled_at_first_check=settled_first,
+        settled_at_final_check=settled_last,
+        unopened_shadow_roots=unopened,
+    )
+
+
+# Frames
+
+
+@dataclass(frozen=True)
+class _FrameNode:
+    frame_id: str
+    parent_id: str | None
+    # False when the frame's document failed to load, and the browser shows an error page in its place.
+    loaded: bool
+
+
+def _frame_nodes(session: CdpSender) -> list[_FrameNode]:
+    """Every frame session controls, parents before children."""
+    tree = _mapping(session.send("Page.getFrameTree"), "the frame tree")
+    nodes: list[_FrameNode] = []
+    pending: deque[object] = deque([tree.get("frameTree")])
+    while pending:
+        entry = _mapping(pending.popleft(), "a frame in the frame tree")
+        frame = _mapping(entry.get("frame"), "a frame")
+        frame_id = frame.get("id")
+        if not isinstance(frame_id, str):
+            raise RenderError("a frame in the frame tree had no id")
+        parent_id = frame.get("parentId")
+        nodes.append(_FrameNode(frame_id, parent_id if isinstance(parent_id, str) else None, "unreachableUrl" not in frame))
+        children = entry.get("childFrames")
+        if isinstance(children, list):
+            pending.extend(children)
+    return nodes
+
+
+@dataclass(frozen=True)
+class _FrameMap:
+    main_frame: str
+    nodes: Mapping[str, _FrameNode]
+    # The session that controls each frame, and the frame at the top of what that session controls.
+    hosts: Mapping[str, CdpSender]
+    host_roots: Mapping[str, str]
+    # Sessions opened for frames in processes of their own, to be detached.
+    opened: tuple[CDPSession, ...]
+
+    def in_tree_order(self) -> tuple[list[str], int]:
+        """Every frame below the main one, parents first, and how many frames couldn't be placed under it."""
+        children: dict[str, list[str]] = {}
+        for node in self.nodes.values():
+            if node.parent_id is not None:
+                children.setdefault(node.parent_id, []).append(node.frame_id)
+        order: list[str] = []
+        placed = {self.main_frame}
+        pending = deque(children.get(self.main_frame, []))
+        while pending:
+            frame_id = pending.popleft()
+            if frame_id in placed:
+                continue
+            placed.add(frame_id)
+            order.append(frame_id)
+            pending.extend(children.get(frame_id, []))
+        return order, len(self.nodes) - len(placed)
+
+
+def _map_frames(page: Page, session: CDPSession) -> _FrameMap:
+    """Every frame in page and the session that controls it.
+
+    session, the page's own, controls every frame running in the page's
+    process. A frame running in a process of its own, as a cross-site frame
+    does when the browser isolates sites, needs a session of its own.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    own_nodes = _frame_nodes(session)
+    main_frame = own_nodes[0].frame_id
+    nodes: dict[str, _FrameNode] = {node.frame_id: node for node in own_nodes}
+    hosts: dict[str, CdpSender] = {node.frame_id: session for node in own_nodes}
+    host_roots: dict[str, str] = {node.frame_id: main_frame for node in own_nodes}
+    opened: list[CDPSession] = []
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+        try:
+            frame_session = page.context.new_cdp_session(frame)
+        except PlaywrightError:
+            # It runs in its parent's process, so a session already controls it.
+            continue
+        opened.append(frame_session)
+        try:
+            frame_nodes = _frame_nodes(frame_session)
+        except (PlaywrightError, RenderError):
+            continue
+        for node in frame_nodes:
+            known = nodes.get(node.frame_id)
+            parent_id = node.parent_id if node.parent_id is not None or known is None else known.parent_id
+            nodes[node.frame_id] = _FrameNode(node.frame_id, parent_id, node.loaded)
+            hosts[node.frame_id] = frame_session
+            host_roots[node.frame_id] = frame_nodes[0].frame_id
+    return _FrameMap(main_frame, nodes, hosts, host_roots, tuple(opened))
+
+
+# A hidden frame's text is reported whole, up to this many characters.
+_FRAME_TEXT_LIMIT: Final[int] = 100_000
+
+
+@dataclass
+class _FramesCheck:
+    hidden: list[RenderedText] = field(default_factory=list)
+    revealed: list[RenderedText] = field(default_factory=list)
+    text_elements: int = 0
+    unjudged_contrast: int = 0
+    checked: int = 0
+    # Frames that didn't load, that loupe refused, or that the browser wouldn't run the checks in.
+    unreached: int = 0
+    over_limit: int = 0
+    # Frames whose scroll or centring stopped at a limit.
+    cut_short: int = 0
+    unopened_shadow_roots: int = 0
+    shadow_roots_unsearched: bool = False
+    listed: bool = True
+
+
+@dataclass(frozen=True)
+class _FrameOwner:
+    backend_node_id: int
+    tag: str
+    # Why a reader can't see the owner's box; empty when they can.
+    reasons: tuple[str, ...]
+
+
+def _frame_owner(parent_session: CdpSender, parent_world: _IsolatedWorld, frame_id: str) -> _FrameOwner:
+    """The element in the parent frame that holds frame_id, such as an <iframe>, and whether a reader can see it."""
+    owner = _mapping(parent_session.send("DOM.getFrameOwner", {"frameId": frame_id}), "the frame's owner")
+    backend_node_id = _int(owner.get("backendNodeId"))
+    if backend_node_id is None:
+        raise RenderError("the browser didn't say which element holds a frame")
+    try:
+        record = _mapping(parent_world.call_on_node(backend_node_id, "frameOwnerReasons"), "the frame owner's state")
+    finally:
+        _quietly(parent_session, "Runtime.releaseObjectGroup", {"objectGroup": _OBJECT_GROUP})
+    tag = record.get("tag")
+    reasons = record.get("reasons")
+    if not isinstance(tag, str) or not isinstance(reasons, list) or not all(isinstance(reason, str) for reason in reasons):
+        raise RenderError("the frame owner's state had no tag or reasons")
+    return _FrameOwner(backend_node_id, tag, tuple(str(reason) for reason in reasons))
+
+
+def _refused_by_loupe(world: _IsolatedWorld) -> bool:
+    """True when the frame shows nothing but the refusal loupe's address check sends."""
+    kind = _mapping(world.call("documentKind", len(REFUSED_MESSAGE) + 16), "the frame's document")
+    text = kind.get("text")
+    return kind.get("contentType") == "text/plain" and isinstance(text, str) and text.strip() == REFUSED_MESSAGE
+
+
+_IN_FRAME: Final[Mapping[Where, Where]] = {Where.PAGE: Where.FRAME, Where.SHADOW_ROOT: Where.SHADOW_ROOT_IN_FRAME}
+
+
+def _check_frame(
+    page: Page,
+    frames: _FrameMap,
+    frame_id: str,
+    parent_world: _IsolatedWorld,
+    inherited: tuple[str, ...] | None,
+    settings: RenderSettings,
+    deadline: float,
+    check: _FramesCheck,
+) -> tuple[_IsolatedWorld, tuple[str, ...]] | None:
+    """Check one frame, adding what it finds to check.
+
+    inherited holds the reasons a reader can't see an ancestor frame, when
+    they can't. Returns the frame's world and why a reader can't see the
+    frame (nothing when they can), or None when loupe refused the frame.
+    """
+    session = frames.hosts[frame_id]
+    host_root = frames.host_roots[frame_id]
+    world = _IsolatedWorld(session, frame_id)
+    world.evaluate(_scanner_source())
+    if _refused_by_loupe(world):
+        return None
+    parent_id = frames.nodes[frame_id].parent_id
+    if parent_id is None:
+        raise RenderError("a frame below the main one had no parent")
+    owner = _frame_owner(frames.hosts[parent_id], parent_world, frame_id)
+    hidden_by = inherited if inherited else owner.reasons
+    if hidden_by:
+        unopened = _adopt_closed_shadow_roots(session, world, host_root)
+        record = _mapping(world.call("frameText", _FRAME_TEXT_LIMIT), "the frame's text")
+        text = record.get("text")
+        elements = _int(record.get("elements"))
+        if not isinstance(text, str) or elements is None:
+            raise RenderError("the frame's text was not text")
+        normalized = normalize_whitespace(text)
+        if normalized:
+            check.hidden.append(RenderedText(owner.tag, normalized, hidden_by, Where.HIDDEN_FRAME))
+        check.text_elements += elements
+        check.unopened_shadow_roots += unopened or 0
+        check.shadow_roots_unsearched |= unopened is None
+        return world, hidden_by
+
+    # The frame's own scroll animations can wait for it to come into view.
+    parent_world.call_on_node(owner.backend_node_id, "showFrameOwner")
+    _quietly(frames.hosts[parent_id], "Runtime.releaseObjectGroup", {"objectGroup": _OBJECT_GROUP})
+    page.wait_for_timeout(settings.scroll_pause_ms)
+    remaining_ms = max(0.0, (deadline - time.monotonic()) * 1000)
+    limits = _PassLimits(settings.max_frame_scroll_steps, settings.max_centre_steps, min(settings.centre_budget_ms, remaining_ms))
+    document = _check_document(page, session, world, host_root, settings, limits)
+    result = document.result
+    check.hidden.extend(dataclasses.replace(item, where=_IN_FRAME.get(item.where, item.where)) for item in result.hidden)
+    check.revealed.extend(
+        dataclasses.replace(item, where=_IN_FRAME.get(item.where, item.where)) for item in result.revealed_on_scroll
+    )
+    check.text_elements += result.text_elements
+    check.unjudged_contrast += result.unjudged_contrast
+    check.unopened_shadow_roots += document.unopened_shadow_roots or 0
+    check.shadow_roots_unsearched |= document.unopened_shadow_roots is None
+    if not document.reached_bottom or document.uncentred > 0:
+        check.cut_short += 1
+    return world, ()
+
+
+def _check_frames(page: Page, session: CDPSession, main_world: _IsolatedWorld, settings: RenderSettings) -> _FramesCheck:
+    """Check the text of every frame in page the checks can run in, after the page's own document.
+
+    A frame whose owner, such as an <iframe>, a reader can't see shows none
+    of its text, so all of it is reported, as one piece, with the owner's
+    reasons. Any other frame is scrolled through and checked like the page.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    check = _FramesCheck()
+    try:
+        frames = _map_frames(page, session)
+    except (PlaywrightError, RenderError):
+        check.listed = False
+        return check
+    deadline = time.monotonic() + settings.frame_budget_ms / 1000
+    try:
+        order, unplaced = frames.in_tree_order()
+        check.unreached += unplaced
+        worlds: dict[str, _IsolatedWorld] = {frames.main_frame: main_world}
+        hidden_frames: dict[str, tuple[str, ...]] = {}
+        for frame_id in order:
+            node = frames.nodes[frame_id]
+            # Once a limit is reached it stays reached, and parents come first, so a skipped frame's own frames are skipped too.
+            if check.checked >= settings.max_frames or time.monotonic() >= deadline:
+                check.over_limit += 1
+                continue
+            parent_world = None if node.parent_id is None else worlds.get(node.parent_id)
+            if parent_world is None or not node.loaded:
+                check.unreached += 1
+                continue
+            inherited = None if node.parent_id is None else hidden_frames.get(node.parent_id)
+            try:
+                checked = _check_frame(page, frames, frame_id, parent_world, inherited, settings, deadline, check)
+            except (PlaywrightError, RenderError):
+                # A frame can go away, or navigate, while it's being checked.
+                check.unreached += 1
+                continue
+            if checked is None:
+                check.unreached += 1
+                continue
+            world, hidden_by = checked
+            worlds[frame_id] = world
+            if hidden_by:
+                hidden_frames[frame_id] = hidden_by
+            check.checked += 1
+    finally:
+        for opened in frames.opened:
+            _detach_quietly(opened)
+    return check
+
+
+def _plural(count: int, singular: str, plural: str | None = None) -> str:
+    return f"{count} {singular if count == 1 else (plural or singular + 's')}"
+
+
+def _frame_notes(check: _FramesCheck, settings: RenderSettings) -> list[str]:
+    notes: list[str] = []
+    if not check.listed:
+        notes.append("the page's frames couldn't be listed, so the text in them wasn't checked")
+    if check.unreached:
+        them = "it" if check.unreached == 1 else "them"
+        notes.append(
+            f"{_plural(check.unreached, 'frame')} couldn't be checked, such as one that didn't load or that loupe "
+            f"refused, so whether the text in {them} shows wasn't judged"
+        )
+    if check.over_limit:
+        notes.append(
+            f"{_plural(check.over_limit, 'frame')} past the limit of {_plural(settings.max_frames, 'frame')} or "
+            f"{_seconds(settings.frame_budget_ms)} weren't checked"
+        )
+    if check.cut_short:
+        notes.append(
+            f"the check of {_plural(check.cut_short, 'frame')} stopped at a scroll or centring limit, so text there "
+            "that shows only further in counts as hidden"
+        )
+    return notes
+
+
+def _shadow_root_notes(unopened: int, unsearched: bool) -> list[str]:
+    notes: list[str] = []
+    if unsearched:
+        notes.append("closed shadow roots couldn't be looked for, so text in any of them wasn't checked")
+    if unopened:
+        them = "it" if unopened == 1 else "them"
+        notes.append(f"{_plural(unopened, 'closed shadow root')} couldn't be opened, so the text in {them} wasn't checked")
+    return notes
+
+
 def _scan_loaded_page(
     page: Page, url: str, settings: RenderSettings, browser_version: str, supplied_html: str | None
 ) -> RenderedPage:
@@ -897,63 +1456,42 @@ def _scan_with_session(
         )
         world = _watching_world(session, candidates)
 
-    if world.call("settle", int(settings.settle_timeout_ms)) is not True:
+    limits = _PassLimits(settings.max_scroll_steps, settings.max_centre_steps, settings.centre_budget_ms)
+    checked = _check_document(
+        page, session, world, world.frame_id, settings, limits, after_first_check=lambda: world.call("matchStatic")
+    )
+    if not checked.settled_at_first_check:
         notes.append("animations were still running when the page was first checked")
-    world.call("recordLoad")
-    world.call("matchStatic")
-    world.call("scrollToTop")
-    page.wait_for_timeout(settings.scroll_pause_ms)
-    world.call("recheck")
-
-    steps = 0
-    reached_bottom = False
-    while steps < settings.max_scroll_steps:
-        at_bottom = world.call("scrollOneViewport") is True
-        steps += 1
-        page.wait_for_timeout(settings.scroll_pause_ms)
-        world.call("recheck")
-        if at_bottom:
-            _wait_for(page, "networkidle", settings.growth_timeout_ms)
-            if world.call("atBottom") is True:
-                reached_bottom = True
-                break
-    if not reached_bottom:
+    if not checked.reached_bottom:
         notes.append(
-            f"stopped after {steps} scroll steps without reaching the bottom, so text further down "
+            f"stopped after {checked.steps} scroll steps without reaching the bottom, so text further down "
             "was checked only by centring it"
         )
-
-    centre_checks = 0
-    centre_started = time.monotonic()
-    out_of_time = False
-    while centre_checks < settings.max_centre_steps:
-        if (time.monotonic() - centre_started) * 1000 >= settings.centre_budget_ms:
-            out_of_time = True
-            break
-        if world.call("centreNext") is not True:
-            break
-        centre_checks += 1
-        page.wait_for_timeout(settings.scroll_pause_ms)
-        world.call("recheck")
-    uncentred = world.call("uncentredCount")
-    if isinstance(uncentred, int) and uncentred > 0:
-        if out_of_time:
+    if checked.uncentred > 0:
+        if checked.centring_ran_out_of_time:
             limit = f"the {_seconds(settings.centre_budget_ms)} budget"
         else:
             limit = f"the limit of {settings.max_centre_steps}"
         notes.append(
-            f"centred {centre_checks} still-hidden elements and stopped at {limit} with {uncentred} left, "
-            "so any of those revealed only at one scroll position counts as hidden"
+            f"centred {checked.centre_checks} still-hidden elements and stopped at {limit} with {checked.uncentred} "
+            "left, so any of those revealed only at one scroll position counts as hidden"
         )
-
-    if world.call("settle", int(settings.settle_timeout_ms)) is not True:
+    if not checked.settled_at_final_check:
         notes.append("animations were still running at the final check")
-    result = parse_scan_result(world.call("finish"))
+    result = checked.result
     comparison = parse_comparison(world.call("compareStatic"), candidates)
-    if result.unjudged_contrast:
-        count = result.unjudged_contrast
+    frames = _check_frames(page, session, world, settings)
+    notes.extend(_frame_notes(frames, settings))
+    notes.extend(
+        _shadow_root_notes(
+            (checked.unopened_shadow_roots or 0) + frames.unopened_shadow_roots,
+            checked.unopened_shadow_roots is None or frames.shadow_roots_unsearched,
+        )
+    )
+    unjudged = result.unjudged_contrast + frames.unjudged_contrast
+    if unjudged:
         notes.append(
-            f"{count} text element{'' if count == 1 else 's'} {'sits' if count == 1 else 'sit'} on an image or a "
+            f"{_plural(unjudged, 'text element')} {'sits' if unjudged == 1 else 'sit'} on an image or a "
             "gradient of several colours, so whether the text stands out from it wasn't judged"
         )
     page_text = _page_text(world.call("pageText", PAGE_TEXT_LIMIT))
@@ -981,20 +1519,21 @@ def _scan_with_session(
     return RenderedPage(
         final_url=page.url,
         html=html,
-        hidden=result.hidden,
-        revealed_on_scroll=result.revealed_on_scroll,
-        text_elements=result.text_elements,
-        scroll_steps=steps,
-        reached_bottom=reached_bottom,
+        hidden=result.hidden + tuple(frames.hidden),
+        revealed_on_scroll=result.revealed_on_scroll + tuple(frames.revealed),
+        text_elements=result.text_elements + frames.text_elements,
+        scroll_steps=checked.steps,
+        reached_bottom=checked.reached_bottom,
         notes=tuple(notes),
         browser_version=browser_version,
         transfer_bytes=transfer,
         blocked_requests=traffic.blocked if settings.blocked_resource_types else None,
-        centre_checks=centre_checks,
+        centre_checks=checked.centre_checks,
         static_comparison=comparison,
         viewport=result.viewport,
         stopped_navigations=0 if supplied is None else supplied.stopped_navigations,
         page_text=page_text,
+        frames_checked=frames.checked,
     )
 
 

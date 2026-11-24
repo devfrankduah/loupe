@@ -36,7 +36,9 @@ CONNECT_TIMEOUT_SECONDS: Final[float] = 10.0
 IDLE_SECONDS: Final[float] = 120.0
 _CHUNK: Final[int] = 65_536
 _HOP_HEADERS: Final[frozenset[bytes]] = frozenset({b"connection", b"proxy-connection", b"keep-alive", b"proxy-authorization"})
-_REFUSED_BODY: Final[bytes] = b"loupe refused this request: it goes to a private, loopback or other non-public address\n"
+# A frame the browser was refused shows this, as plain text.
+REFUSED_MESSAGE: Final[str] = "loupe refused this request: it goes to a private, loopback or other non-public address"
+_REFUSED_BODY: Final[bytes] = f"{REFUSED_MESSAGE}\n".encode("ascii")
 
 # (host, port) to the addresses to connect to. Raises FetchError to refuse.
 Admit = Callable[[str, int], Sequence[str]]

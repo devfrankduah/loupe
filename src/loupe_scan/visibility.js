@@ -1,7 +1,8 @@
 // The in-browser half of loupe's rendered scan. render.py runs this in a
-// JavaScript world of its own on the page's main frame: page scripts share
-// the DOM with it but not its globals or prototypes, so a page can't patch
-// checkVisibility or getClientRects to make hidden text look visible.
+// JavaScript world of its own on the page's main frame, and on every frame
+// it reaches: page scripts share the DOM with it but not its globals or
+// prototypes, so a page can't patch checkVisibility or getClientRects to make
+// hidden text look visible.
 //
 // It installs one object, loupeScanner. render.py calls watchStatic() as soon
 // as the page's HTML has arrived, recordLoad() once the page has loaded,
@@ -94,24 +95,110 @@
   // whose contrast with what's behind them can't be judged from styles.
   const unjudged = new Set();
 
-  function collectTextElements(root = document.body) {
+  // Closed shadow roots, by host, that render.py found through the DevTools
+  // protocol and passed in. Neither the page's scripts nor element.shadowRoot
+  // can reach them, but the browser draws them like any other.
+  const closedRoots = new Map();
+  // Text elements with text of their own written straight into a shadow root.
+  const shadowOwned = new Set();
+  // Elements that hold a frame -> whether any check saw their box.
+  const frameOwners = new Map();
+  const FRAME_OWNER_TAGS = new Set(["iframe", "frame", "object", "embed"]);
+
+  function shadowRootOf(element) {
+    return element.shadowRoot ?? closedRoots.get(element) ?? null;
+  }
+
+  // The element a text node is the own text of: its parent, or the host of
+  // the shadow root it's written straight into.
+  function ownerOf(node) {
+    const parent = node.parentNode;
+    if (parent instanceof ShadowRoot) return parent.host;
+    return parent instanceof Element ? parent : null;
+  }
+
+  // A node's parent in the tree the browser lays out and paints: the slot it
+  // is assigned to, the host of the shadow root it's in, or its parent.
+  function flatParent(node) {
+    const slot = node.assignedSlot;
+    if (slot !== null && slot !== undefined) return slot;
+    const parent = node.parentNode;
+    if (parent instanceof ShadowRoot) return parent.host;
+    return parent instanceof Element ? parent : null;
+  }
+
+  // element.closest(selector), carried on out of each shadow root to its host.
+  function composedClosest(element, selector) {
+    for (let node = element; node !== null; ) {
+      const match = node.closest(selector);
+      if (match !== null) return match;
+      const root = node.getRootNode();
+      node = root instanceof ShadowRoot ? root.host : null;
+    }
+    return null;
+  }
+
+  // The text nodes that are element's own text, its shadow root's included.
+  function ownTextNodes(element) {
+    const nodes = [];
+    const shadow = shadowRootOf(element);
+    for (const parent of shadow === null ? [element] : [shadow, element]) {
+      for (const child of parent.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) nodes.push(child);
+      }
+    }
+    return nodes;
+  }
+
+  // Calls visit for root and every element and text node under it, going
+  // into each shadow root right after its host, as a reader meets them.
+  function forEachComposed(root, visit) {
+    const show = NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT;
+    const walkers = [document.createTreeWalker(root, show)];
+    const enter = (node) => {
+      visit(node);
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const shadow = shadowRootOf(node);
+      if (shadow !== null) walkers.push(document.createTreeWalker(shadow, show));
+    };
+    if (root.nodeType === Node.ELEMENT_NODE) enter(root);
+    while (walkers.length > 0) {
+      const node = walkers[walkers.length - 1].nextNode();
+      if (node === null) walkers.pop();
+      else enter(node);
+    }
+  }
+
+  // Every element with text of its own under root, shadow roots included,
+  // and every element holding a frame, in the order a reader meets them.
+  function readTree(root = document.body) {
     const elements = [];
-    if (root === null) return elements;
+    const owners = [];
+    if (root === null) return { elements, owners };
     const accepted = new Set();
     const rejected = new Set();
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      const parent = node.parentElement;
-      if (parent === null || accepted.has(parent) || rejected.has(parent)) continue;
-      if (node.data.trim() === "") continue;
-      if (parent.closest(EXCLUDED) !== null) {
-        rejected.add(parent);
-        continue;
+    forEachComposed(root, (node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        if (FRAME_OWNER_TAGS.has(node.localName)) owners.push(node);
+        return;
       }
-      accepted.add(parent);
-      elements.push(parent);
-    }
-    return elements;
+      const owner = ownerOf(node);
+      if (owner === null || rejected.has(owner) || node.data.trim() === "") return;
+      if (!accepted.has(owner)) {
+        if (composedClosest(owner, EXCLUDED) !== null) {
+          rejected.add(owner);
+          return;
+        }
+        accepted.add(owner);
+        elements.push(owner);
+      }
+      if (node.parentNode instanceof ShadowRoot) shadowOwned.add(owner);
+    });
+    return { elements, owners };
+  }
+
+  function collectTextElements(root = document.body) {
+    return readTree(root).elements;
   }
 
   // One pass caches computed styles and box geometry, which don't change
@@ -259,9 +346,11 @@
     return { width, height, scrollsY: !locksY, reachX, reachY };
   }
 
-  // Follows one rectangle of text up through everything that can clip it.
-  // Returns why a reader can't see it, or null when enough of it shows.
-  function reach(element, rect, pass) {
+  // Follows one rectangle of element's text up through everything that can
+  // clip it, or with ownBox, element's own box, which its own overflow
+  // doesn't clip. Returns why a reader can't see it, or null when enough of
+  // it shows.
+  function reach(element, rect, pass, ownBox = false) {
     let x0 = rect.left;
     let x1 = rect.right;
     let y0 = rect.top;
@@ -278,7 +367,16 @@
     // absolutely positioned box escapes overflow:hidden on unpositioned
     // ancestors, and a fixed one escapes everything but transformed ancestors.
     let flow = "static";
-    for (let node = element; node !== null && node !== document.documentElement; node = node.parentElement) {
+    let start = element;
+    if (ownBox) {
+      const own = pass.box(element);
+      if (own.clipRect !== null) clipTo(own.clipRect);
+      if (own.clipPathRect !== null) clipTo(own.clipPathRect);
+      if (tooSmall()) return "clipped";
+      flow = own.position === "absolute" || own.position === "fixed" ? own.position : "static";
+      start = flatParent(element);
+    }
+    for (let node = start; node !== null && node !== document.documentElement; node = flatParent(node)) {
       const box = pass.box(node);
       const contains = flow === "fixed" ? box.containsFixed : flow === "absolute" ? box.containsAbsolute : true;
       if (contains) {
@@ -320,8 +418,7 @@
 
   function geometryReason(element, pass) {
     let reason = "too small to see";
-    for (const child of element.childNodes) {
-      if (child.nodeType !== Node.TEXT_NODE) continue;
+    for (const child of ownTextNodes(element)) {
       const start = child.data.search(/\S/);
       if (start === -1) continue;
       const end = child.data.length - /\s*$/.exec(child.data)[0].length;
@@ -344,13 +441,14 @@
   }
 
   function notRenderedReason(element, pass) {
-    const enclosingDetails = (node) => node.parentElement?.closest("details") ?? null;
-    for (let details = element.closest("details"); details !== null; details = enclosingDetails(details)) {
-      if (details.open) continue;
-      const summary = Array.from(details.children).find((child) => child.localName === "summary");
-      if (summary === undefined || !summary.contains(element)) return "inside a closed <details>";
+    // Everything in a closed <details> is hidden but its first <summary>.
+    let previous = null;
+    for (let node = element; node !== null; previous = node, node = flatParent(node)) {
+      if (node.localName !== "details" || node.open) continue;
+      const summary = Array.from(node.children).find((child) => child.localName === "summary");
+      if (summary === undefined || previous !== summary) return "inside a closed <details>";
     }
-    for (let node = element; node !== null; node = node.parentElement) {
+    for (let node = element; node !== null; node = flatParent(node)) {
       const s = pass.style(node);
       if (s.display === "none") return node.hasAttribute("hidden") ? "hidden attribute" : "display:none";
       if (node !== element && s.contentVisibility === "hidden") return contentVisibilityReason(node);
@@ -362,7 +460,7 @@
     const reasons = [];
     const visibility = pass.style(box).visibility;
     if (includeVisibility && (visibility === "hidden" || visibility === "collapse")) reasons.push("visibility:hidden");
-    for (let node = box; node !== null; node = node.parentElement) {
+    for (let node = box; node !== null; node = flatParent(node)) {
       if (parseFloat(pass.style(node).opacity) === 0) {
         reasons.push("opacity:0");
         break;
@@ -376,7 +474,7 @@
   // so their opacity doesn't apply.
   function combinedOpacity(box, pass) {
     let product = 1;
-    for (let node = box; node !== null; node = node.parentElement) {
+    for (let node = box; node !== null; node = flatParent(node)) {
       const s = pass.style(node);
       if (s.display === "contents") continue;
       const opacity = parseFloat(s.opacity);
@@ -387,7 +485,7 @@
   }
 
   function nearestBoxedAncestor(element, pass) {
-    for (let node = element.parentElement; node !== null; node = node.parentElement) {
+    for (let node = flatParent(element); node !== null; node = flatParent(node)) {
       if (pass.style(node).display !== "contents") return node;
     }
     return null;
@@ -437,6 +535,19 @@
   // Elements that draw pictures, not a colour a style can say.
   const PICTURES = new Set(["IMG", "VIDEO", "CANVAS", "PICTURE", "IFRAME", "EMBED", "OBJECT", "svg"]);
 
+  // Every element whose box covers the viewport point x, y, topmost first, as
+  // seen from element's own tree, so an element in a shadow root is listed
+  // itself rather than as its host. Elements with pointer-events:none aren't
+  // listed: hit testing skips them.
+  function stackAt(element, x, y) {
+    const root = element.getRootNode();
+    return (root instanceof ShadowRoot ? root : document).elementsFromPoint(x, y);
+  }
+
+  function onScreen(x, y) {
+    return x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
+  }
+
   // What's painted under the middle of element's first box, the element
   // itself first, when it's on screen; its ancestors otherwise.
   function paintedBelow(element) {
@@ -444,14 +555,14 @@
     if (rect !== undefined && rect.width > 0 && rect.height > 0) {
       const x = rect.left + rect.width / 2;
       const y = rect.top + rect.height / 2;
-      if (x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight) {
-        const stack = document.elementsFromPoint(x, y);
+      if (onScreen(x, y)) {
+        const stack = stackAt(element, x, y);
         const index = stack.indexOf(element);
         if (index >= 0) return stack.slice(index);
       }
     }
     const chain = [];
-    for (let node = element; node !== null; node = node.parentElement) chain.push(node);
+    for (let node = element; node !== null; node = flatParent(node)) chain.push(node);
     return chain;
   }
 
@@ -526,6 +637,25 @@
       if (contrast !== null) add(contrast);
     }
     return reasons;
+  }
+
+  // Why a reader can't see element's box, for an element that shows
+  // something other than text, such as an iframe; an empty list means they can.
+  function boxReasons(element, pass) {
+    if (!element.checkVisibility()) return [notRenderedReason(element, pass)];
+    if (!element.checkVisibility(VISIBILITY_OPTIONS)) return styleReasons(element, pass, true);
+    if (combinedOpacity(element, pass) < MIN_VISIBLE_OPACITY) return ["near-zero opacity"];
+    const rect = element.getBoundingClientRect();
+    if (rect.width < MIN_READABLE_PX || rect.height < MIN_READABLE_PX) return ["too small to see"];
+    const blocked = reach(element, rect, pass, true);
+    return blocked === null ? [] : [blocked];
+  }
+
+  // Records which frame owners have been seen with a box a reader can see.
+  function trackFrameOwners(owners, pass) {
+    for (const owner of owners) {
+      if (frameOwners.get(owner) !== true) frameOwners.set(owner, boxReasons(owner, pass).length === 0);
+    }
   }
 
   // An element is worth centring when it has a box and every reason it is
@@ -727,12 +857,11 @@
   // Each text element belongs to exactly one unit, so no text is quoted twice.
   function textOf(root, rootOf) {
     const pieces = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      if (rootOf.get(node.parentElement) !== root) continue;
+    forEachComposed(root, (node) => {
+      if (node.nodeType !== Node.TEXT_NODE || rootOf.get(ownerOf(node)) !== root) return;
       const text = node.data.trim();
       if (text !== "") pieces.push(text);
-    }
+    });
     return pieces.join(" ");
   }
 
@@ -769,11 +898,64 @@
     recordLoad() {
       firstCheckAt = performance.now();
       const pass = newPass();
-      for (const element of collectTextElements()) {
+      const { elements, owners } = readTree();
+      for (const element of elements) {
         seen.set(element, { atLoad: visibleNow(element, pass), later: false });
       }
+      trackFrameOwners(owners, pass);
       scrollTarget = chooseScrollTarget(pass);
       return seen.size;
+    },
+
+    // Takes closed shadow roots render.py found, so their text is checked
+    // like any other. Returns how many it hadn't been given before.
+    adoptShadowRoots(...roots) {
+      let added = 0;
+      for (const root of roots) {
+        if (!(root instanceof ShadowRoot) || closedRoots.get(root.host) === root) continue;
+        closedRoots.set(root.host, root);
+        added += 1;
+      }
+      return added;
+    },
+
+    // Why a reader can't see the box of owner, an element holding a frame,
+    // with its tag. No reasons when any check saw it.
+    frameOwnerReasons(owner) {
+      const reasons = frameOwners.get(owner) === true ? [] : boxReasons(owner, newPass());
+      return { tag: owner.localName, reasons };
+    },
+
+    // Brings owner, an element holding a frame, to the middle of the
+    // viewport, where the frame's own scroll animations can fire.
+    showFrameOwner(owner) {
+      owner.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+      return true;
+    },
+
+    // The own text of every text element in this document, up to limit
+    // characters, for a frame whose box a reader can't see.
+    frameText(limit) {
+      const pieces = [];
+      let size = 0;
+      const elements = collectTextElements();
+      for (const element of elements) {
+        for (const node of ownTextNodes(element)) {
+          const text = node.data.trim();
+          if (text === "") continue;
+          pieces.push(text);
+          size += text.length + 1;
+          if (size > limit) return { text: pieces.join(" ").slice(0, limit), elements: elements.length };
+        }
+      }
+      return { text: pieces.join(" "), elements: elements.length };
+    },
+
+    // The document's content type, and its text when it's plain text, so a
+    // frame that shows only loupe's own refusal can be told apart.
+    documentKind(limit) {
+      const plain = document.contentType === "text/plain" && document.body !== null;
+      return { contentType: document.contentType, text: plain ? document.body.textContent.slice(0, limit) : "" };
     },
 
     // Pairs each candidate passed to watchStatic() with every live element of
@@ -810,7 +992,8 @@
 
     recheck() {
       const pass = newPass();
-      for (const element of collectTextElements()) {
+      const { elements, owners } = readTree();
+      for (const element of elements) {
         let entry = seen.get(element);
         if (entry === undefined) {
           entry = { atLoad: null, later: false };
@@ -818,6 +1001,7 @@
         }
         if (entry.atLoad !== true && !entry.later) entry.later = visibleNow(element, pass);
       }
+      trackFrameOwners(owners, pass);
     },
 
     scrollToTop() {
@@ -970,9 +1154,10 @@
         rootOf.set(element, root);
         let unit = units.get(root);
         if (unit === undefined) {
-          unit = { bucket, reasons: [] };
+          unit = { bucket, reasons: [], shadow: false };
           units.set(root, unit);
         }
+        if (element.getRootNode() instanceof ShadowRoot || shadowOwned.has(element)) unit.shadow = true;
         if (bucket === "hidden") {
           for (const reason of inspect(element, pass, false)) {
             if (!unit.reasons.includes(reason)) unit.reasons.push(reason);
@@ -983,7 +1168,7 @@
       const hidden_units = [];
       const revealed_units = [];
       for (const [root, unit] of units) {
-        const item = { tag: root.localName, text: textOf(root, rootOf) };
+        const item = { tag: root.localName, text: textOf(root, rootOf), shadow: unit.shadow };
         if (unit.bucket === "hidden") hidden_units.push({ ...item, reasons: unit.reasons });
         else revealed_units.push(item);
       }

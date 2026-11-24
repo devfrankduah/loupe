@@ -45,7 +45,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 | --- | --- | --- |
 | `mode` | `"static"` or `"rendered"` | Found in the markup, or by the browser. |
 | `kind` | string | `comment`, `hidden-attribute`, `inline-style`, `stylesheet`, `aria-hidden`, `label-attribute`, `meta`, `noscript` or `rendered-hidden`. |
-| `detail` | string | How it was hidden, such as `display:none` or `alt`. |
+| `detail` | string | How it was hidden, such as `display:none` or `alt`. For `rendered-hidden` text that isn't in the page's own document, where it is follows in brackets: `(in a shadow root)`, `(in a frame)`, `(in a shadow root in a frame)`, or `(in a hidden frame)` when the frame's own box can't be seen and the reasons are the frame's. |
 | `tag` | string | The element it was in. |
 | `text` | string | The hidden text, cut to `--quote-chars` characters (160 unless set; 0 keeps it whole). Per-request meta values such as nonces and CSRF tokens are replaced with a placeholder. |
 | `text_characters` | integer | Length of the text before it was cut. |
@@ -54,7 +54,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 
 ## Rendering
 
-`browser` (`local-chromium` or `remote-cdp`), `browser_version`, `viewport` (`[width, height]`), `transfer_bytes` and `blocked_requests` (null when not measured), `final_url`, `text_elements`, `scroll_steps`, `reached_bottom`, `centre_checks`, `notes`, `revealed_on_scroll` (text hidden at load that showed on scrolling, not counted as hidden), and the inline-style trace: `static_comparison_counts`, keyed by `visible at load`, `revealed on scroll`, `still hidden` and `not matched`, and `static_comparison`, where each element the markup scan flagged for its inline style ended up. [how-it-works.md](how-it-works.md) explains each check.
+`browser` (`local-chromium` or `remote-cdp`), `browser_version`, `viewport` (`[width, height]`), `transfer_bytes` and `blocked_requests` (null when not measured), `final_url`, `text_elements` (counting the frames checked), `scroll_steps`, `reached_bottom`, `centre_checks`, `frames_checked` (frames whose text was checked, the page's own document not counted, and absent from files written before 22 November 2026), `notes`, `revealed_on_scroll` (text hidden at load that showed on scrolling, not counted as hidden), and the inline-style trace: `static_comparison_counts`, keyed by `visible at load`, `revealed on scroll`, `still hidden` and `not matched`, and `static_comparison`, where each element the markup scan flagged for its inline style ended up. [how-it-works.md](how-it-works.md) explains each check.
 
 ## Reading it
 

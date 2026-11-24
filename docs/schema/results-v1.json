@@ -208,6 +208,10 @@
         "scroll_steps": { "$ref": "#/$defs/count" },
         "reached_bottom": { "type": "boolean" },
         "centre_checks": { "$ref": "#/$defs/count" },
+        "frames_checked": {
+          "$ref": "#/$defs/count",
+          "description": "Frames whose text was checked, the page's own document not counted. Absent from files written before it was added."
+        },
         "notes": { "type": "array", "items": { "type": "string" } },
         "revealed_on_scroll": {
           "type": "array",

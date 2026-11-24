@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Same-origin frame</title></head>
+<body style="margin: 0; font: 14px/1.4 sans-serif">
+<p>CASE-FRAME-VISIBLE shows in a same-origin frame.</p>
+<p style="position: absolute; left: -9999px">CASE-FRAME-HIDDEN is moved off the frame's page.</p>
+<div><template shadowrootmode="open"><p style="font-size: 0">CASE-SHADOW-IN-FRAME-HIDDEN has no size, in a shadow root in a frame.</p></template></div>
+<div><template shadowrootmode="closed"><p style="visibility: hidden">CASE-CLOSED-IN-FRAME-HIDDEN is invisible, in a closed shadow root in a frame.</p></template></div>
+<iframe srcdoc="<p>CASE-NESTED-VISIBLE shows in a frame inside a frame.</p><p style='position: absolute; left: -9999px'>CASE-NESTED-HIDDEN is off the page of a frame inside a frame.</p>" style="width: 500px; height: 60px; border: 0"></iframe>
+</body>
+</html>

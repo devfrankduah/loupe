@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shadow roots and frames</title>
+<style>
+  body { margin: 0; padding: 1rem; font: 16px/1.5 sans-serif; background: #fff; color: #222; }
+  iframe { display: block; width: 600px; height: 160px; border: 1px solid #999; margin: 0.5rem 0; }
+  .dark { background: #222; padding: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>Shadow roots and frames</h1>
+<p>Every case below starts with its name. The tests read which of them a rendered scan calls hidden.</p>
+
+<div id="open-shadow"><template shadowrootmode="open"><style>.note { position: absolute; left: -9999px; }</style><p>CASE-OPEN-SHADOW-VISIBLE shows in an open shadow root.</p><p class="note">CASE-OPEN-SHADOW-HIDDEN is moved off the page by the shadow root's own style.</p></template></div>
+
+<div id="closed-shadow"><template shadowrootmode="closed"><style>.note { display: none; }</style><p>CASE-CLOSED-SHADOW-VISIBLE shows in a closed shadow root.</p><p class="note">CASE-CLOSED-SHADOW-HIDDEN is hidden by the closed shadow root's own style.</p></template></div>
+
+<div id="host-text"><template shadowrootmode="open"><style>:host { position: absolute; left: -9999px; }</style>CASE-HOST-TEXT-HIDDEN is written straight into a shadow root whose host is off the page.</template></div>
+
+<div id="slots"><template shadowrootmode="open"><slot name="shown"></slot><div style="display: none"><slot name="tucked"></slot></div></template><p slot="shown">CASE-SLOTTED-VISIBLE is slotted where it shows.</p><p slot="tucked">CASE-SLOTTED-INTO-HIDDEN is slotted into a part of the shadow root that is display:none.</p><p>CASE-UNSLOTTED is a child of the host that no slot takes, so it never renders.</p></div>
+
+<div class="dark"><template shadowrootmode="open"><p style="color: #fff; margin: 0">CASE-SHADOW-WHITE-ON-DARK is white text on its host's dark background.</p></template></div>
+
+<div id="scripted-open"></div>
+<div id="scripted-closed"></div>
+<script>
+  const open = document.getElementById("scripted-open").attachShadow({ mode: "open" });
+  open.innerHTML = '<p>CASE-SCRIPTED-VISIBLE shows in a shadow root a script attached.</p><p style="display: none">CASE-SCRIPTED-HIDDEN is display:none in a shadow root a script attached.</p>';
+  const closed = document.getElementById("scripted-closed").attachShadow({ mode: "closed" });
+  closed.innerHTML = '<p style="opacity: 0">CASE-SCRIPTED-CLOSED-HIDDEN is transparent in a closed shadow root a script attached.</p>';
+</script>
+
+<iframe src="frames/child.html" title="Same-origin frame"></iframe>
+<iframe id="cross" title="Cross-origin frame"></iframe>
+<script>
+  // The same server under another name is another origin, and another site.
+  document.getElementById("cross").src = location.protocol + "//localhost:" + location.port + "/frames/cross.html";
+</script>
+<iframe srcdoc="<p>CASE-SRCDOC-HIDDEN is in a frame with no size.</p>" style="width: 0; height: 0; border: 0" title=""></iframe>
+<iframe src="frames/plain.html" style="display: none" title=""></iframe>
+<iframe src="http://127.0.0.1:1/" title="A frame that never loads"></iframe>
+<iframe src="frames/refused.txt" title="A frame showing only what loupe's address check sends when it refuses"></iframe>
+<p>CASE-PAGE-VISIBLE closes the page.</p>
+</body>
+</html>
