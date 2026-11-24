@@ -224,7 +224,35 @@
       }
       return value;
     };
-    return { style, box, viewport: describeViewport(style) };
+    // Fixed and sticky elements, dialogs and open popovers stay where they
+    // are on screen while the page scrolls under them, and so does whatever
+    // is inside one.
+    const pinnedCache = new Map();
+    const pinned = (element) => {
+      let value = pinnedCache.get(element);
+      if (value === undefined) {
+        const position = style(element).position;
+        const parent = flatParent(element);
+        value =
+          position === "fixed" ||
+          position === "sticky" ||
+          element.localName === "dialog" ||
+          isOpenPopover(element) ||
+          (parent !== null && pinned(parent));
+        pinnedCache.set(element, value);
+      }
+      return value;
+    };
+    return { style, box, pinned, viewport: describeViewport(style) };
+  }
+
+  function isOpenPopover(element) {
+    try {
+      return element.matches(":popover-open");
+    } catch (error) {
+      // A browser without popovers has none open.
+      return false;
+    }
   }
 
   function createsFixedContainingBlock(s) {
@@ -416,17 +444,24 @@
     return tooSmall() ? "outside the page" : null;
   }
 
+  // The boxes of a text node's text, without the white space around it,
+  // that are big enough to read.
+  function textBoxes(node) {
+    const start = node.data.search(/\S/);
+    if (start === -1) return [];
+    const end = node.data.length - /\s*$/.exec(node.data)[0].length;
+    const range = document.createRange();
+    range.setStart(node, start);
+    range.setEnd(node, end);
+    return Array.from(range.getClientRects()).filter(
+      (rect) => rect.width >= MIN_READABLE_PX && rect.height >= MIN_READABLE_PX,
+    );
+  }
+
   function geometryReason(element, pass) {
     let reason = "too small to see";
     for (const child of ownTextNodes(element)) {
-      const start = child.data.search(/\S/);
-      if (start === -1) continue;
-      const end = child.data.length - /\s*$/.exec(child.data)[0].length;
-      const range = document.createRange();
-      range.setStart(child, start);
-      range.setEnd(child, end);
-      for (const rect of range.getClientRects()) {
-        if (rect.width < MIN_READABLE_PX || rect.height < MIN_READABLE_PX) continue;
+      for (const rect of textBoxes(child)) {
         const blocked = reach(element, rect, pass);
         if (blocked === null) return null;
         reason = blocked;
@@ -606,6 +641,126 @@
     return ratio < MIN_CONTRAST ? CONTRAST_REASON : null;
   }
 
+  // A box painted over text hides it only where it paints a solid colour at
+  // least this opaque.
+  const MIN_COVER_ALPHA = 0.95;
+  const COVERED_REASON = "covered by another element";
+  // The points of each box of text that hit testing tries, as fractions of
+  // the box's width and height, and how many of an element's boxes it tries.
+  const COVER_POINTS = [
+    [0.5, 0.5],
+    [0.15, 0.3],
+    [0.85, 0.3],
+    [0.15, 0.7],
+    [0.85, 0.7],
+  ];
+  const MAX_COVER_BOXES = 4;
+
+  // What one check makes of a piece of text, or of a frame's box.
+  const VISIBLE = "visible";
+  // Visible every other way, but with no point on screen to hit-test.
+  const OFF_SCREEN = "off screen";
+  const COVERED = "covered";
+  const HIDDEN = "hidden";
+  // A point under a picture, whose transparency can't be told.
+  const UNKNOWN = "unknown";
+
+  // Visible text elements under an image, a picture or a gradient of
+  // several colours, which may or may not let the text show through.
+  const unjudgedCover = new Set();
+
+  // "solid" when element paints a nearly opaque colour over what's below it,
+  // "picture" when it paints an image, a picture or a gradient of several
+  // colours, and null when it paints nothing that could hide text.
+  function coverPaint(element, pass) {
+    if (combinedOpacity(element, pass) < MIN_COVER_ALPHA) return null;
+    if (PICTURES.has(element.nodeName)) return "picture";
+    const s = pass.style(element);
+    if (s.mixBlendMode !== "normal") return null;
+    // A background clipped to the element's own text paints only its letters.
+    if (s.backgroundClip === "text" || s.webkitBackgroundClip === "text") return null;
+    if (s.backgroundImage !== "none") {
+      const colour = singleColourGradient(s.backgroundImage);
+      if (colour === null) return "picture";
+      if (colour[3] >= MIN_COVER_ALPHA) return "solid";
+    }
+    const background = parseColor(s.backgroundColor);
+    return background !== null && background[3] >= MIN_COVER_ALPHA ? "solid" : null;
+  }
+
+  // Whether something solid is painted over box at the viewport point x, y.
+  // Fixed and sticky elements don't count: the page scrolls under them, so
+  // what a header, a banner or a dialog covers at one step shows at another.
+  function pointCover(box, x, y, pass) {
+    const stack = stackAt(box, x, y);
+    const index = stack.indexOf(box);
+    // Hit testing skipped box, which ignores the pointer, so what's over it can't be told.
+    if (index < 0) return VISIBLE;
+    let unknown = false;
+    for (let above = 0; above < index; above += 1) {
+      const node = stack[above];
+      if (pass.pinned(node)) continue;
+      const paint = coverPaint(node, pass);
+      if (paint === "solid") return COVERED;
+      if (paint === "picture") unknown = true;
+    }
+    return unknown ? UNKNOWN : VISIBLE;
+  }
+
+  // VISIBLE when hit testing finds a point of rects with nothing solid over
+  // it, COVERED when something solid is over every point it can try, and
+  // OFF_SCREEN when no point is on screen to try. Points under a picture
+  // count as visible, and element goes in unjudgedCover.
+  function coverOf(element, box, rects, pass) {
+    let tried = false;
+    let unknown = false;
+    for (const rect of rects) {
+      for (const [across, down] of COVER_POINTS) {
+        const x = rect.left + rect.width * across;
+        const y = rect.top + rect.height * down;
+        if (!onScreen(x, y)) continue;
+        tried = true;
+        const cover = pointCover(box, x, y, pass);
+        if (cover === VISIBLE) return VISIBLE;
+        if (cover === UNKNOWN) unknown = true;
+      }
+    }
+    if (!tried) return OFF_SCREEN;
+    if (unknown) {
+      unjudgedCover.add(element);
+      return VISIBLE;
+    }
+    unjudgedCover.delete(element);
+    return COVERED;
+  }
+
+  // The first few boxes of element's own text.
+  function ownTextBoxes(element) {
+    const boxes = [];
+    for (const node of ownTextNodes(element)) {
+      for (const rect of textBoxes(node)) {
+        boxes.push(rect);
+        if (boxes.length >= MAX_COVER_BOXES) return boxes;
+      }
+    }
+    return boxes;
+  }
+
+  function anyOnScreen(rects) {
+    return rects.some(
+      (rect) => rect.right > 0 && rect.bottom > 0 && rect.left < window.innerWidth && rect.top < window.innerHeight,
+    );
+  }
+
+  // What this check makes of element's own text: VISIBLE, OFF_SCREEN,
+  // COVERED or HIDDEN.
+  function verdict(element, pass) {
+    if (inspect(element, pass, true).length > 0) return HIDDEN;
+    const s = pass.style(element);
+    const box = s.display === "contents" ? nearestBoxedAncestor(element, pass) : element;
+    return coverOf(element, box, ownTextBoxes(element), pass);
+  }
+
   // Why a reader can't see element's own text; an empty list means they can.
   // With firstOnly it stops at the first reason, which is all a yes/no needs.
   function inspect(element, pass, firstOnly) {
@@ -654,7 +809,16 @@
   // Records which frame owners have been seen with a box a reader can see.
   function trackFrameOwners(owners, pass) {
     for (const owner of owners) {
-      if (frameOwners.get(owner) !== true) frameOwners.set(owner, boxReasons(owner, pass).length === 0);
+      let state = frameOwners.get(owner);
+      if (state === undefined) {
+        state = { visible: false, offScreen: false, covered: false };
+        frameOwners.set(owner, state);
+      }
+      if (state.visible || boxReasons(owner, pass).length > 0) continue;
+      const cover = coverOf(owner, owner, [owner.getBoundingClientRect()], pass);
+      if (cover === VISIBLE) state.visible = true;
+      else if (cover === OFF_SCREEN) state.offScreen = true;
+      else state.covered = true;
     }
   }
 
@@ -666,8 +830,48 @@
     return reasons.length > 0 && reasons.every((reason) => CENTRABLE_REASONS.has(reason));
   }
 
+  // Whether element's own text shows now, as far as this check can tell:
+  // text with nothing on screen to hit-test counts as showing.
   function visibleNow(element, pass) {
-    return inspect(element, pass, true).length === 0;
+    const seenNow = verdict(element, pass);
+    return seenNow === VISIBLE || seenNow === OFF_SCREEN;
+  }
+
+  // A text element's record: whether its text showed at the first check
+  // (null when it wasn't in the page yet), whether it showed at a later one,
+  // whether it was visible every other way while off screen, at the first
+  // check or later, and whether something solid was ever seen over it.
+  function newEntry(atLoad) {
+    return { atLoad, later: false, offScreenAtLoad: false, offScreenLater: false, covered: false };
+  }
+
+  // How a text element ended up: "visible at load", "revealed" (hidden at the
+  // first check and seen later), "appeared" (added after load and seen) or
+  // "hidden". Text never on screen to hit-test counts as seen the way the
+  // other checks saw it, unless something solid was seen over it.
+  function outcome(entry) {
+    if (entry.atLoad === true) return "visible at load";
+    if (entry.later) return entry.atLoad === false ? "revealed" : "appeared";
+    if (entry.covered) return "hidden";
+    if (entry.offScreenAtLoad) return "visible at load";
+    if (entry.offScreenLater) return entry.atLoad === false ? "revealed" : "appeared";
+    return "hidden";
+  }
+
+  // Updates entry with what this check makes of element. Text visible but
+  // off screen at the first check, and then seen on screen with nothing
+  // over it, counts as visible at load.
+  function record(entry, element, pass, first) {
+    const seenNow = verdict(element, pass);
+    if (seenNow === VISIBLE) {
+      if (first || entry.offScreenAtLoad) entry.atLoad = true;
+      else entry.later = true;
+    } else if (seenNow === OFF_SCREEN) {
+      if (first) entry.offScreenAtLoad = true;
+      else entry.offScreenLater = true;
+    } else if (seenNow === COVERED) {
+      entry.covered = true;
+    }
   }
 
   function chooseScrollTarget(pass) {
@@ -900,7 +1104,9 @@
       const pass = newPass();
       const { elements, owners } = readTree();
       for (const element of elements) {
-        seen.set(element, { atLoad: visibleNow(element, pass), later: false });
+        const entry = newEntry(false);
+        record(entry, element, pass, true);
+        seen.set(element, entry);
       }
       trackFrameOwners(owners, pass);
       scrollTarget = chooseScrollTarget(pass);
@@ -922,8 +1128,15 @@
     // Why a reader can't see the box of owner, an element holding a frame,
     // with its tag. No reasons when any check saw it.
     frameOwnerReasons(owner) {
-      const reasons = frameOwners.get(owner) === true ? [] : boxReasons(owner, newPass());
-      return { tag: owner.localName, reasons };
+      const state = frameOwners.get(owner);
+      if (state !== undefined && state.visible) return { tag: owner.localName, reasons: [] };
+      const pass = newPass();
+      const reasons = boxReasons(owner, pass);
+      if (reasons.length > 0) return { tag: owner.localName, reasons };
+      const cover = coverOf(owner, owner, [owner.getBoundingClientRect()], pass);
+      // A box off screen whenever it was checked counts as showing, unless something solid was seen over it.
+      const covered = cover === COVERED || (state !== undefined && state.covered && cover !== VISIBLE);
+      return { tag: owner.localName, reasons: covered ? [COVERED_REASON] : [] };
     },
 
     // Brings owner, an element holding a frame, to the middle of the
@@ -974,10 +1187,10 @@
     // that was at or before the first check, revealed if after it.
     compareStatic() {
       const state = (element) => {
-        const entry = seen.get(element);
-        if (entry.atLoad === true) return "visible at load";
+        const ended = outcome(seen.get(element));
+        if (ended === "visible at load") return ended;
         // Seen later, whether revealed by scrolling or added after load.
-        return entry.later ? "revealed on scroll" : "still hidden";
+        return ended === "hidden" ? "still hidden" : "revealed on scroll";
       };
       const finalCopies = copiesNow();
       return staticCopies.map((copies, index) => {
@@ -996,10 +1209,13 @@
       for (const element of elements) {
         let entry = seen.get(element);
         if (entry === undefined) {
-          entry = { atLoad: null, later: false };
+          entry = newEntry(null);
           seen.set(element, entry);
         }
-        if (entry.atLoad !== true && !entry.later) entry.later = visibleNow(element, pass);
+        if (entry.atLoad === true || entry.later) continue;
+        // Text already seen visible but off screen needs checking again only once some of it is on screen.
+        if ((entry.offScreenAtLoad || entry.offScreenLater) && !anyOnScreen(ownTextBoxes(element))) continue;
+        record(entry, element, pass, false);
       }
       trackFrameOwners(owners, pass);
     },
@@ -1102,15 +1318,15 @@
       };
       const bucketOf = new Map();
       for (const element of elements) {
-        const entry = seen.get(element);
+        const ended = outcome(seen.get(element));
         let bucket;
-        if (entry.atLoad === true) {
+        if (ended === "visible at load") {
           bucket = "visible";
           counts.visible_at_load += 1;
-        } else if (entry.later && entry.atLoad === false) {
+        } else if (ended === "revealed") {
           bucket = "revealed";
           counts.revealed_on_scroll += 1;
-        } else if (entry.later) {
+        } else if (ended === "appeared") {
           bucket = "visible";
           counts.appeared_after_load += 1;
         } else {
@@ -1159,7 +1375,9 @@
         }
         if (element.getRootNode() instanceof ShadowRoot || shadowOwned.has(element)) unit.shadow = true;
         if (bucket === "hidden") {
-          for (const reason of inspect(element, pass, false)) {
+          const reasons = inspect(element, pass, false);
+          if (seen.get(element).covered) reasons.push(COVERED_REASON);
+          for (const reason of reasons) {
             if (!unit.reasons.includes(reason)) unit.reasons.push(reason);
           }
         }
@@ -1178,7 +1396,8 @@
       ).length;
       const viewport = [window.innerWidth, window.innerHeight];
       const unjudged_contrast = elements.filter((element) => unjudged.has(element)).length;
-      return { ...counts, viewport, fetched_images, unjudged_contrast, hidden_units, revealed_units };
+      const unjudged_cover = elements.filter((element) => unjudgedCover.has(element)).length;
+      return { ...counts, viewport, fetched_images, unjudged_contrast, unjudged_cover, hidden_units, revealed_units };
     },
   };
 

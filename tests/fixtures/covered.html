@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Covered text</title>
+<style>
+  body { margin: 0; padding: 120px 1rem 140px; font: 16px/1.5 sans-serif; background: #fff; color: #222; }
+  .case { position: relative; margin: 1.5rem 0; }
+  .lid { position: absolute; inset: 0; background: #fff; }
+  .half { position: absolute; top: 0; bottom: 0; left: 0; width: 120px; background: #fff; }
+  .wash { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.5); }
+  .faded { position: absolute; inset: 0; background: #fff; opacity: 0.5; }
+  .blend { position: absolute; inset: 0; background: #fff; mix-blend-mode: multiply; }
+  .dark-host { background: #222; padding: 0.5rem; }
+  .ghost { position: absolute; inset: 0; background: #fff; pointer-events: none; }
+  .picture { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .behind { background: #fff; }
+  .behind p { position: relative; z-index: -1; }
+  .raised { position: relative; z-index: 2; }
+  .header { position: fixed; top: 0; left: 0; right: 0; height: 100px; background: #fff; border-bottom: 1px solid #ccc; }
+  .header-gap { position: absolute; top: 20px; left: 1rem; }
+  .banner { position: fixed; bottom: 0; left: 0; right: 0; height: 100px; background: #f3f3f3; }
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); }
+  .modal { position: fixed; top: 300px; left: 0; right: 0; height: 160px; background: #fff; }
+  .modal-text { position: absolute; top: 340px; }
+  dialog.over { position: absolute; top: 0; left: 0; margin: 0; width: 100%; height: 100%; border: 0; padding: 0; background: #fff; }
+  .spacer { height: 2400px; }
+  iframe { display: block; width: 500px; height: 60px; border: 0; }
+</style>
+</head>
+<body>
+<p class="header-gap">CASE-UNDER-STICKY-HEADER sits under the fixed header at the top of the page.</p>
+<header class="header"></header>
+
+<div class="case"><p>CASE-COVERED-SOLID is under a box painted the page's colour.</p><div class="lid"></div></div>
+<div class="case behind"><p>CASE-COVERED-BEHIND-PARENT is pushed behind its parent's background.</p></div>
+<div class="case"><p>CASE-PARTLY-COVERED has only its first words under a box.</p><div class="half"></div></div>
+<div class="case"><p>CASE-UNDER-TRANSLUCENT is under a half-transparent white.</p><div class="wash"></div></div>
+<div class="case"><p>CASE-UNDER-FADED is under a solid box at half opacity.</p><div class="faded"></div></div>
+<div class="case"><p>CASE-UNDER-BLENDED is under a white box that multiplies with what is below it.</p><div class="blend"></div></div>
+<div class="case"><p>CASE-POINTER-EVENTS-COVER is under a box the pointer passes through.</p><div class="ghost"></div></div>
+<div class="case"><p>CASE-UNDER-PICTURE is under a picture.</p><img class="picture" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Crect width='10' height='10' fill='%23fff'/%3E%3C/svg%3E"></div>
+<div class="case"><div class="lid"></div><p class="raised">CASE-TEXT-ABOVE-BOX is drawn above a box.</p></div>
+<div class="case"><dialog class="over" open></dialog><p>CASE-UNDER-DIALOG-ELEMENT is under an open dialog.</p></div>
+<div class="case" id="shadow-cover"><template shadowrootmode="open"><style>div { position: relative; } i { position: absolute; inset: 0; background: #fff; }</style><div><p>CASE-COVERED-SHADOW is under a box inside a shadow root.</p><i></i></div></template></div>
+<div class="case"><iframe srcdoc="<p style='margin: 0'>CASE-COVERED-FRAME is in a frame under a box.</p>" title=""></iframe><div class="lid"></div></div>
+
+<p class="modal-text">CASE-UNDER-MODAL sits under the dialog box of a modal.</p>
+<div class="backdrop"></div>
+<div class="modal"></div>
+
+<div class="spacer"></div>
+<div class="case"><p>CASE-COVERED-BELOW-FOLD is under a box far down the page.</p><div class="lid"></div></div>
+<p>CASE-VISIBLE-BELOW-FOLD shows far down the page.</p>
+<div class="dark-host"><template shadowrootmode="open"><p style="color: #fff; margin: 0">CASE-SHADOW-WHITE-BELOW-FOLD is white text on its host's dark background, far down the page.</p></template></div>
+<p id="banner-text" style="position: absolute; bottom: 20px; left: 1rem">CASE-UNDER-COOKIE-BANNER sits under the fixed banner at the bottom of the page.</p>
+<div class="banner"></div>
+</body>
+</html>

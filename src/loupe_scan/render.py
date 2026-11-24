@@ -695,6 +695,8 @@ class ScanResult:
     fetched_images: int = 0
     # Visible text elements on an image or a many-coloured gradient, whose contrast couldn't be judged.
     unjudged_contrast: int = 0
+    # Visible text elements under an image, a picture or a many-coloured gradient, which may or may not show through.
+    unjudged_cover: int = 0
 
 
 def _viewport(record: Mapping[str, object]) -> tuple[int, int] | None:
@@ -719,6 +721,7 @@ def parse_scan_result(value: object) -> ScanResult:
         viewport=_viewport(record),
         fetched_images=_count(record, "fetched_images") if "fetched_images" in record else 0,
         unjudged_contrast=_count(record, "unjudged_contrast") if "unjudged_contrast" in record else 0,
+        unjudged_cover=_count(record, "unjudged_cover") if "unjudged_cover" in record else 0,
     )
 
 
@@ -1178,6 +1181,7 @@ class _FramesCheck:
     revealed: list[RenderedText] = field(default_factory=list)
     text_elements: int = 0
     unjudged_contrast: int = 0
+    unjudged_cover: int = 0
     checked: int = 0
     # Frames that didn't load, that loupe refused, or that the browser wouldn't run the checks in.
     unreached: int = 0
@@ -1280,6 +1284,7 @@ def _check_frame(
     )
     check.text_elements += result.text_elements
     check.unjudged_contrast += result.unjudged_contrast
+    check.unjudged_cover += result.unjudged_cover
     check.unopened_shadow_roots += document.unopened_shadow_roots or 0
     check.shadow_roots_unsearched |= document.unopened_shadow_roots is None
     if not document.reached_bottom or document.uncentred > 0:
@@ -1493,6 +1498,12 @@ def _scan_with_session(
         notes.append(
             f"{_plural(unjudged, 'text element')} {'sits' if unjudged == 1 else 'sit'} on an image or a "
             "gradient of several colours, so whether the text stands out from it wasn't judged"
+        )
+    under_pictures = result.unjudged_cover + frames.unjudged_cover
+    if under_pictures:
+        notes.append(
+            f"{_plural(under_pictures, 'text element')} {'is' if under_pictures == 1 else 'are'} under an image, a "
+            "picture or a gradient of several colours, so whether the text shows through wasn't judged"
         )
     page_text = _page_text(world.call("pageText", PAGE_TEXT_LIMIT))
     if page_text is None:
