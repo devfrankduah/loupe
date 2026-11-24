@@ -440,6 +440,11 @@ HIDING_METHODS: Final[tuple[HidingMethod, ...]] = (
         "Shown only to visitors with JavaScript turned off.",
         lambda finding: finding.kind is Kind.NOSCRIPT,
     ),
+    HidingMethod(
+        "Fallback content",
+        "Text inside a frame, video, audio or canvas tag, shown only by browsers that can't show the element.",
+        lambda finding: finding.kind is Kind.FALLBACK_CONTENT,
+    ),
 )
 
 

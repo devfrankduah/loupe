@@ -60,7 +60,15 @@ from bs4.element import CData, NavigableString
 from loupe_scan.blocking import blocked_by_answer, blocked_by_content
 from loupe_scan.errors import BlockedError, SetupError
 from loupe_scan.public_proxy import REFUSED_MESSAGE, Admit, PublicOnlyProxy
-from loupe_scan.scan import Finding, Kind, ScanMode, make_finding, normalize_whitespace, scan_html
+from loupe_scan.scan import (
+    FALLBACK_CONTENT_TAGS,
+    Finding,
+    Kind,
+    ScanMode,
+    make_finding,
+    normalize_whitespace,
+    scan_html,
+)
 from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words
 
 if TYPE_CHECKING:
@@ -89,8 +97,9 @@ _READY_POLL_MS: Final[float] = 100
 # The most of a page's final text read back to check for text its scripts removed.
 PAGE_TEXT_LIMIT: Final[int] = 5_000_000
 REMOVED_BY_SCRIPT: Final[str] = "removed by a script"
-# Parts of the served HTML that are never page text, or that a person never reads as part of the page.
-_NOT_PAGE_TEXT: Final[frozenset[str]] = frozenset({"head", "script", "style", "template", "noscript"})
+# Parts of the served HTML that are never page text, or that a person never reads as part of the page. The
+# markup checks report the text of noscript and fallback content, which a browser keeps but never shows.
+_NOT_PAGE_TEXT: Final[frozenset[str]] = frozenset({"head", "script", "style", "template", "noscript"}) | FALLBACK_CONTENT_TAGS
 # Text counts as removed when under half of its runs of this many words are left on the page.
 _RUN_WORDS: Final[int] = 4
 

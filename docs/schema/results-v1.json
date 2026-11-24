@@ -19,6 +19,7 @@
         "label-attribute",
         "meta",
         "noscript",
+        "fallback-content",
         "rendered-hidden"
       ]
     },

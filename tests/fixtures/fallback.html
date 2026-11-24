@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fallback content</title>
+<style>
+  body { margin: 0; padding: 1rem; font: 16px/1.5 sans-serif; background: #fff; color: #222; }
+  .gone { display: none; }
+  iframe, video, canvas { display: block; width: 400px; height: 60px; border: 0; }
+</style>
+</head>
+<body>
+<p>CASE-VISIBLE is ordinary text that a reader sees on the page.</p>
+<iframe srcdoc="<p>CASE-FRAME-DOCUMENT is the frame's own page, which a reader sees.</p>">CASE-IFRAME-CONTENT is written between the iframe tags, where no browser shows it.</iframe>
+<iframe><span>CASE-TAGGED</span> <span>has</span> <span>a</span> <span>tag</span> <span>around</span> <span>every</span> <span>word,</span> <span>which</span> <span>a</span> <span>browser</span> <span>keeps</span> <span>as</span> <span>text.</span></iframe>
+<video>CASE-VIDEO-FALLBACK is for browsers that can't play <b>video</b> at all.</video>
+<audio>CASE-AUDIO-FALLBACK is for browsers that can't play sound at all.</audio>
+<canvas width="400" height="60">CASE-CANVAS-FALLBACK is for browsers that can't draw on a canvas.</canvas>
+<noframes>CASE-NOFRAMES is for browsers that have no frames at all.</noframes>
+<noembed>CASE-NOEMBED is for browsers that have no plugins at all.</noembed>
+<div class="gone">CASE-HIDDEN-AROUND is hidden by the page's stylesheet, with a frame inside it.
+<iframe>CASE-IFRAME-IN-HIDDEN is written inside that hidden frame's tags.</iframe></div>
+<video><iframe>CASE-NESTED-FALLBACK sits in a frame that sits inside a video.</iframe></video>
+</body>
+</html>

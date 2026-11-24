@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final
 
-from bs4 import BeautifulSoup, Comment, Tag
+from bs4 import BeautifulSoup, CData, Comment, Tag
+from bs4.element import NavigableString, PageElement
 
 from loupe_scan.phrases import find_instruction_phrases
 from loupe_scan.stylesheets import (
@@ -27,7 +28,17 @@ from loupe_scan.stylesheets import (
 _LABEL_ATTRIBUTES: Final[tuple[str, ...]] = ("alt", "title", "aria-label")
 _META_KEY_ATTRIBUTES: Final[tuple[str, ...]] = ("name", "property", "http-equiv", "itemprop")
 _NON_CONTENT_TAGS: Final[frozenset[str]] = frozenset({"script", "style", "template"})
+# Elements whose content a browser shows only when it can't show the element
+# itself: a frame, a plugin, a canvas, a video or a sound. Every current
+# browser can, so a reader never sees it, though converters keep it. A canvas
+# also shows it with scripts turned off.
+FALLBACK_CONTENT_TAGS: Final[frozenset[str]] = frozenset({"iframe", "noframes", "noembed", "canvas", "video", "audio"})
+# A rendered scan never judges text inside these, so it's reported on its own
+# even inside another hidden element, whose finding then leaves it out.
+_REPORTED_APART: Final[frozenset[str]] = FALLBACK_CONTENT_TAGS | {"noscript"}
 _WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
+# The strings stripped_strings reads in an ordinary element: not comments, scripts, styles or templates.
+_TEXT_TYPES: Final[tuple[type[NavigableString], ...]] = (NavigableString, CData)
 
 PER_REQUEST_PLACEHOLDER: Final[str] = "[per-request value removed]"
 
@@ -52,6 +63,8 @@ class Kind(str, Enum):
     LABEL_ATTRIBUTE = "label-attribute"
     META = "meta"
     NOSCRIPT = "noscript"
+    # Inside an element in FALLBACK_CONTENT_TAGS.
+    FALLBACK_CONTENT = "fallback-content"
     # Found by loupe_scan.render: a browser drew the page and this text never showed.
     RENDERED_HIDDEN = "rendered-hidden"
 
@@ -126,6 +139,22 @@ def _visible_text(element: Tag) -> str:
     return normalize_whitespace(" ".join(element.stripped_strings))
 
 
+def _text_outside(element: Tag, skipped: frozenset[str]) -> str:
+    """element's text, as _visible_text reads it, leaving out what's inside any descendant named in skipped."""
+    parts: list[str] = []
+    pending: list[PageElement] = list(reversed(element.contents))
+    while pending:
+        node = pending.pop()
+        if isinstance(node, Tag):
+            if node.name.lower() not in skipped:
+                pending.extend(reversed(node.contents))
+        elif isinstance(node, NavigableString) and type(node) in _TEXT_TYPES:
+            text = node.strip()
+            if text:
+                parts.append(text)
+    return normalize_whitespace(" ".join(parts))
+
+
 def _attribute_text(element: Tag, attribute: str) -> str:
     value = element.get(attribute)
     if isinstance(value, list):
@@ -196,12 +225,16 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
     same host are fetched from stylesheets and applied too.
 
     Text inside a hidden element is reported once, on the outermost hidden
-    element, so nested hiding doesn't inflate the counts.
+    element, so nested hiding doesn't inflate the counts. Text inside noscript
+    or an element in FALLBACK_CONTENT_TAGS is the exception: it's reported on
+    that element, on its own, and left out of any hidden element around it.
     """
     soup = BeautifulSoup(html, "html.parser")
     styles = read_page_styles(soup, page_url, stylesheets)
     findings: list[Finding] = []
     hidden_containers: set[int] = set()
+    # Elements in _REPORTED_APART already reported, so one inside another isn't reported again.
+    apart: set[int] = set()
 
     for node in soup.descendants:
         if isinstance(node, Comment):
@@ -237,21 +270,28 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
                     findings.append(make_finding(Kind.META, label, tag_name, text, line=node.sourceline))
             continue
 
-        if tag_name in _NON_CONTENT_TAGS or _is_inside(node, hidden_containers):
+        if tag_name in _NON_CONTENT_TAGS:
+            continue
+
+        if tag_name in _REPORTED_APART:
+            if not _is_inside(node, apart):
+                apart.add(id(node))
+                hidden_containers.add(id(node))
+                text = _visible_text(node)
+                if text:
+                    kind = Kind.NOSCRIPT if tag_name == "noscript" else Kind.FALLBACK_CONTENT
+                    findings.append(make_finding(kind, f"<{tag_name}>", tag_name, text, line=node.sourceline))
+            continue
+
+        if _is_inside(node, hidden_containers):
             continue
 
         hiding = _element_hiding(node, styles.cascade)
         if hiding is not None:
             hidden_containers.add(id(node))
-            text = _visible_text(node)
+            text = _text_outside(node, _REPORTED_APART)
             if text:
                 kind, detail = hiding
                 findings.append(make_finding(kind, detail, tag_name, text, line=node.sourceline))
-            continue
-
-        if tag_name == "noscript":
-            text = _visible_text(node)
-            if text:
-                findings.append(make_finding(Kind.NOSCRIPT, "<noscript>", tag_name, text, line=node.sourceline))
 
     return MarkupScan(findings, styles.check)

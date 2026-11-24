@@ -13,10 +13,11 @@
 
   // Text inside these is not page copy (scripts, styles), is fallback content
   // a browser shows only when it can't play or draw the element, or is drawn
-  // by the browser as part of a form control. The static scan covers noscript.
+  // by the browser as part of a form control. The static scan reports the
+  // text of noscript and of fallback content that never shows.
   const EXCLUDED = [
     "script", "style", "template", "noscript", "head", "select", "datalist", "textarea",
-    "canvas", "video", "audio", "object", "iframe", "embed", "picture", "rp",
+    "canvas", "video", "audio", "object", "iframe", "noframes", "noembed", "embed", "picture", "rp",
     "svg title", "svg desc", "svg metadata", "svg style", "svg script",
   ].join(", ");
 

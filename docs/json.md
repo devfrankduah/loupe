@@ -44,7 +44,7 @@ On the terminal the JSON is escaped to ASCII, so text from a page can't reach it
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `mode` | `"static"` or `"rendered"` | Found in the markup, or by the browser. |
-| `kind` | string | `comment`, `hidden-attribute`, `inline-style`, `stylesheet`, `aria-hidden`, `label-attribute`, `meta`, `noscript` or `rendered-hidden`. |
+| `kind` | string | `comment`, `hidden-attribute`, `inline-style`, `stylesheet`, `aria-hidden`, `label-attribute`, `meta`, `noscript`, `fallback-content` or `rendered-hidden`. |
 | `detail` | string | How it was hidden, such as `display:none` or `alt`. For `rendered-hidden` text that isn't in the page's own document, where it is follows in brackets: `(in a shadow root)`, `(in a frame)`, `(in a shadow root in a frame)`, or `(in a hidden frame)` when the frame's own box can't be seen and the reasons are the frame's. |
 | `tag` | string | The element it was in. |
 | `text` | string | The hidden text, cut to `--quote-chars` characters (160 unless set; 0 keeps it whole). Per-request meta values such as nonces and CSRF tokens are replaced with a placeholder. |
