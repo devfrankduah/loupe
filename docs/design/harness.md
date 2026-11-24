@@ -45,7 +45,7 @@ The footer of each page says it's a loupe test page. An agent reads that in both
 The same agent, with the same model, system prompt, task and tool, runs in two conditions that differ only in what the tool returns:
 
 - **Raw.** The tool fetches the page and returns markdown made from its HTML with markdownify, as many agent fetch tools do. An HTML variant returns the HTML itself, for agents that read markup.
-- **Guarded.** The tool is loupe's `fetch_page` in strip mode: loupe's header, then the markdown with the hidden text loupe found taken out. It renders the page by default, since a markup-only scan applies stylesheets only in part and runs no scripts, and a markup-only variant measures that gap.
+- **Guarded.** The tool is loupe's `fetch_page` in strip mode: loupe's header, then the markdown with the hidden text loupe found taken out. By default it scans in auto mode, `fetch_page`'s own default, which reads the markup and renders the page in Chromium as well when it holds something only a browser can judge. `--guarded-scan markup` and `--guarded-scan render` fix the scan instead, to measure each on its own. The results say which scan ran on each page and why, as the tool's header said. `--condition guarded` runs the guarded condition alone, and `--condition raw` the raw one.
 
 In both, the tool is called `fetch_page` with the description "Fetch a web page and return its content as markdown", so the model can't tell the conditions apart from the tool's name or description. The guarded tool's header is part of what's being tested: a model may grow more careful when told a page hides text worded like instructions.
 

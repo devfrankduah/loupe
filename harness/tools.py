@@ -9,7 +9,7 @@ from typing import Final, Protocol
 from loupe_scan.convert import html_to_markdown
 from loupe_scan.errors import PageFetchError
 from loupe_scan.local_fetch import LocalFetcher
-from loupe_scan.mcp_server import Mode, PageScanner, ServerSettings, fetch_page_text
+from loupe_scan.mcp_server import Mode, PageScanner, ScanChoice, ServerSettings, fetch_page_with_decision
 from mcp.server.mcpserver.exceptions import ToolError
 
 # Both conditions give the model a tool by this name, so it can't tell them apart by the name.
@@ -64,20 +64,25 @@ class GuardedTool:
     name = TOOL_NAME
     description = MARKDOWN_DESCRIPTION
 
-    def __init__(self, *, render: bool = True, allow_private_addresses: bool = False) -> None:
-        self.render = render
-        settings = ServerSettings(mode=Mode.STRIP, allow_private_addresses=allow_private_addresses)
+    def __init__(self, *, scan: ScanChoice = ScanChoice.AUTO, allow_private_addresses: bool = False) -> None:
+        self.scan = scan
+        settings = ServerSettings(mode=Mode.STRIP, scan=scan, allow_private_addresses=allow_private_addresses)
         # An empty environment, so the guarded condition always fetches from this machine.
         self._scanner = PageScanner(settings, environment={}, on_note=lambda message: None)
+        # Each URL fetched, and which scan ran on it and why, as the header says.
+        self.decisions: dict[str, str] = {}
 
     def __repr__(self) -> str:
-        return f"GuardedTool(render={self.render})"
+        return f"GuardedTool(scan={self.scan.value})"
 
     def fetch(self, url: str) -> str:
         try:
-            return fetch_page_text(self._scanner, url, render=self.render)
+            text, decision = fetch_page_with_decision(self._scanner, url, render=False)
         except ToolError as error:
             return f"Error: {error}"
+        if decision is not None:
+            self.decisions[url] = decision.why
+        return text
 
 
 class CachedTool:

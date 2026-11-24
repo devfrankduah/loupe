@@ -700,3 +700,44 @@ def test_the_check_says_it_read_shadow_roots_in_part() -> None:
     assert check.to_dict()["shadow_roots"] == 2
     assert check.description().endswith("; 2 shadow roots checked with its own styles, partially (no :host, ::slotted or slots)")
     assert "shadow root" not in StylesheetCheck(style_blocks=1).description()
+
+
+# var()
+
+
+def _var(css: str, body: str = f"<p>{SECRET}</p>") -> list[tuple[str, str]]:
+    return [(finding.detail, finding.text) for finding in scan_html(_page(f"body {{ background: #fff }} {css}", body))]
+
+
+FAINT = [("coloured like its background", SECRET)]
+
+
+@pytest.mark.parametrize(
+    ("css", "found"),
+    [
+        (":root { --ink: #fff } p { color: var(--ink) }", FAINT),
+        ("html { --ink: #fefefe } p { color: var( --ink ) }", FAINT),
+        (":root { --base: #fff; --ink: var(--base) } p { color: var(--ink) }", FAINT),
+        ("p { color: var(--nowhere, #fff) }", FAINT),
+        (":root { --page: #222 } body { background: var(--page) } p { color: #2a2a2a }", FAINT),
+        # Set more than once, or anywhere but the root, it could differ from element to element.
+        (":root { --ink: #fff } .x { --ink: #000 } p { color: var(--ink) }", []),
+        (":root { --ink: #fff } :root { --ink: #fff } p { color: var(--ink) }", []),
+        ("div { --ink: #fff } p { color: var(--ink) }", []),
+        ("@media (prefers-color-scheme: dark) { :root { --ink: #000 } } :root { --ink: #fff } p { color: var(--ink) }", []),
+        ("@supports (color: red) { :root { --ink: #fff } } p { color: var(--ink) }", []),
+        # A fallback holds only when the property is set nowhere, and a cycle never settles.
+        ("div { --ink: #000 } p { color: var(--ink, #fff) }", []),
+        (":root { --a: var(--b); --b: var(--a) } p { color: var(--a) }", []),
+        ("p { color: var(--nowhere) }", []),
+        (":root { --ink: #fff } p { color: var(--ink, rgb(0, 0, 0)) }", []),
+    ],
+)
+def test_colours_set_with_var_are_read_only_from_properties_set_once_on_the_root(
+    css: str, found: list[tuple[str, str]]
+) -> None:
+    assert _var(css) == found
+
+
+def test_a_custom_property_a_style_attribute_sets_isnt_read() -> None:
+    assert _var(":root { --ink: #fff } p { color: var(--ink) }", f'<div style="--ink: #000"><p>{SECRET}</p></div>') == []

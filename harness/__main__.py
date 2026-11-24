@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Final
 
 import requests
+from loupe_scan.mcp_server import ScanChoice
 
 from harness.agents import AGENTS, DEFAULT_TASK, AgentFactory
 from harness.cost import (
@@ -51,6 +52,13 @@ from harness.pages import PAGES_DIRECTORY, load_pages
 from harness.results import rescore, run_from_dict, run_to_dict, run_to_markdown
 from harness.runner import DEFAULT_TRIALS, Condition, Trial, run_trials
 from harness.tools import GuardedTool, PageTool, RawOutput, RawTool
+
+# How the plan describes each way the guarded tool scans.
+_GUARDED_SCANS: Final[dict[ScanChoice, str]] = {
+    ScanChoice.AUTO: "in auto mode, its default: markup first, rendered in Chromium when the page needs a browser",
+    ScanChoice.MARKUP: "markup only",
+    ScanChoice.RENDER: "rendered in Chromium",
+}
 
 PUBLISHED_PAGES: Final[str] = "https://devfrankduah.github.io/loupe/harness/"
 EXIT_REFUSED: Final[int] = 2
@@ -114,7 +122,22 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--output-speed", type=_speed, default=DEFAULT_OUTPUT_TOKENS_PER_SECOND, metavar="TOKENS", help="a local model's output tokens a second, for the dry run's time estimate")
     run.add_argument("--seed", type=int, default=0, help="seed for the order the trials run in (default: 0)")
     run.add_argument("--raw-output", type=RawOutput, choices=list(RawOutput), default=RawOutput.MARKDOWN, metavar="{markdown,html}", help="what the raw tool returns (default: markdown)")
-    run.add_argument("--markup-only", action="store_true", help="give the guarded tool a markup-only scan instead of a rendered one")
+    run.add_argument(
+        "--guarded-scan",
+        type=ScanChoice,
+        choices=list(ScanChoice),
+        default=ScanChoice.AUTO,
+        metavar="{auto,markup,render}",
+        help="how the guarded tool scans pages, as loupe mcp --scan does (default: auto, fetch_page's default)",
+    )
+    run.add_argument(
+        "--condition",
+        action="append",
+        type=Condition,
+        choices=list(Condition),
+        metavar="{raw,guarded}",
+        help="a condition to run, more than once for several (default: both)",
+    )
     run.add_argument("--allow-private-addresses", action="store_true", help="let the guarded tool fetch pages served from this machine, for testing")
     run.add_argument("--json", type=Path, metavar="PATH", help="also write the results, with every trial, as JSON to PATH")
 
@@ -171,15 +194,16 @@ def _plan_lines(
     arguments: argparse.Namespace,
     trials: int,
     pages: int,
+    conditions: int,
     environment: Mapping[str, str],
 ) -> list[str]:
     total_trials = sum(item.trials for item in planned)
     speed = Speed(arguments.prompt_speed, arguments.output_speed)
     lines = [
-        f"Plan: {len(planned)} agent{'' if len(planned) == 1 else 's'} x {pages} pages x 2 conditions x {trials} "
+        f"Plan: {len(planned)} agent{'' if len(planned) == 1 else 's'} x {pages} pages x {conditions} condition{'' if conditions == 1 else 's'} x {trials} "
         f"trial{'' if trials == 1 else 's'} = {total_trials:,} trials, in an order shuffled by seed {arguments.seed}.",
         f"Pages from {arguments.base_url}; the guarded tool is loupe's fetch_page in strip mode, "
-        f"{'markup only' if arguments.markup_only else 'rendered in Chromium'}.",
+        f"{_GUARDED_SCANS[arguments.guarded_scan]}.",
         f"Each request may use {arguments.max_tokens} output tokens, thinking included, and an answer at most "
         f"{MAX_TOOL_CALLS} tool calls. Tokens assume {INPUT_TOKENS_PER_TRIAL:,} in and {REQUESTS_PER_TRIAL} capped "
         "requests out a trial.",
@@ -223,11 +247,12 @@ def _run(arguments: argparse.Namespace, environment: Mapping[str, str], session_
     specs: list[ModelSpec] = list(dict.fromkeys(arguments.model or []))
     fakes = arguments.agent or ([] if specs else sorted(AGENTS))
     prices = {**PRICES, **dict(arguments.price or [])}
-    cells_per_agent = len(pages) * 2 * trials
+    conditions: list[Condition] = list(dict.fromkeys(arguments.condition or list(Condition)))
+    cells_per_agent = len(pages) * len(conditions) * trials
     planned = [_Planned(name, False, FREE, cells_per_agent) for name in fakes] + [
         _Planned(spec.name, spec.local, FREE if spec.local else prices.get(spec.name), cells_per_agent) for spec in specs
     ]
-    lines = _plan_lines(planned, specs, arguments, trials, len(pages), environment)
+    lines = _plan_lines(planned, specs, arguments, trials, len(pages), len(conditions), environment)
     if arguments.dry_run:
         print("\n".join(lines + ["Dry run: nothing was fetched and no model was called."]))
         return 0
@@ -255,10 +280,13 @@ def _run(arguments: argparse.Namespace, environment: Mapping[str, str], session_
         return EXIT_REFUSED
     agents: dict[str, AgentFactory] = {name: AGENTS[name] for name in fakes}
     agents.update(models)
-    tools: dict[Condition, PageTool] = {
-        Condition.RAW: RawTool(arguments.raw_output),
-        Condition.GUARDED: GuardedTool(render=not arguments.markup_only, allow_private_addresses=arguments.allow_private_addresses),
-    }
+    tools: dict[Condition, PageTool] = {}
+    if Condition.RAW in conditions:
+        tools[Condition.RAW] = RawTool(arguments.raw_output)
+    if Condition.GUARDED in conditions:
+        tools[Condition.GUARDED] = GuardedTool(
+            scan=arguments.guarded_scan, allow_private_addresses=arguments.allow_private_addresses
+        )
     spend = Spend(arguments.max_cost, {name: prices.get(name, FREE) for name in agents}, planned_dollars)
     run = run_trials(
         agents,

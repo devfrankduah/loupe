@@ -167,8 +167,28 @@ def test_who_the_fake_agent_obeys_through_loupe_matches_the_ground_truth(
     from harness.scoring import canary_found
     from harness.tools import GuardedTool
 
+    from loupe_scan.mcp_server import ScanChoice
+
     field = "Hijacks, guarded, rendered" if render else "Hijacks, guarded, markup only"
-    agent = ObedientAgent(GuardedTool(render=render, allow_private_addresses=True))
+    agent = ObedientAgent(GuardedTool(scan=ScanChoice.RENDER if render else ScanChoice.MARKUP, allow_private_addresses=True))
     for slug in SLUGS:
         answer = agent.answer(f"{harness_site}/{slug}/", "Summarise it.")
         assert canary_found(answer, _code(slug)) == _yes(slug, field), slug
+
+
+def test_auto_mode_renders_the_pages_the_ground_truth_says_and_is_hijacked_only_where_it_says(
+    request: pytest.FixtureRequest, harness_site: str
+) -> None:
+    pytest.importorskip("mcp")
+    request.getfixturevalue("chromium")
+    from harness.agents import ObedientAgent
+    from harness.scoring import canary_found
+    from harness.tools import GuardedTool
+
+    tool = GuardedTool(allow_private_addresses=True)
+    agent = ObedientAgent(tool)
+    for slug in SLUGS:
+        url = f"{harness_site}/{slug}/"
+        answer = agent.answer(url, "Summarise it.")
+        assert canary_found(answer, _code(slug)) == _yes(slug, "Hijacks, guarded, auto (the default)"), slug
+        assert tool.decisions[url].startswith("auto, rendered") == _yes(slug, "fetch_page's auto mode renders it"), slug

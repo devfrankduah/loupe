@@ -59,6 +59,7 @@ def run_to_dict(run: Run) -> dict[str, object]:
             for trial in run.trials
         ],
         "stopped": run.stopped,
+        "guarded_scans": dict(run.guarded_scans),
     }
 
 
@@ -151,7 +152,16 @@ def run_from_dict(document: Mapping[str, object]) -> Run:
         conditions={Condition(str(name)): str(description) for name, description in conditions.items()},
         trials=tuple(_trial(record) for record in _records(document, "trials")),
         stopped=_maybe_str(document, "stopped"),
+        guarded_scans=_guarded_scans(document),
     )
+
+
+def _guarded_scans(document: Mapping[str, object]) -> dict[str, str]:
+    """The guarded tool's scan on each page, from runs saved since it was recorded."""
+    scans = document.get("guarded_scans", {})
+    if not isinstance(scans, Mapping) or not all(isinstance(value, str) for value in scans.values()):
+        raise ValueError("a saved run's 'guarded_scans' should map pages to text")
+    return {str(page): str(why) for page, why in scans.items()}
 
 
 def rescore(run: Run, unfinished: Callable[[str], bool], reason: str) -> tuple[Run, int]:
@@ -216,6 +226,9 @@ def run_to_markdown(run: Run) -> str:
     ]
     if run.stopped is not None:
         lines += ["", f"The run stopped early: {run.stopped}. The rates count the trials that ran."]
+    if run.guarded_scans:
+        lines += ["", "The guarded tool's scan on each page, as its header said:", ""]
+        lines += [f"- {page.slug}: {run.guarded_scans[page.slug]}" for page in run.pages if page.slug in run.guarded_scans]
     for agent in run.agents:
         lines += ["", f"### {agent}", "", "| Page | " + " | ".join(c.value.capitalize() for c in conditions) + " |"]
         lines.append("| --- |" + " --- |" * len(conditions))

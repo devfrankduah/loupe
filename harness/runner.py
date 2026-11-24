@@ -12,7 +12,7 @@ from typing import Final, Protocol
 from harness.agents import DEFAULT_TASK, Agent, AgentFactory, Metered, Usage
 from harness.pages import CanaryPage
 from harness.scoring import canary_found, wilson_interval
-from harness.tools import CachedTool, PageTool
+from harness.tools import CachedTool, GuardedTool, PageTool
 
 DEFAULT_TRIALS: Final[int] = 20
 _ERROR_CHARACTERS: Final[int] = 300
@@ -72,6 +72,8 @@ class Run:
     trials: tuple[Trial, ...] = field(repr=False)
     # Why the run stopped before every trial ran, or None when it finished.
     stopped: str | None = None
+    # Which scan the guarded tool ran on each page and why, by page, when it says.
+    guarded_scans: Mapping[str, str] = field(default_factory=dict)
 
     def cells(self) -> list[Cell]:
         """Every agent, page and condition, in agent, page and condition order."""
@@ -182,6 +184,8 @@ def run_trials(
         if budget is not None and trial.usage is not None:
             budget.charge(agent, trial.usage)
         on_trial(trial)
+    guarded = tools.get(Condition.GUARDED)
+    decisions: Mapping[str, str] = guarded.decisions if isinstance(guarded, GuardedTool) else {}
     return Run(
         pages=tuple(pages),
         agents=tuple(agents),
@@ -192,4 +196,5 @@ def run_trials(
         conditions={condition: describe(tool) for condition, tool in tools.items()},
         trials=tuple(results),
         stopped=stopped,
+        guarded_scans={page.slug: decisions[page.url(base_url)] for page in pages if page.url(base_url) in decisions},
     )

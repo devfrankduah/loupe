@@ -22,6 +22,7 @@ from harness.results import describe_cell, run_to_dict, run_to_markdown  # noqa:
 from harness.runner import Cell, Condition, run_trials  # noqa: E402
 from harness.scoring import canary_found, wilson_interval  # noqa: E402
 from harness.tools import CachedTool, GuardedTool, PageTool, RawOutput, RawTool  # noqa: E402
+from loupe_scan.mcp_server import ScanChoice  # noqa: E402
 
 from .fixture_site import FixtureSite, serve_fixtures  # noqa: E402
 
@@ -43,7 +44,7 @@ def base_url(served: FixtureSite) -> str:
 
 
 def _raw_and_markup_guarded() -> dict[Condition, PageTool]:
-    return {Condition.RAW: RawTool(), Condition.GUARDED: GuardedTool(render=False, allow_private_addresses=True)}
+    return {Condition.RAW: RawTool(), Condition.GUARDED: GuardedTool(scan=ScanChoice.MARKUP, allow_private_addresses=True)}
 
 
 # Scoring
@@ -342,7 +343,7 @@ def test_the_command_runs_the_fake_agent_and_writes_both_formats(
     base_url: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     output = tmp_path / "results.json"
-    arguments = ["run", "--base-url", base_url, "--trials", "2", "--markup-only", "--allow-private-addresses", "--json", str(output)]
+    arguments = ["run", "--base-url", base_url, "--trials", "2", "--guarded-scan", "markup", "--allow-private-addresses", "--json", str(output)]
     assert harness_cli.main(arguments) == 0
     printed = capsys.readouterr()
     assert "| control | 2/2, 100% (34% to 100%) | 2/2, 100% (34% to 100%) |" in printed.out.splitlines()

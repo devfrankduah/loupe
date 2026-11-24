@@ -546,7 +546,7 @@ def test_a_live_pilot_through_the_command_never_writes_the_key(
 ) -> None:
     name = "anthropic:claude-haiku-5-5" if provider is Provider.ANTHROPIC else "ollama:qwen3:4b"
     output = tmp_path / "results.json"
-    arguments = ["run", "--model", name, "--pilot", "--markup-only", "--allow-private-addresses", "--base-url", base_url, "--json", str(output)]
+    arguments = ["run", "--model", name, "--pilot", "--guarded-scan", "markup", "--allow-private-addresses", "--base-url", base_url, "--json", str(output)]
     # A local model runs at the default --max-cost of 0; a paid one needs the limit raised.
     if provider is Provider.ANTHROPIC:
         arguments += ["--max-cost", "0.05"]

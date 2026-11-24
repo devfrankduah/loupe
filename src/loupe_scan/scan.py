@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup, CData, Comment, Tag
 from bs4.element import NavigableString, PageElement, TemplateString
 
 from loupe_scan.phrases import find_instruction_phrases
+from loupe_scan.signals import Signal, in_order
 from loupe_scan.stylesheets import (
     PageStyles,
     StylesheetCheck,
@@ -41,6 +42,21 @@ _WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
 _TEXT_TYPES: Final[tuple[type[NavigableString], ...]] = (NavigableString, CData, TemplateString)
 # Added to the detail of a finding inside a shadow root declared in the HTML, as a rendered scan's are.
 IN_SHADOW_ROOT: Final[str] = " (in a shadow root)"
+# Elements that hold a document of their own.
+_FRAME_TAGS: Final[frozenset[str]] = frozenset({"iframe", "frame", "object", "embed"})
+# A browser reads what's inside these as text, so an element written there is never one, and never runs.
+_RAW_TEXT_HOLDERS: Final[frozenset[str]] = frozenset(
+    {"noscript", "iframe", "noframes", "noembed", "textarea", "title", "xmp", "plaintext", "script", "style"}
+)
+# The type values a browser runs a <script> for: none, a JavaScript MIME type, or module.
+_SCRIPT_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "", "module", "application/ecmascript", "application/javascript", "application/x-ecmascript",
+        "application/x-javascript", "text/ecmascript", "text/javascript", "text/javascript1.0", "text/javascript1.1",
+        "text/javascript1.2", "text/javascript1.3", "text/javascript1.4", "text/javascript1.5", "text/jscript",
+        "text/livescript", "text/x-ecmascript", "text/x-javascript",
+    }
+)
 
 PER_REQUEST_PLACEHOLDER: Final[str] = "[per-request value removed]"
 
@@ -155,6 +171,29 @@ def _text_of(element: Tag, styles: PageStyles, skipped: frozenset[str] = frozens
     return normalize_whitespace(" ".join(parts))
 
 
+def _has_own_text(element: Tag) -> bool:
+    return any(
+        isinstance(child, NavigableString) and type(child) in _TEXT_TYPES and child.strip() for child in element.contents
+    )
+
+
+def _in_raw_text(element: Tag) -> bool:
+    return any(parent.name in _RAW_TEXT_HOLDERS for parent in element.parents if isinstance(parent, Tag))
+
+
+def _runs(script: Tag) -> bool:
+    """True for a <script> a browser runs: a JavaScript type and a source or code of its own."""
+    kind = _attribute_text(script, "type").partition(";")[0].strip().lower()
+    return kind in _SCRIPT_TYPES and bool(_attribute_text(script, "src") or script.get_text().strip())
+
+
+def _is_closed(element: Tag) -> bool:
+    """True for content a browser shows only once a click or a script opens it."""
+    if element.name in ("details", "dialog") and not element.has_attr("open"):
+        return True
+    return element.has_attr("popover")
+
+
 def _attribute_text(element: Tag, attribute: str) -> str:
     value = element.get(attribute)
     if isinstance(value, list):
@@ -210,6 +249,8 @@ class MarkupScan:
     findings: list[Finding]
     # What the partial stylesheet check read.
     stylesheets: StylesheetCheck
+    # What on the page only a browser can judge, in Signal's order: what makes fetch_page's auto mode render it.
+    needs_browser: tuple[Signal, ...] = ()
 
 
 def scan_html(html: str) -> list[Finding]:
@@ -237,8 +278,11 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
     styles = read_page_styles(soup, page_url, stylesheets)
     findings: list[Finding] = []
     hidden_containers: set[int] = set()
+    # The hidden containers a reader can't see, aria-hidden ones aside.
+    unseen: set[int] = set()
     # Elements in _REPORTED_APART already reported, so one inside another isn't reported again.
     apart: set[int] = set()
+    signals: set[Signal] = set()
 
     for node in soup.descendants:
         if isinstance(node, Comment):
@@ -274,14 +318,22 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
                     findings.append(make_finding(Kind.META, label, tag_name, text, line=node.sourceline))
             continue
 
-        if tag_name in _NON_CONTENT_TAGS or styles.never_shown(node):
+        if styles.never_shown(node):
+            continue
+        runs_script = (tag_name == "script" and _runs(node)) or any(name.lower().startswith("on") for name in node.attrs)
+        if Signal.SCRIPTS not in signals and runs_script and not _in_raw_text(node):
+            signals.add(Signal.SCRIPTS)
+        if tag_name in _NON_CONTENT_TAGS:
             continue
         where = IN_SHADOW_ROOT if styles.in_shadow_root(node) else ""
+        if tag_name in _FRAME_TAGS and not _is_inside(node, unseen) and not _in_raw_text(node):
+            signals.add(Signal.FRAMES)
 
         if tag_name in _REPORTED_APART:
             if not _is_inside(node, apart):
                 apart.add(id(node))
                 hidden_containers.add(id(node))
+                unseen.add(id(node))
                 text = _text_of(node, styles)
                 if text:
                     kind = Kind.NOSCRIPT if tag_name == "noscript" else Kind.FALLBACK_CONTENT
@@ -289,14 +341,36 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
             continue
 
         if _is_inside(node, hidden_containers):
+            if not _is_inside(node, unseen):
+                _add_concerns(node, styles, signals)
             continue
 
         hiding = _element_hiding(node, styles)
         if hiding is not None:
             hidden_containers.add(id(node))
+            kind, detail = hiding
+            if kind is not Kind.ARIA_HIDDEN:
+                unseen.add(id(node))
+            else:
+                _add_concerns(node, styles, signals)
             text = _text_of(node, styles, _REPORTED_APART)
             if text:
-                kind, detail = hiding
                 findings.append(make_finding(kind, f"{detail}{where}", tag_name, text, line=node.sourceline))
+            continue
+        _add_concerns(node, styles, signals)
 
-    return MarkupScan(findings, styles.check)
+    check = styles.check
+    if check.shadow_roots:
+        signals.add(Signal.SHADOW_ROOTS)
+    if check.linked_not_read:
+        signals.add(Signal.UNREAD_STYLESHEETS)
+    if check.uncertain_rules:
+        signals.add(Signal.UNSETTLED_RULES)
+    return MarkupScan(findings, check, in_order(signals))
+
+
+def _add_concerns(element: Tag, styles: PageStyles, signals: set[Signal]) -> None:
+    """Add what about an element a reader may see only a browser can judge."""
+    if Signal.CLOSED not in signals and _is_closed(element):
+        signals.add(Signal.CLOSED)
+    signals.update(styles.concerns(element, has_text=_has_own_text(element), skip=frozenset(signals)))

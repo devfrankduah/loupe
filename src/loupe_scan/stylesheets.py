@@ -37,7 +37,7 @@ from __future__ import annotations
 import bisect
 import copy
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Protocol
 from urllib.parse import urljoin, urlsplit
@@ -46,6 +46,7 @@ import soupsieve
 from bs4 import BeautifulSoup, Tag
 
 from loupe_scan.errors import PageFetchError
+from loupe_scan.signals import Signal
 
 # The rendered scan's viewport (RenderSettings), which media queries are judged against.
 ASSUMED_VIEWPORT_WIDTH_PX: Final[float] = 1280.0
@@ -68,7 +69,35 @@ HIDING_PROPERTIES: Final[frozenset[str]] = frozenset(
 )
 # The properties the colour check reads: the text's colour and what's painted behind it.
 COLOUR_PROPERTIES: Final[frozenset[str]] = frozenset({"color", "background-color", "background-image"})
-_COLLECTED_PROPERTIES: Final[frozenset[str]] = HIDING_PROPERTIES | COLOUR_PROPERTIES
+# What only a browser can judge: where an element is placed, and styles that can hide text in ways the checks
+# don't evaluate. loupe_scan.signals names them, for fetch_page's auto mode.
+_MARGINS: Final[tuple[str, ...]] = ("margin-top", "margin-right", "margin-bottom", "margin-left")
+_GRID_PLACEMENT: Final[frozenset[str]] = frozenset(
+    {
+        "grid-area", "grid-row", "grid-column", "grid-row-start", "grid-row-end", "grid-column-start",
+        "grid-column-end",
+    }
+)
+_TRANSFORMS: Final[frozenset[str]] = frozenset({"transform", "translate", "rotate", "scale"})
+_SIZES: Final[frozenset[str]] = frozenset({"width", "height", "max-width", "max-height"})
+_PAINT_EFFECTS: Final[dict[str, frozenset[str]]] = {
+    # Each property, and the values that leave text alone.
+    "filter": frozenset({"none"}),
+    "backdrop-filter": frozenset({"none"}),
+    "mix-blend-mode": frozenset({"normal"}),
+    "mask": frozenset({"none"}),
+    "mask-image": frozenset({"none"}),
+    "-webkit-mask": frozenset({"none"}),
+    "-webkit-mask-image": frozenset({"none"}),
+    "content-visibility": frozenset({"visible"}),
+    "-webkit-text-fill-color": frozenset({"currentcolor", "inherit", "initial", "unset"}),
+    "contain": frozenset({"none", "layout", "style", "size", "inline-size"}),
+}
+_SIGNAL_PROPERTIES: Final[frozenset[str]] = frozenset(
+    {"z-index", "overflow-x", "overflow-y", *_MARGINS, *_GRID_PLACEMENT, *_TRANSFORMS, *_SIZES, *_PAINT_EFFECTS}
+)
+_JUDGED_PROPERTIES: Final[frozenset[str]] = HIDING_PROPERTIES | COLOUR_PROPERTIES
+_COLLECTED_PROPERTIES: Final[frozenset[str]] = _JUDGED_PROPERTIES | _SIGNAL_PROPERTIES
 # Text whose contrast with the colour behind it is under this ratio is too
 # faint to see: the same threshold as the rendered scan's, in visibility.js.
 MIN_CONTRAST: Final[float] = 1.5
@@ -323,8 +352,8 @@ def _background_longhands(value: str) -> list[tuple[str, str]]:
 
 
 def _longhands(name: str, value: str) -> list[tuple[str, str]]:
-    """The properties a declaration sets that the checks read, with shorthands expanded."""
-    if name in _COLLECTED_PROPERTIES:
+    """The properties a declaration sets that the checks read, with shorthands expanded, and custom properties."""
+    if name in _COLLECTED_PROPERTIES or name.startswith("--"):
         return [(name, value)]
     if name == "background":
         return _background_longhands(value)
@@ -336,6 +365,16 @@ def _longhands(name: str, value: str) -> list[tuple[str, str]]:
             return []
         top, right, bottom, left = (edges * 4)[:4] if len(edges) == 1 else _edges(edges)
         return [("top", top), ("right", right), ("bottom", bottom), ("left", left)]
+    if name == "margin":
+        edges = _split_values(value)
+        if not 1 <= len(edges) <= 4:
+            return []
+        return list(zip(_MARGINS, (edges * 4)[:4] if len(edges) == 1 else _edges(edges)))
+    if name == "overflow":
+        axes = _split_values(value)
+        if not 1 <= len(axes) <= 2:
+            return []
+        return [("overflow-x", axes[0]), ("overflow-y", axes[-1])]
     if name == "all":
         return [(longhand, value) for longhand in sorted(_COLLECTED_PROPERTIES)]
     return []
@@ -417,6 +456,71 @@ def contrast_ratio(text: Colour, background: Colour) -> float:
 
 
 _WHITE: Final[Colour] = (255.0, 255.0, 255.0, 1.0)
+# A browser's default text colour.
+_BLACK: Final[Colour] = (0.0, 0.0, 0.0, 1.0)
+# Opacity multiplies down the tree, and the rendered scan calls text under 0.05 hidden. Under this, a browser
+# should settle it.
+_FADED_BELOW: Final[float] = 0.25
+_NOT_PLACED: Final[frozenset[str]] = frozenset({"static", "initial", "unset", "inherit", "revert", "revert-layer"})
+_NO_OFFSET: Final[frozenset[str]] = frozenset({"auto", "initial", "unset", "inherit", "revert", "revert-layer"})
+_CLIPPING_OVERFLOW: Final[frozenset[str]] = frozenset({"hidden", "clip", "scroll", "auto"})
+_UNSIZED: Final[frozenset[str]] = frozenset({"auto", "none", "initial", "unset", "inherit", "revert", "revert-layer"})
+# Text this small or smaller, in px, can't be read; the rendered scan calls under 2px hidden.
+_TINY_TEXT_PX: Final[float] = 4.0
+
+
+def _opacity(value: str) -> float | None:
+    """An opacity as a number from 0 to 1, or None when it can't be read. Keywords leave it at 1."""
+    if value in _NO_OFFSET:
+        return 1.0
+    try:
+        number = float(value[:-1]) / 100 if value.endswith("%") else float(value)
+    except ValueError:
+        return None
+    return min(max(number, 0.0), 1.0)
+
+
+def _placed(values: Callable[[str], list[str]]) -> bool:
+    """True when element is positioned, transformed or grid-placed, or has a negative margin or z-index."""
+    positions = values("position")
+    if any(position not in _NOT_PLACED and position != "relative" for position in positions):
+        return True
+    if "relative" in positions and (
+        any(value not in _NO_OFFSET and not _is_zero_quantity(value) for name in _OFFSET_PROPERTIES for value in values(name))
+        or any(value not in _NO_OFFSET for value in values("z-index"))
+    ):
+        return True
+    if any(value.startswith("-") for value in values("z-index")):
+        return True
+    if any(value not in ("none", *_NOT_PLACED) for name in _TRANSFORMS for value in values(name)):
+        return True
+    if any(value.startswith("-") and not _is_zero_quantity(value) for name in _MARGINS for value in values(name)):
+        return True
+    return any(value not in _NO_OFFSET for name in _GRID_PLACEMENT for value in values(name))
+
+
+def _styled_past_judging(values: Callable[[str], list[str]]) -> bool:
+    """True for styles that can hide text in ways the checks don't evaluate."""
+    if any(value in _CLIPPING_OVERFLOW for name in ("overflow-x", "overflow-y") for value in values(name)) and any(
+        value not in _UNSIZED for name in _SIZES for value in values(name)
+    ):
+        return True
+    for name, harmless in _PAINT_EFFECTS.items():
+        if any(value not in harmless for value in values(name)):
+            return True
+    # Clipping to nothing is judged where it's certain, and an element found hidden isn't asked about.
+    if any(value != "none" for value in values("clip-path")) or any(value != "auto" for value in values("clip")):
+        return True
+    for size in values("font-size"):
+        match = _LENGTH_PATTERN.match(size)
+        if match is None:
+            continue
+        pixels = length_in_px(size)
+        number = float(match.group(1))
+        if (pixels is not None and 0 < pixels < _TINY_TEXT_PX) or (pixels is None and 0 < number < (25 if match.group(2) == "%" else 1)):
+            return True
+    # A hiding property set with var() could hold anything.
+    return any("var(" in value for name in HIDING_PROPERTIES for value in values(name))
 
 
 def _edges(values: list[str]) -> tuple[str, str, str, str]:
@@ -683,8 +787,17 @@ class _RuleList:
     uncertain: int = 0
     imports: int = 0
     order: int = 0
+    # Each custom property declaration: (selector, name, value, whether its rule applies for certain).
+    custom: list[tuple[str, str, str, bool]] = field(default_factory=list)
 
     def add(self, selectors: Sequence[str], declarations: Sequence[Declaration], certain: bool) -> None:
+        self.custom.extend(
+            (selector.strip(), declaration.name, declaration.value, certain)
+            for declaration in declarations
+            if declaration.name.startswith("--")
+            for selector in selectors
+        )
+        declarations = [declaration for declaration in declarations if not declaration.name.startswith("--")]
         if not declarations:
             return
         for selector in selectors:
@@ -702,7 +815,7 @@ class _RuleList:
                 except (soupsieve.SelectorSyntaxError, NotImplementedError, ValueError, TypeError):
                     compiled = None
             applies = certain and compiled is not None
-            if not applies:
+            if not applies and any(declaration.name in _JUDGED_PROPERTIES for declaration in declarations):
                 self.uncertain += 1
             self.rules.append(_Rule(selector, found, tuple(declarations), applies, self.order, compiled))
 
@@ -933,10 +1046,74 @@ class StyleHiding:
     from_stylesheet: bool
 
 
+_VAR: Final[re.Pattern[str]] = re.compile(r"var\(\s*(--[^\s,()]+)\s*(?:,\s*([^()]*))?\)")
+# var() inside a custom property's value is followed this many times, which also ends a cycle.
+_MAX_VAR_DEPTH: Final[int] = 8
+_ROOT_SELECTORS: Final[frozenset[str]] = frozenset({":root", "html"})
+
+
+class CustomProperties:
+    """The custom properties var() can be read from: each set once on the page, on :root or html, and nowhere else.
+
+    One set on the root reaches every element, so its value is known
+    wherever it's used. One set anywhere else, or more than once, could hold
+    a different value in different places, so a var() naming it is left
+    unread. A var() naming one set nowhere takes its fallback.
+    """
+
+    def __init__(self, values: Mapping[str, str], declared: frozenset[str]) -> None:
+        self._values = dict(values)
+        self._declared = declared
+
+    def __repr__(self) -> str:
+        return f"CustomProperties(readable={len(self._values)}, declared={len(self._declared)})"
+
+    @classmethod
+    def from_declarations(cls, rules: Iterable[tuple[str, str, str, bool]], elsewhere: Iterable[str]) -> CustomProperties:
+        """rules holds (selector, name, value, certain) for every rule's custom properties, and elsewhere the name of
+        every one set in a style attribute."""
+        counts: dict[str, int] = {}
+        on_root: dict[str, str] = {}
+        for selector, name, value, certain in rules:
+            counts[name] = counts.get(name, 0) + 1
+            if certain and selector in _ROOT_SELECTORS:
+                on_root[name] = value
+        for name in elsewhere:
+            counts[name] = counts.get(name, 0) + 1
+        readable = {name: value for name, value in on_root.items() if counts[name] == 1}
+        return cls(readable, frozenset(counts))
+
+    def substitute(self, value: str) -> str | None:
+        """value with every var() in it replaced, or None when one can't be read."""
+        for _ in range(_MAX_VAR_DEPTH):
+            if "var(" not in value:
+                return value
+            unread = False
+
+            def replace(match: re.Match[str]) -> str:
+                nonlocal unread
+                name, fallback = match.group(1), match.group(2)
+                if name in self._values:
+                    return self._values[name]
+                if name not in self._declared and fallback is not None and fallback.strip():
+                    return fallback.strip()
+                unread = True
+                return ""
+
+            value = _VAR.sub(replace, value)
+            if unread:
+                return None
+        return None
+
+
+NO_CUSTOM_PROPERTIES: Final[CustomProperties] = CustomProperties({}, frozenset())
+
+
 class StyleCascade:
     """A page's rules that bear on hiding, applied element by element with the cascade."""
 
-    def __init__(self, rules: Sequence[_Rule]) -> None:
+    def __init__(self, rules: Sequence[_Rule], custom: CustomProperties = NO_CUSTOM_PROPERTIES) -> None:
+        self._custom = custom
         self._buckets: dict[_IndexKey, list[_Rule]] = {}
         for rule in rules:
             self._buckets.setdefault(index_key(rule.selector), []).append(rule)
@@ -994,7 +1171,11 @@ class StyleCascade:
         for key, _ in resolved.alternatives.get(name, ()):
             if winner is None or key > winner[0]:
                 return UNSETTLED
-        return None if winner is None else (winner[1], winner[2])
+        if winner is None:
+            return None
+        value = self._custom.substitute(winner[1])
+        # A value with a var() it can't read could be anything.
+        return UNSETTLED if value is None else (value, winner[2])
 
     def _text_colour(self, element: Tag) -> tuple[Colour, bool] | None:
         """The colour element's text is drawn in, set on it or inherited, or None when it can't be told."""
@@ -1053,6 +1234,90 @@ class StyleCascade:
         if contrast_ratio(text[0], background[0]) >= MIN_CONTRAST:
             return None
         return StyleHiding((CONTRAST_REASON,), text[1] or background[1])
+
+    # What a browser has to judge
+
+    def concerns(self, element: Tag, *, has_text: bool, skip: frozenset[Signal] = frozenset()) -> set[Signal]:
+        """What about element's styles only a browser can judge: Signal.PLACED, Signal.STYLES and, for an element
+        with text of its own, Signal.COLOURS. Signals in skip, already found, aren't looked for again.
+
+        Every rule that might apply counts, not only the winning one.
+        """
+        found: set[Signal] = set()
+        resolved = self._resolve(element)
+
+        def values(name: str) -> list[str]:
+            winner = resolved.winners.get(name)
+            return ([winner[1]] if winner is not None else []) + [value for _, value in resolved.alternatives.get(name, ())]
+
+        if Signal.PLACED not in skip and _placed(values):
+            found.add(Signal.PLACED)
+        if Signal.STYLES not in skip and (_styled_past_judging(values) or self._faded(element)):
+            found.add(Signal.STYLES)
+        if has_text and Signal.COLOURS not in skip and self._colours_unjudged(element):
+            found.add(Signal.COLOURS)
+        return found
+
+    def _faded(self, element: Tag) -> bool:
+        """True when the opacities of element and its ancestors multiply to under 0.25, or one can't be read."""
+        opacity = 1.0
+        for node in (element, *element.parents):
+            if not isinstance(node, Tag) or node.name == "[document]":
+                break
+            resolved = self._resolve(node)
+            winner = resolved.winners.get("opacity")
+            candidates = ([winner[1]] if winner is not None else []) + [value for _, value in resolved.alternatives.get("opacity", ())]
+            lowest = 1.0
+            for value in candidates:
+                number = _opacity(value)
+                if number is None:
+                    return True
+                lowest = min(lowest, number)
+            opacity *= lowest
+        return opacity < _FADED_BELOW
+
+    def _colours_unjudged(self, element: Tag) -> bool:
+        """True when element's text colour or what's behind it is set in a way the colour check can't read, or when
+        only one of them is declared and, against the browser's default for the other, they'd be too close to see."""
+        text: Colour | None = None
+        for node in (element, *element.parents):
+            if not isinstance(node, Tag) or node.name == "[document]":
+                break
+            settled = self._settled(node, "color")
+            if settled is UNSETTLED:
+                return True
+            if isinstance(settled, tuple):
+                text = parse_colour(settled[0])
+                if text is None:
+                    return True
+                break
+        layers: list[Colour] = []
+        for node in (element, *element.parents):
+            if not isinstance(node, Tag) or node.name == "[document]":
+                break
+            image = self._settled(node, "background-image")
+            colour = self._settled(node, "background-color")
+            if image is UNSETTLED or colour is UNSETTLED:
+                return True
+            if isinstance(image, tuple) and image[0] != "none":
+                painted = single_colour_gradient(image[0])
+                # Text on a picture or a gradient of several colours isn't judged in a browser either.
+                if painted is None:
+                    return False
+                layers.append(painted)
+            if isinstance(colour, tuple):
+                parsed = parse_colour(colour[0])
+                if parsed is None:
+                    return True
+                if parsed[3] > 0:
+                    layers.append(parsed)
+            if layers and layers[-1][3] >= 1:
+                break
+        # With both declared, the colour check judged this itself, and text it found hidden isn't asked about.
+        behind = _WHITE
+        for layer in reversed(layers):
+            behind = _blend(layer, behind)
+        return contrast_ratio(_BLACK if text is None else text, behind) < MIN_CONTRAST
 
 
 class _Unsettled:
@@ -1173,6 +1438,10 @@ class ShadowTree:
         copied = self.copies.get(id(element))
         return None if copied is None else self.cascade.hiding(copied)
 
+    def concerns(self, element: Tag, *, has_text: bool, skip: frozenset[Signal]) -> set[Signal]:
+        copied = self.copies.get(id(element))
+        return set() if copied is None else self.cascade.concerns(copied, has_text=has_text, skip=skip)
+
 
 class _Inert:
     """The content of an ordinary <template>, which a browser never shows or styles."""
@@ -1259,6 +1528,16 @@ class PageStyles:
             return scope.hiding(element)
         return None
 
+    def concerns(self, element: Tag, *, has_text: bool, skip: frozenset[Signal] = frozenset()) -> set[Signal]:
+        """What about element's styles only a browser can judge, from the rules of the tree it's in. See
+        StyleCascade.concerns."""
+        scope = self.scopes.get(id(element))
+        if scope is None:
+            return self.cascade.concerns(element, has_text=has_text, skip=skip)
+        if isinstance(scope, ShadowTree):
+            return scope.concerns(element, has_text=has_text, skip=skip)
+        return set()
+
     def in_shadow_root(self, element: Tag) -> bool:
         return isinstance(self.scopes.get(id(element)), ShadowTree)
 
@@ -1332,9 +1611,13 @@ def read_page_styles(soup: BeautifulSoup, page_url: str | None, source: Styleshe
             (element for element in tree.template.find_all(["style", "link"]) if scopes.get(id(element)) is tree),
             tree.rules,
         )
-        _copy_on_its_own(tree)
-        tree.cascade = StyleCascade(tree.rules.rules)
     rule_lists = [page_rules, *(tree.rules for tree in trees)]
+    custom = CustomProperties.from_declarations(
+        (declaration for rules in rule_lists for declaration in rules.custom), _custom_properties_in_attributes(soup)
+    )
+    for tree in trees:
+        _copy_on_its_own(tree)
+        tree.cascade = StyleCascade(tree.rules.rules, custom)
     check = StylesheetCheck(
         style_blocks=reader.style_blocks,
         linked_read=reader.linked_read,
@@ -1343,11 +1626,21 @@ def read_page_styles(soup: BeautifulSoup, page_url: str | None, source: Styleshe
         shadow_roots=len(trees),
     )
     return PageStyles(
-        StyleCascade(page_rules.rules),
+        StyleCascade(page_rules.rules, custom),
         check,
         scopes,
         frozenset(id(tree.template) for tree in trees),
     )
+
+
+def _custom_properties_in_attributes(soup: BeautifulSoup) -> list[str]:
+    """The name of every custom property a style attribute sets, once for each time it's set."""
+    names: list[str] = []
+    for element in soup.find_all(style=True):
+        style = element.get("style")
+        if isinstance(style, str) and "--" in style:
+            names.extend(declaration.name for declaration in parse_declarations(style) if declaration.name.startswith("--"))
+    return names
 
 
 class _StyleReader:

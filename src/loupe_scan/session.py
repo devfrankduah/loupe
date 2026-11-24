@@ -128,6 +128,7 @@ def scan_page(
     page.html_characters = len(html)
     scanned = scan_markup(html, page_url=address, stylesheets=stylesheets)
     page.stylesheet_check = scanned.stylesheets
+    page.needs_browser = scanned.needs_browser
     page.findings = check_findings(scanned.findings, _markdown_for(markdown, url, html, page))
     return page
 
@@ -215,6 +216,7 @@ def scan_html_once(
         page.html_characters = len(html)
         scanned = scan_markup(html, page_url=url if address is None else address, stylesheets=stylesheets)
         page.stylesheet_check = scanned.stylesheets
+        page.needs_browser = scanned.needs_browser
         page.findings = check_findings(scanned.findings, _markdown_for(maker, url, html, page, keep=keep_markdown))
         return page
     page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source, supplied_html=supplied)

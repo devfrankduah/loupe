@@ -14,6 +14,7 @@ from loupe_scan.backend import Backend
 from loupe_scan.convert import MarkdownSource
 from loupe_scan.render import BrowserSource, Landing, RenderedPage, RenderedText, StaticComparison
 from loupe_scan.scan import Finding, Kind, ScanMode
+from loupe_scan.signals import Signal
 from loupe_scan.stylesheets import StylesheetCheck
 from loupe_scan.survival import MarkdownIndex
 
@@ -87,6 +88,8 @@ class PageReport:
     stylesheet_check: StylesheetCheck | None = None
     # The markdown compared, kept only when the caller asks, as loupe mcp does to hand it on.
     markdown: str | None = field(default=None, repr=False)
+    # What on the page only a browser can judge, from a markup scan; empty for a rendered scan.
+    needs_browser: tuple[Signal, ...] = ()
 
     @property
     def instruction_like(self) -> list[CheckedFinding]:
