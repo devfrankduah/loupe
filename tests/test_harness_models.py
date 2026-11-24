@@ -461,7 +461,7 @@ def test_a_live_model_runs_like_the_fake_and_its_usage_is_kept(base_url: str) ->
     assert all(trial.usage == Usage(520, 50, 2, 1.0, 2.5) for trial in live)
     trials = json.loads(json.dumps(run_to_dict(run)))["trials"]
     assert {(trial["input_tokens"], trial["output_tokens"]) for trial in trials if trial["agent"] == "ollama:obedient"} == {(520, 50)}
-    assert "Used 4,160 input and 400 output tokens over 8 trials: 520 in, 50 out" in run_to_markdown(run)
+    assert "Used 5,720 input and 550 output tokens over 11 trials: 520 in, 50 out" in run_to_markdown(run)
     assert "The model read 520 prompt tokens and wrote 20 output tokens a second." in run_to_markdown(run)
 
 
@@ -505,17 +505,17 @@ def test_a_dry_run_prints_the_plan_and_calls_nothing(capsys: pytest.CaptureFixtu
     )
     assert code == 0 and err == ""
     lines = out.splitlines()
-    assert lines[0] == "Plan: 2 agents x 8 pages x 2 conditions x 20 trials = 640 trials, in an order shuffled by seed 0."
-    assert "| ollama:qwen3:4b | 320 | 352,000 | 96,000 | $0 (runs here) | about 1 h 8 min |" in lines
-    assert "| anthropic:claude-haiku-5-5 | 320 | 352,000 | 96,000 | $0.08 | not estimated |" in lines
-    assert "Estimated cost: $0.08, over --max-cost $0.00." in lines
+    assert lines[0] == "Plan: 2 agents x 11 pages x 2 conditions x 20 trials = 880 trials, in an order shuffled by seed 0."
+    assert "| ollama:qwen3:4b | 440 | 484,000 | 132,000 | $0 (runs here) | about 1 h 34 min |" in lines
+    assert "| anthropic:claude-haiku-5-5 | 440 | 484,000 | 132,000 | $0.11 | not estimated |" in lines
+    assert "Estimated cost: $0.11, over --max-cost $0.00." in lines
     assert "ANTHROPIC_API_KEY: set." in lines and KEY not in out
     assert lines[-1] == "Dry run: nothing was fetched and no model was called."
 
 
 def test_a_pilot_is_one_trial_per_page_and_condition(capsys: pytest.CaptureFixture[str]) -> None:
     code, out, _ = _cli(["run", "--model", "ollama:qwen3:4b", "--pilot", "--dry-run"], {}, _no_session, capsys)
-    assert code == 0 and "| ollama:qwen3:4b | 16 | 17,600 | 4,800 | $0 (runs here) | about 3 min |" in out.splitlines()
+    assert code == 0 and "| ollama:qwen3:4b | 22 | 24,200 | 6,600 | $0 (runs here) | about 5 min |" in out.splitlines()
     code, _, err = _cli(["run", "--pilot", "--trials", "3"], {}, _no_session, capsys)
     assert code == harness_cli.EXIT_REFUSED and "--pilot" in err
 
@@ -532,7 +532,7 @@ def test_a_model_without_a_known_price_needs_one(capsys: pytest.CaptureFixture[s
     code, _, err = _cli(["run", "--model", "gemini:gemini-test", "--max-cost", "5"], dict(KEYS), ScriptedApi([]), capsys)
     assert code == harness_cli.EXIT_REFUSED and "no price known for gemini:gemini-test; give one with --price" in err
     code, out, _ = _cli(["run", "--model", "gemini:gemini-test", "--price", "gemini:gemini-test=1/5", "--dry-run"], {}, _no_session, capsys)
-    assert code == 0 and "| gemini:gemini-test | 320 | 352,000 | 96,000 | $0.83 | not estimated |" in out.splitlines()
+    assert code == 0 and "| gemini:gemini-test | 440 | 484,000 | 132,000 | $1.14 | not estimated |" in out.splitlines()
 
 
 def test_a_missing_key_stops_the_run_with_its_variables_name(capsys: pytest.CaptureFixture[str]) -> None:
@@ -555,7 +555,7 @@ def test_a_live_pilot_through_the_command_never_writes_the_key(
     written = output.read_text(encoding="utf-8")
     assert all(KEY not in text for text in (out, err, written))
     assert f"| null-control | 0/1, 0% (0% to 79%) | 0/1, 0% (0% to 79%) |" in out.splitlines()
-    assert len(json.loads(written)["trials"]) == 16
+    assert len(json.loads(written)["trials"]) == 22
     if provider is Provider.ANTHROPIC:
         assert PRICES[name] == Price(0.10, 0.50)
         assert "Spent about $0.0" in out

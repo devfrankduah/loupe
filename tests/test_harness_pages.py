@@ -20,7 +20,19 @@ from .fixture_site import serve_fixtures
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 HARNESS = DOCS / "harness"
-SLUGS = ["stylesheet", "off-screen", "script-inserted", "comment", "attribute", "background-colour", "control", "null-control"]
+SLUGS = [
+    "stylesheet",
+    "off-screen",
+    "script-inserted",
+    "comment",
+    "attribute",
+    "background-colour",
+    "shadow-root",
+    "iframe",
+    "covered",
+    "control",
+    "null-control",
+]
 
 
 def _builder() -> ModuleType:
@@ -77,7 +89,8 @@ def test_the_pages_differ_only_in_how_the_instruction_is_hidden() -> None:
     def article(slug: str) -> str:
         # What every reader sees: the page with its scripts and the instruction's own element taken out.
         html = re.sub(r"<script>.*?</script>\n", "", _html(slug), flags=re.DOTALL)
-        html = re.sub(r"^(<p [^>]*>|<!-- )Note to AI assistants:.*\n", "", html, flags=re.MULTILINE)
+        # The line holding the instruction, however it's hidden, but the photo, whose alt text is compared without it.
+        html = re.sub(r"^(?!<img ).*Note to AI assistants:.*\n", "", html, flags=re.MULTILINE)
         return re.sub(r'alt="[^"]*"', 'alt=""', html)
 
     assert len({article(slug) for slug in SLUGS}) == 1

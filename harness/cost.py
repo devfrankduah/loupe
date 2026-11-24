@@ -15,7 +15,8 @@ INPUT_TOKENS_PER_TRIAL: Final[int] = 1_100
 REQUESTS_PER_TRIAL: Final[int] = 2
 DEFAULT_MAX_TOKENS: Final[int] = 150
 OUTPUT_TOKENS_PER_TRIAL: Final[int] = REQUESTS_PER_TRIAL * DEFAULT_MAX_TOKENS
-DEFAULT_PAGES: Final[int] = 8
+# The canary pages under docs/harness/; a test checks this against them.
+DEFAULT_PAGES: Final[int] = 11
 DEFAULT_CONDITIONS: Final[int] = 2
 # A guess at a small model on an Apple silicon laptop, until a pilot measures it.
 DEFAULT_PROMPT_TOKENS_PER_SECOND: Final[float] = 400.0

@@ -16,7 +16,7 @@ pytest.importorskip("mcp")
 
 from harness import __main__ as harness_cli  # noqa: E402
 from harness.agents import AGENTS, DEFAULT_TASK, ObedientAgent  # noqa: E402
-from harness.cost import estimate  # noqa: E402
+from harness.cost import DEFAULT_PAGES, estimate  # noqa: E402
 from harness.pages import CanaryPage, load_pages  # noqa: E402
 from harness.results import describe_cell, run_to_dict, run_to_markdown  # noqa: E402
 from harness.runner import Cell, Condition, run_trials  # noqa: E402
@@ -93,8 +93,11 @@ def test_the_pages_load_in_name_order_with_the_controls_last() -> None:
         "attribute",
         "background-colour",
         "comment",
+        "covered",
+        "iframe",
         "off-screen",
         "script-inserted",
+        "shadow-root",
         "stylesheet",
         "control",
         "null-control",
@@ -124,9 +127,10 @@ def test_a_page_without_a_proper_ground_truth_is_refused(tmp_path: Path) -> None
 def test_the_fake_agent_is_hijacked_raw_wherever_the_code_reaches_it_and_guarded_only_at_loupes_gaps(base_url: str) -> None:
     run = run_trials(AGENTS, _raw_and_markup_guarded(), PAGES, base_url=base_url, trials=3)
     hijacked = {(cell.page, cell.condition): cell.hijacked for cell in run.cells()}
-    reaches_markdown = {"attribute", "background-colour", "off-screen", "stylesheet", "control"}
-    # The control hides nothing, so nothing is taken out of it.
-    gets_through = {"control"}
+    reaches_markdown = {"attribute", "background-colour", "off-screen", "stylesheet", "shadow-root", "covered", "control"}
+    # The control hides nothing, so nothing is taken out of it, and a markup-only scan can't see a shadow root's
+    # styles or what's painted over text.
+    gets_through = {"control", "shadow-root", "covered"}
     for page in PAGES:
         assert hijacked[(page.slug, Condition.RAW)] == (3 if page.slug in reaches_markdown else 0), page.slug
         assert hijacked[(page.slug, Condition.GUARDED)] == (3 if page.slug in gets_through else 0), page.slug
@@ -304,7 +308,9 @@ def test_the_design_docs_cost_table_is_what_the_estimate_gives() -> None:
     for model, price_in, price_out, cost in rows:
         assert round(estimate(input_price=price_in, output_price=price_out).dollars, 2) == cost, model
     default = estimate(input_price=4, output_price=20)
-    assert (default.trials, default.input_tokens, default.output_tokens) == (320, 352_000, 96_000)
+    assert (default.trials, default.input_tokens, default.output_tokens) == (440, 484_000, 132_000)
+    # The estimate's default run covers every canary page there is.
+    assert DEFAULT_PAGES == len(load_pages())
 
 
 def test_the_prices_the_harness_knows_are_the_design_docs() -> None:
@@ -341,9 +347,9 @@ def test_the_command_runs_the_fake_agent_and_writes_both_formats(
     printed = capsys.readouterr()
     assert "| control | 2/2, 100% (34% to 100%) | 2/2, 100% (34% to 100%) |" in printed.out.splitlines()
     assert "obedient-fake comment raw #0: not hijacked" in printed.err.splitlines()
-    assert len(json.loads(output.read_text(encoding="utf-8"))["cells"]) == 16
+    assert len(json.loads(output.read_text(encoding="utf-8"))["cells"]) == 22
 
 
 def test_the_command_prices_a_run(capsys: pytest.CaptureFixture[str]) -> None:
     assert harness_cli.main(["estimate", "--input-price", "2", "--output-price", "10", "--trials", "1"]) == 0
-    assert capsys.readouterr().out == "16 trials, 17,600 input and 4,800 output tokens: $0.08 for one model\n"
+    assert capsys.readouterr().out == "22 trials, 24,200 input and 6,600 output tokens: $0.11 for one model\n"
