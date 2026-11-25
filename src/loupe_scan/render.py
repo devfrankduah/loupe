@@ -98,7 +98,7 @@ _READY_POLL_MS: Final[float] = 100
 PAGE_TEXT_LIMIT: Final[int] = 5_000_000
 REMOVED_BY_SCRIPT: Final[str] = "removed by a script"
 # Parts of the served HTML that are never page text, or that a person never reads as part of the page. The
-# markup checks report the text of noscript and fallback content, which a browser keeps but never shows.
+# markup checks report the text of noscript, fallback content and templates, which a browser keeps but never shows.
 _NOT_PAGE_TEXT: Final[frozenset[str]] = frozenset({"head", "script", "style", "template", "noscript"}) | FALLBACK_CONTENT_TAGS
 # Text counts as removed when under half of its runs of this many words are left on the page.
 _RUN_WORDS: Final[int] = 4
@@ -767,6 +767,13 @@ def _own_words(element: Tag) -> list[str]:
 
 def _comparable(words: list[str]) -> bool:
     return len(" ".join(words)) >= MIN_COMPARABLE_CHARACTERS
+
+
+def cloned_onto_page(finding: Finding, page_text: str) -> bool:
+    """True when a template's text is on the page as it stands, all of it or all but a few words: a script copied
+    the template into the page, where the browser judges the copy itself."""
+    words = normalize_words(finding.text).split()
+    return bool(words) and not _PageWords(page_text).gone(words)
 
 
 def removed_by_scripts(html: str, page_text: str) -> list[Finding]:

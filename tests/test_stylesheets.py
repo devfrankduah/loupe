@@ -598,8 +598,10 @@ def test_any_element_that_can_have_a_shadow_root_gets_one(mode: str, tag: str) -
     ],
     ids=["link", "button", "reserved-name", "unknown-mode", "plain-template", "inside-plain-template"],
 )
-def test_content_that_never_shows_is_left_alone(html: str) -> None:
-    assert _shadow(html) == []
+def test_a_template_that_never_becomes_a_shadow_root_is_reported_whole_and_no_rule_judges_it(html: str) -> None:
+    # Its content never shows, so the template's own finding holds all of its text, and no style is applied to it.
+    assert [(kind, detail) for kind, detail, _ in _shadow(html)] == [("template", "<template>")]
+    assert SECRET in _shadow(html)[0][2]
     assert scan_markup(html).stylesheets.shadow_roots == 0
 
 
@@ -607,7 +609,8 @@ def test_only_the_first_declared_shadow_root_in_an_element_attaches() -> None:
     first = "<p>The first template becomes the shadow root.</p>"
     second = f"<style>p {{ display: none }}</style><p>{SECRET}</p>"
     html = f'<div><template shadowrootmode="open">{first}</template><template shadowrootmode="open">{second}</template></div>'
-    assert _shadow(html) == []
+    # The second stays an ordinary template, which never shows, and its style reaches nothing.
+    assert _shadow(html) == [("template", "<template>", SECRET)]
     assert scan_markup(html).stylesheets.shadow_roots == 1
 
 
@@ -640,9 +643,10 @@ def test_a_shadow_root_inside_another_has_only_its_own_rules() -> None:
 def test_a_hidden_host_hides_its_shadow_root_and_the_finding_holds_both() -> None:
     html = _page(".gone { display: none }", f'<div class="gone"><template shadowrootmode="open"><p>{SECRET}</p></template>light text</div>')
     assert _shadow(html) == [("stylesheet", "display:none", f"{SECRET} light text")]
-    # An ordinary template never shows, so a hidden element's finding leaves its text out.
+    # An ordinary template never shows and is reported on its own, so a hidden element's finding leaves its text out.
     assert _shadow(f"<div hidden><template><p>{SECRET}</p></template>light text</div>") == [
-        ("hidden-attribute", "hidden", "light text")
+        ("hidden-attribute", "hidden", "light text"),
+        ("template", "<template>", SECRET),
     ]
 
 

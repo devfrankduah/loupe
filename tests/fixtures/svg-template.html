@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SVG labels and templates</title>
+<style>
+  body { margin: 0; padding: 1rem; font: 16px/1.5 sans-serif; background: #fff; color: #222; }
+  .gone { display: none; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<p>CASE-VISIBLE is ordinary text that a reader sees on the page.</p>
+<svg width="320" height="40" role="img"><title>CASE-SVG-TITLE is the picture's title, shown at most as a tooltip.</title><desc>CASE-SVG-DESC describes the picture and is never drawn.</desc><metadata>CASE-SVG-METADATA is data about the picture.</metadata><rect width="320" height="40" fill="#cde"></rect><text x="4" y="24">CASE-SVG-DRAWN is drawn in the picture.</text></svg>
+<svg width="320" height="40"><foreignObject width="320" height="40"><div><span>CASE-FOREIGN is HTML inside the picture, drawn as a page is.</span></div></foreignObject></svg>
+<template><p>CASE-TEMPLATE-UNUSED is kept for a script that never copies it.</p></template>
+<template id="row"><p>CASE-TEMPLATE-CLONED is copied onto the page by the script below.</p></template>
+<template id="greeting"><p>CASE-TEMPLATE-FILLED greets NAME here once the script below fills the name in for the reader.</p></template>
+<div id="rows"></div>
+<div class="gone">CASE-HIDDEN-AROUND holds a picture and a template.
+<svg><title>CASE-SVG-IN-HIDDEN is the title of a picture in the hidden element.</title></svg>
+<template><b>CASE-TEMPLATE-IN-HIDDEN is a template in the hidden element.</b></template></div>
+<script>
+const rows = document.getElementById("rows");
+rows.append(document.getElementById("row").content.cloneNode(true));
+const greeting = document.getElementById("greeting").content.cloneNode(true);
+greeting.querySelector("p").textContent = greeting.querySelector("p").textContent.replace("NAME", "Ada");
+rows.append(greeting);
+</script>
+</body>
+</html>

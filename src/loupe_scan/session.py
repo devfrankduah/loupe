@@ -32,13 +32,14 @@ from loupe_scan.render import (
     PageRenderer,
     RenderedPage,
     RenderError,
+    cloned_onto_page,
     open_renderer,
     read_browser_endpoint,
     removed_by_scripts,
     rendered_findings,
 )
 from loupe_scan.report import FailureKind, PageReport, check_findings
-from loupe_scan.scan import Finding, ScanMode, scan_html, scan_markup
+from loupe_scan.scan import Finding, Kind, ScanMode, scan_html, scan_markup
 from loupe_scan.stylesheets import StylesheetSource
 
 # The README section on the Bright Data backend, for sites that turn loupe away.
@@ -149,6 +150,14 @@ def _check_rendered(
         for finding in scan_html(rendered.html)
         if finding.kind not in SUPERSEDED_BY_RENDERING or (judged is not None and finding.text not in judged)
     ]
+    # A template a script copied into the page shows through the copy, which the browser judged above.
+    page_text = rendered.page_text
+    if page_text is not None:
+        markup_findings = [
+            finding
+            for finding in markup_findings
+            if finding.kind is not Kind.TEMPLATE or not cloned_onto_page(finding, page_text)
+        ]
     # Text the page's scripts took out never shows, but an agent reading
     # markdown made from the served HTML still gets it. Where the browser
     # stopped reading given HTML early, the rest was never on the page to

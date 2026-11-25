@@ -26,7 +26,7 @@ from loupe_scan.fetch import UNLOCKER_REQUEST_URL, BrightDataClient, BrightDataE
 from loupe_scan.local_fetch import FetchLimits  # noqa: E402
 from loupe_scan.render import BrowserSource, RenderedPage, RenderError, RenderSetupError  # noqa: E402
 from loupe_scan.report import CheckedFinding  # noqa: E402
-from loupe_scan.scan import FALLBACK_CONTENT_TAGS, Kind  # noqa: E402
+from loupe_scan.scan import FALLBACK_CONTENT_TAGS, SVG_LABEL_TAGS, Kind  # noqa: E402
 from loupe_scan.scan import scan_html as markup_findings  # noqa: E402
 from loupe_scan.mcp_server import Mode, PageScanner, ScanChoice, ServerSettings, build_server  # noqa: E402
 from loupe_scan.survival import MarkdownIndex, normalize_words  # noqa: E402
@@ -242,6 +242,13 @@ def test_scan_page_names_the_element_fallback_content_is_in(tag: str) -> None:
     (finding,) = markup_findings(f"<{tag}>Words written inside the element's tags.</{tag}>")
     described = mcp_server.describe_finding(CheckedFinding(finding, True), quoted=None)
     assert (described["kind"], described["hidden_by"], described["element"]) == ("fallback-content", f"<{tag}>", tag)
+
+
+@pytest.mark.parametrize("tag", sorted(SVG_LABEL_TAGS))
+def test_scan_page_names_an_svg_label_by_its_element(tag: str) -> None:
+    (finding,) = markup_findings(f"<svg><{tag}>Words written inside the picture.</{tag}></svg>")
+    described = mcp_server.describe_finding(CheckedFinding(finding, True), quoted=None)
+    assert (described["kind"], described["hidden_by"], described["element"]) == ("svg-label", f"<{tag}> in <svg>", tag)
 
 
 def test_block_mode_strips_a_page_whose_hidden_text_isnt_worded_as_instructions() -> None:

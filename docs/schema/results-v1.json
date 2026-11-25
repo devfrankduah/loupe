@@ -20,6 +20,8 @@
         "meta",
         "noscript",
         "fallback-content",
+        "svg-label",
+        "template",
         "rendered-hidden"
       ]
     },

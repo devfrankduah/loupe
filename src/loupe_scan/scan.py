@@ -34,9 +34,8 @@ _NON_CONTENT_TAGS: Final[frozenset[str]] = frozenset({"script", "style", "templa
 # browser can, so a reader never sees it, though converters keep it. A canvas
 # also shows it with scripts turned off.
 FALLBACK_CONTENT_TAGS: Final[frozenset[str]] = frozenset({"iframe", "noframes", "noembed", "canvas", "video", "audio"})
-# A rendered scan never judges text inside these, so it's reported on its own
-# even inside another hidden element, whose finding then leaves it out.
-_REPORTED_APART: Final[frozenset[str]] = FALLBACK_CONTENT_TAGS | {"noscript"}
+# An SVG's own labels and data, which a browser never draws: a <title> shows at most as a tooltip.
+SVG_LABEL_TAGS: Final[frozenset[str]] = frozenset({"title", "desc", "metadata"})
 _WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
 # Text, not comments, scripts or styles. Beautiful Soup makes all the text inside a template a TemplateString.
 _TEXT_TYPES: Final[tuple[type[NavigableString], ...]] = (NavigableString, CData, TemplateString)
@@ -83,6 +82,10 @@ class Kind(str, Enum):
     NOSCRIPT = "noscript"
     # Inside an element in FALLBACK_CONTENT_TAGS.
     FALLBACK_CONTENT = "fallback-content"
+    # An element in SVG_LABEL_TAGS inside an <svg>.
+    SVG_LABEL = "svg-label"
+    # Inside a <template> that isn't a declared shadow root, kept for scripts to copy and never shown itself.
+    TEMPLATE = "template"
     # Found by loupe_scan.render: a browser drew the page and this text never showed.
     RENDERED_HIDDEN = "rendered-hidden"
 
@@ -153,16 +156,47 @@ def _element_hiding(element: Tag, styles: PageStyles) -> tuple[Kind, str] | None
     return None
 
 
-def _text_of(element: Tag, styles: PageStyles, skipped: frozenset[str] = frozenset()) -> str:
+def _in_svg(element: Tag) -> bool:
+    """True inside an <svg>, outside any <foreignObject> in it, which holds HTML again."""
+    for parent in element.parents:
+        if not isinstance(parent, Tag):
+            break
+        if parent.name == "foreignobject":
+            return False
+        if parent.name == "svg":
+            return True
+    return False
+
+
+def _apart_kind(element: Tag) -> Kind | None:
+    """The kind of an element whose text a rendered scan never judges, so the markup scan reports it on its own,
+    even inside another hidden element, whose finding then leaves it out. None for any other element."""
+    name = element.name.lower()
+    if name == "noscript":
+        return Kind.NOSCRIPT
+    if name in FALLBACK_CONTENT_TAGS:
+        return Kind.FALLBACK_CONTENT
+    if name in SVG_LABEL_TAGS and _in_svg(element):
+        return Kind.SVG_LABEL
+    return None
+
+
+def _apart_detail(element: Tag, kind: Kind) -> str:
+    return f"<{element.name.lower()}> in <svg>" if kind is Kind.SVG_LABEL else f"<{element.name.lower()}>"
+
+
+def _text_of(element: Tag, styles: PageStyles, *, leave_out_apart: bool = False) -> str:
     """element's text: that of any shadow root declared in it too, but not of an ordinary <template>, whose
-    content never shows, nor of any descendant named in skipped."""
+    content never shows and is reported on its own, nor, with leave_out_apart, of an element _apart_kind names."""
     parts: list[str] = []
     pending: list[PageElement] = list(reversed(element.contents))
     while pending:
         node = pending.pop()
         if isinstance(node, Tag):
             name = node.name.lower()
-            if name not in skipped and (name != "template" or styles.is_shadow_root(node)):
+            if name == "template" and not styles.is_shadow_root(node):
+                continue
+            if not (leave_out_apart and _apart_kind(node) is not None):
                 pending.extend(reversed(node.contents))
         elif isinstance(node, NavigableString) and type(node) in _TEXT_TYPES:
             text = node.strip()
@@ -266,9 +300,11 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
     same host are fetched from stylesheets and applied too.
 
     Text inside a hidden element is reported once, on the outermost hidden
-    element, so nested hiding doesn't inflate the counts. Text inside noscript
-    or an element in FALLBACK_CONTENT_TAGS is the exception: it's reported on
-    that element, on its own, and left out of any hidden element around it.
+    element, so nested hiding doesn't inflate the counts. Text a rendered scan
+    never judges is the exception: inside noscript, an element in
+    FALLBACK_CONTENT_TAGS, or an SVG's title, desc or metadata. It's reported
+    on that element, on its own, and left out of any hidden element around it.
+    So is the text of an ordinary <template>, wherever it is.
 
     A shadow root declared in the HTML is checked with its own styles, as
     loupe_scan.stylesheets describes, and its findings say so in their
@@ -280,7 +316,7 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
     hidden_containers: set[int] = set()
     # The hidden containers a reader can't see, aria-hidden ones aside.
     unseen: set[int] = set()
-    # Elements in _REPORTED_APART already reported, so one inside another isn't reported again.
+    # Elements _apart_kind names, already reported, so one inside another isn't reported again.
     apart: set[int] = set()
     signals: set[Signal] = set()
 
@@ -323,21 +359,28 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
         runs_script = (tag_name == "script" and _runs(node)) or any(name.lower().startswith("on") for name in node.attrs)
         if Signal.SCRIPTS not in signals and runs_script and not _in_raw_text(node):
             signals.add(Signal.SCRIPTS)
+        where = IN_SHADOW_ROOT if styles.in_shadow_root(node) else ""
+        if tag_name == "template" and not styles.is_shadow_root(node):
+            # Its content never shows, wherever the template is, and no other finding holds its text.
+            text = normalize_whitespace(" ".join(node.stripped_strings))
+            if text:
+                findings.append(make_finding(Kind.TEMPLATE, f"<template>{where}", tag_name, text, line=node.sourceline))
+            continue
         if tag_name in _NON_CONTENT_TAGS:
             continue
-        where = IN_SHADOW_ROOT if styles.in_shadow_root(node) else ""
         if tag_name in _FRAME_TAGS and not _is_inside(node, unseen) and not _in_raw_text(node):
             signals.add(Signal.FRAMES)
 
-        if tag_name in _REPORTED_APART:
+        apart_kind = _apart_kind(node)
+        if apart_kind is not None:
             if not _is_inside(node, apart):
                 apart.add(id(node))
                 hidden_containers.add(id(node))
                 unseen.add(id(node))
                 text = _text_of(node, styles)
                 if text:
-                    kind = Kind.NOSCRIPT if tag_name == "noscript" else Kind.FALLBACK_CONTENT
-                    findings.append(make_finding(kind, f"<{tag_name}>{where}", tag_name, text, line=node.sourceline))
+                    detail = f"{_apart_detail(node, apart_kind)}{where}"
+                    findings.append(make_finding(apart_kind, detail, tag_name, text, line=node.sourceline))
             continue
 
         if _is_inside(node, hidden_containers):
@@ -353,7 +396,7 @@ def scan_markup(html: str, *, page_url: str | None = None, stylesheets: Styleshe
                 unseen.add(id(node))
             else:
                 _add_concerns(node, styles, signals)
-            text = _text_of(node, styles, _REPORTED_APART)
+            text = _text_of(node, styles, leave_out_apart=True)
             if text:
                 findings.append(make_finding(kind, f"{detail}{where}", tag_name, text, line=node.sourceline))
             continue

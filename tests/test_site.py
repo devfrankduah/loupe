@@ -271,12 +271,14 @@ def test_every_finding_is_counted_under_exactly_one_hiding_method() -> None:
         _finding("comment", "<!-- -->", text, False),
         _finding("noscript", "<noscript>", text, True),
         _finding("fallback-content", "<iframe>", text, True),
+        _finding("svg-label", "<title> in <svg>", text, True),
+        _finding("template", "<template>", text, True),
     ]
     page = load_results(_results(_page("https://a.test/", findings)))[0]
     groups = group_by_method(list(page.findings))
 
     assert sum(len(members) for _, members in groups) == len(findings)
-    assert [len(members) for _, members in groups] == [2, 1, 1, 1, 1, 1, 1, 1, 1]
+    assert [len(members) for _, members in groups] == [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     assert len(groups) == len(HIDING_METHODS)
 
 

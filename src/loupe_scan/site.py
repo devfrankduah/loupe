@@ -445,6 +445,16 @@ HIDING_METHODS: Final[tuple[HidingMethod, ...]] = (
         "Text inside a frame, video, audio or canvas tag, shown only by browsers that can't show the element.",
         lambda finding: finding.kind is Kind.FALLBACK_CONTENT,
     ),
+    HidingMethod(
+        "Picture labels",
+        "The title, description or metadata written inside an SVG picture, shown at most as a tooltip.",
+        lambda finding: finding.kind is Kind.SVG_LABEL,
+    ),
+    HidingMethod(
+        "Templates",
+        "Content a page keeps for its scripts to copy, never shown as it's written.",
+        lambda finding: finding.kind is Kind.TEMPLATE,
+    ),
 )
 
 

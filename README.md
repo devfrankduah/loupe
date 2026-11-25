@@ -82,6 +82,8 @@ The kinds of finding:
 | `meta` | the content of a `<meta>` tag |
 | `noscript` | a `<noscript>` block |
 | `fallback-content` | text written inside an `<iframe>`, `<video>`, `<audio>`, `<canvas>`, `<noframes>` or `<noembed>` tag, which a browser shows only when it can't show the element itself |
+| `svg-label` | an SVG's `<title>`, `<desc>` or `<metadata>`, which a browser never draws (a `<title>` shows at most as a tooltip) |
+| `template` | text inside a `<template>` that isn't a declared shadow root, which a page keeps for its scripts to copy; a rendered scan drops it when a copy is on the page |
 | `rendered-hidden` | text a real browser never showed, with the reason, such as `display:none` or `outside the page`, or text in the HTML that the page's scripts removed and that reaches the markdown (`removed by a script`) |
 
 A long list of findings is normal. Most are menus, link titles and meta tags. Start with the instruction-like ones, then look at hidden text that reaches the markdown, since an agent reading the markdown gets all of it. Pages that fade content in as you scroll look full of hidden text to the markup scan. [The animated test page](https://devfrankduah.github.io/loupe/animated-page/) is made of those false alarms, and `--render` clears every one.
@@ -253,7 +255,6 @@ A rendered scan still misses some things, or counts them as hidden when a reader
 - Text under a fixed or sticky element, a dialog or a popover counts as visible, since the page scrolls under those, and so does text under a cover the pointer passes through (`pointer-events: none`), since hit testing skips it.
 - Text that appears only after a click, a hover or keyboard focus, such as menus, tabs, dialogs and skip links, counts as hidden, and so does a closed `<details>`.
 - Only one screen size is checked. Text a page shows only at other sizes, such as a phone-only line, counts as hidden.
-- Text written in an SVG's `<title>` or `<desc>`, and text inside an ordinary `<template>`, which browsers never draw but markdownify keeps, isn't flagged in either mode.
 - Frames past 20 a page or 30 seconds aren't checked, and neither are frames that don't load or that loupe refused; the notes count them. Text in a frame is judged against the frame's own viewport, so a frame partly clipped in its parent counts as showing all of it. A closed shadow root a script attaches after the first check is checked only at the end.
 - Scrolling stops after 60 screens, and centring after 200 elements or 60 seconds a page. A note says so when a limit cuts the check short.
 - Animation libraries that hide with `visibility:hidden` as well as opacity (GSAP's autoAlpha, for one) aren't centred, so text they reveal only at one scroll position counts as hidden.

@@ -187,11 +187,11 @@ def _fetch_problem(error: PageFetchError) -> str:
 # invention, which could spell out anything, so it's reported as a custom element.
 _HTML_ELEMENTS: Final[frozenset[str]] = frozenset(
     """a abbr address area article aside audio b bdi bdo blockquote body br button canvas caption cite code col
-    colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2
-    h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map mark menu meta
-    meter nav noembed noframes noscript object ol optgroup option output p picture pre progress q rp rt ruby s samp
-    search section select slot small source span strong sub summary sup svg table tbody td template textarea tfoot
-    th thead time title tr track u ul var video wbr""".split()
+    colgroup data datalist dd del desc details dfn dialog div dl dt em embed fieldset figcaption figure footer
+    form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map
+    mark menu meta metadata meter nav noembed noframes noscript object ol optgroup option output p picture pre
+    progress q rp rt ruby s samp search section select slot small source span strong sub summary sup svg table
+    tbody td template textarea tfoot th thead time title tr track u ul var video wbr""".split()
 )
 # Meta names worth naming. Any other name is the page's own and is left out.
 _META_NAMES: Final[frozenset[str]] = frozenset(
