@@ -28,6 +28,8 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 
 That loads the test page in Chromium on your machine, reports the text that never showed, and checks which of it reaches a markdown version of the page. loupe makes that markdown itself with markdownify, as an approximation of what agent tools produce. Without `--render`, loupe reads the markup only, which is faster and needs no browser.
 
+The test page hides instructions on purpose, so loupe ends with `loupe: exit 1: 1 page with hidden text worded like instructions to an AI (--fail-on instructions)` on stderr and exits 1. Exit 1 means a page had a finding `--fail-on` counts, and [Exit codes](https://github.com/devfrankduah/loupe#exit-codes) lists the others.
+
 The Python package is called `loupe-scan`, its import name is `loupe_scan`, and the command it installs is `loupe`. It isn't on PyPI yet, so install it from this repository. The name `loupe` on PyPI belongs to an unrelated package, so installing by that name from PyPI gets the wrong one.
 
 In each new terminal, run `source .venv/bin/activate` again before using loupe.

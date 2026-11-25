@@ -21,7 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # Pin to a commit SHA so the scan only changes when you update it.
+      # @main follows every change to loupe. To change only when you choose,
+      # replace main with the full SHA of a commit you've read.
       - uses: devfrankduah/loupe@main
         with:
           urls: |

@@ -104,7 +104,7 @@ with Scanner(render=True) as scanner:
 | `instruction_like` | `tuple[HiddenText, ...]` | The pieces worded like an instruction to an AI. |
 | `markdown_characters` | `int \| None` | The markdown's length, or None when no markdown was compared. |
 | `markdown_error` | `str \| None` | Why the markdown couldn't be compared. The page itself was still scanned. |
-| `stylesheet_check` | `StylesheetCheck \| None` | What the markup scan's partial stylesheet check read: `style_blocks`, `linked_read`, `linked_not_read` and `uncertain_rules`. None for a rendered scan, where the browser applies every stylesheet. |
+| `stylesheet_check` | `StylesheetCheck \| None` | What the markup scan's partial stylesheet check read: `style_blocks`, `linked_read`, `linked_not_read`, `uncertain_rules` and `shadow_roots`, the shadow roots declared in the HTML that it checked with their own styles. None for a rendered scan, where the browser applies every stylesheet. |
 | `fails(fail_on="instructions")` | `bool` | Whether `loupe --fail-on` would count a finding on this page: `"instructions"`, `"hidden"` or `"never"`, or a `FailOn`. |
 | `to_dict(quote_characters=160)` | `dict` | The page as one object of `loupe --json`'s array, in the format [json.md](json.md) describes, with text cut to `quote_characters` (0 keeps it whole). |
 | `to_json(quote_characters=160, indent=2)` | `str` | The same, as JSON text. |
