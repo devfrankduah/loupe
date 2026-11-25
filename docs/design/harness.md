@@ -115,7 +115,7 @@ Prices are each provider's list prices per million tokens, read from their prici
 
 Gemini 4 Carbon's price doubles to the one shown on 1 December 2026, and Gemini 3.8 Flash's on 1 January 2027. One model from each provider, at each provider's top tier, is about $18 a run; all nine are about $26. `python -m harness estimate` redoes the sum for other prices, trial counts or token assumptions. A model that thinks before answering may need a higher cap than 150, which raises its cost in proportion.
 
-On Ollama the cost is time. At 400 prompt and 30 output tokens a second, a guess for a model of about 4 billion parameters on an Apple silicon laptop, a trial takes about 13 seconds and a default run about an hour and a half, plus loading the model and rendering each page once.
+On Ollama the cost is time. At 400 prompt and 30 output tokens a second, a guess for a model of about 4 billion parameters on an Apple silicon laptop, a trial takes about 13 seconds and a default run about an hour and a half, plus loading the model and rendering each page once. The dry run's estimate uses that guess, with every request at its cap, so it runs high. Measured, Llama 3.1 8B on an Apple M5 read 3,400 to 5,800 prompt tokens and wrote 25 to 26 output tokens a second, and answers used far less than the cap: the third run, 440 trials at a 400-token cap, took 52 minutes, 9.2 seconds a raw trial and 5.1 a guarded one, where the dry run estimates about 3 hours 36 minutes. `--prompt-speed` and `--output-speed` bring the estimate closer.
 
 A live run on an API needs that provider's key in the environment, and none needs a Bright Data account, since the pages are public and the guarded condition fetches them from this machine.
 

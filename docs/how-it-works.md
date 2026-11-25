@@ -102,7 +102,7 @@ The browser is local Chromium unless the Bright Data backend runs with `BRIGHTDA
 
 ## What the 19 November runs showed
 
-The runs behind the README's table are `results/2026-11-19.json` (markup only) and `results/2026-11-19-rendered.json` (`--render` through the Browser API, with images, media and fonts blocked), with `.txt` summaries beside them. They cover four public pages and the two test pages. Quoted text is cut to 80 characters, and the pages themselves aren't stored. The browser run measured 2,931,749 bytes and refused 96 image, media and font requests. On the OWASP page the load event hadn't fired after 15 seconds and the network was still busy after 10, so its first check ran with requests open.
+The runs behind the published report page, and behind the README's table until it was measured again on 25 November, are `results/2026-11-19.json` (markup only) and `results/2026-11-19-rendered.json` (`--render` through the Browser API, with images, media and fonts blocked), with `.txt` summaries beside them. They cover four public pages and the two test pages. Quoted text is cut to 80 characters, and the pages themselves aren't stored. The browser run measured 2,931,749 bytes and refused 96 image, media and font requests. On the OWASP page the load event hadn't fired after 15 seconds and the network was still busy after 10, so its first check ran with requests open.
 
 The browser finds far more on Wikipedia and GitHub, because most of their hidden text is hidden by stylesheets the markup scan can't read. On Wikipedia, 97 of the 110 findings are `display:none` alone. GitHub's reasons are more mixed: `display:none`, sections collapsed inside a closed `<details>`, text too small to see, and clipped text.
 

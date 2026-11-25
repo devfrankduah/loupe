@@ -229,13 +229,15 @@ That runs both conditions, with the guarded tool in auto mode, and calls no paid
 | Page | Hidden in markup | Hidden in a browser | Revealed on scroll | Instruction-like, markup / browser |
 |---|---|---|---|---|
 | [example.com](https://example.com) | 0 | 0 | 0 | 0 / 0 |
-| [en.wikipedia.org/wiki/Prompt_injection](https://en.wikipedia.org/wiki/Prompt_injection) | 1 | 110 | 0 | 5 / 5 |
-| [genai.owasp.org/llmrisk/llm01-prompt-injection/](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) | 3 | 11 | 0 | 0 / 0 |
-| [github.com/brightdata/brightdata-mcp](https://github.com/brightdata/brightdata-mcp) | 2 | 158 | 1 | 0 / 0 |
-| [Blender test page](https://devfrankduah.github.io/loupe/test-page/) | 2 | 5 | 0 | 3 / 5 |
-| [Animated test page](https://devfrankduah.github.io/loupe/animated-page/) | 5 | 3 | 3 | 0 / 0 |
+| [en.wikipedia.org/wiki/Prompt_injection](https://en.wikipedia.org/wiki/Prompt_injection) | 112 | 110 | 0 | 5 / 5 |
+| [genai.owasp.org/llmrisk/llm01-prompt-injection/](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) | 46 | 15 | 1 | 1 / 0 |
+| [github.com/brightdata/brightdata-mcp](https://github.com/brightdata/brightdata-mcp) | 2 | 168 | 0 | 0 / 0 |
+| [Blender test page](https://devfrankduah.github.io/loupe/test-page/) | 5 | 6 | 0 | 5 / 6 |
+| [Animated test page](https://devfrankduah.github.io/loupe/animated-page/) | 6 | 3 | 3 | 0 / 0 |
 
-Measured through Bright Data on 19 November 2026 by running `loupe --quote-chars 80 --json-output out.json` on these six URLs, once as is and once with `--render` (output in `results/2026-11-19.json` and `results/2026-11-19-rendered.json`). On 20 November the local backend scanned both test pages the same two ways and matched those results finding for finding, including which findings reached the markdown (`results/2026-11-20-local.json` and `results/2026-11-20-local-rendered.json`).
+Measured on the local backend on 25 November 2026 by running `loupe --quote-chars 80 --urls-file urls.txt --json-output out.json` on these six URLs, once as is and once with `--render` (output in `results/2026-11-25-local.json` and `results/2026-11-25-local-rendered.json`). "Hidden in markup" counts what the `hidden` attribute, a style attribute or the page's stylesheets hide; "hidden in a browser" counts `rendered-hidden`.
+
+The markup scan's stylesheet check now finds on Wikipedia almost what the browser does, 112 against 110, where on 19 November, before the check existed, it found 1. It can also report what a reader sees. On the OWASP page it counts 46, among them the article itself, which the page's stylesheet sets to `visibility:hidden` until a script shows it: that's the one instruction-like finding in markup, since the article is about prompt injection, and the browser sees it shown. `loupe mcp`'s auto mode renders that page, since it runs scripts. GitHub links 19 stylesheets from another host, which the markup scan doesn't read, and the browser's 168 there are mostly `display:none`, text too small to see, clipped text and 45 pieces inside closed `<details>`. The first measurement, through Bright Data on 19 November, is kept in `results/2026-11-19.json` and `results/2026-11-19-rendered.json`, and [docs/how-it-works.md](https://github.com/devfrankduah/loupe/blob/main/docs/how-it-works.md#what-the-19-november-runs-showed) describes it.
 
 The two test pages show both sides. [The blender page](https://devfrankduah.github.io/loupe/test-page/) hides text aimed at AI on purpose, and [the animated page](https://devfrankduah.github.io/loupe/animated-page/) hides nothing but looks full of hidden text to a code-only scan. Their ground truths ([blender](https://github.com/devfrankduah/loupe/blob/main/docs/test-page/ground-truth.md), [animated](https://github.com/devfrankduah/loupe/blob/main/docs/animated-page/ground-truth.md)) say what each scan should find, and the tests check both scans against them.
 
