@@ -41,7 +41,7 @@ def _styled(css: str, body: str = TEXT) -> str:
         # A browser reads these as text, so nothing written in them is an element or runs.
         f'{TEXT}<xmp><iframe src="/x"></iframe><script>go()</script><b onclick="go()">b</b></xmp>',
         f'{TEXT}<video><iframe src="/x"></iframe></video>',
-        _styled("p { position: relative; top: 0; left: auto } div { overflow: hidden } b { margin: -0px }", f"<div>{TEXT}<b>b</b></div>"),
+        _styled("p { position: relative; top: 0; left: auto } div { overflow: visible } b { margin: -0px }", f"<div>{TEXT}<b>b</b></div>"),
     ],
     ids=[
         "plain", "colours", "root-tokens", "stylesheet-hidden", "off-screen", "comment-alt-noscript", "data-blocks",
@@ -81,6 +81,10 @@ def test_a_page_the_markup_can_judge_needs_no_browser(html: str) -> None:
         (_styled("p { margin-top: -1px }"), Signal.PLACED),
         (_styled("p { grid-area: 1 / 1 }"), Signal.PLACED),
         (_styled("div { overflow: hidden; height: 0 }", f"<div>{TEXT}</div>"), Signal.STYLES),
+        (_styled("p { line-height: 0; overflow: hidden }"), Signal.STYLES),
+        (_styled("div { overflow: hidden }", f"<div>{TEXT}</div>"), Signal.STYLES),
+        (_styled("p { overflow-x: auto }"), Signal.STYLES),
+        (_styled("p { overflow: visible hidden }"), Signal.STYLES),
         (_styled("div { overflow-y: clip; max-height: 2px }", f"<div>{TEXT}</div>"), Signal.STYLES),
         (_styled("p { opacity: 0.1 }"), Signal.STYLES),
         (_styled("div { opacity: 0.4 } p { opacity: 0.4 }", f"<div>{TEXT}</div>"), Signal.STYLES),

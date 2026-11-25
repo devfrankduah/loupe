@@ -79,7 +79,6 @@ _GRID_PLACEMENT: Final[frozenset[str]] = frozenset(
     }
 )
 _TRANSFORMS: Final[frozenset[str]] = frozenset({"transform", "translate", "rotate", "scale"})
-_SIZES: Final[frozenset[str]] = frozenset({"width", "height", "max-width", "max-height"})
 _PAINT_EFFECTS: Final[dict[str, frozenset[str]]] = {
     # Each property, and the values that leave text alone.
     "filter": frozenset({"none"}),
@@ -94,7 +93,7 @@ _PAINT_EFFECTS: Final[dict[str, frozenset[str]]] = {
     "contain": frozenset({"none", "layout", "style", "size", "inline-size"}),
 }
 _SIGNAL_PROPERTIES: Final[frozenset[str]] = frozenset(
-    {"z-index", "overflow-x", "overflow-y", *_MARGINS, *_GRID_PLACEMENT, *_TRANSFORMS, *_SIZES, *_PAINT_EFFECTS}
+    {"z-index", "overflow-x", "overflow-y", *_MARGINS, *_GRID_PLACEMENT, *_TRANSFORMS, *_PAINT_EFFECTS}
 )
 _JUDGED_PROPERTIES: Final[frozenset[str]] = HIDING_PROPERTIES | COLOUR_PROPERTIES
 _COLLECTED_PROPERTIES: Final[frozenset[str]] = _JUDGED_PROPERTIES | _SIGNAL_PROPERTIES
@@ -464,7 +463,6 @@ _FADED_BELOW: Final[float] = 0.25
 _NOT_PLACED: Final[frozenset[str]] = frozenset({"static", "initial", "unset", "inherit", "revert", "revert-layer"})
 _NO_OFFSET: Final[frozenset[str]] = frozenset({"auto", "initial", "unset", "inherit", "revert", "revert-layer"})
 _CLIPPING_OVERFLOW: Final[frozenset[str]] = frozenset({"hidden", "clip", "scroll", "auto"})
-_UNSIZED: Final[frozenset[str]] = frozenset({"auto", "none", "initial", "unset", "inherit", "revert", "revert-layer"})
 # Text this small or smaller, in px, can't be read; the rendered scan calls under 2px hidden.
 _TINY_TEXT_PX: Final[float] = 4.0
 
@@ -501,9 +499,9 @@ def _placed(values: Callable[[str], list[str]]) -> bool:
 
 def _styled_past_judging(values: Callable[[str], list[str]]) -> bool:
     """True for styles that can hide text in ways the checks don't evaluate."""
-    if any(value in _CLIPPING_OVERFLOW for name in ("overflow-x", "overflow-y") for value in values(name)) and any(
-        value not in _UNSIZED for name in _SIZES for value in values(name)
-    ):
+    # A box that clips its overflow can clip its own text away, by a size, a line-height or an indent, which only a
+    # browser lays out.
+    if any(value in _CLIPPING_OVERFLOW for name in ("overflow-x", "overflow-y") for value in values(name)):
         return True
     for name, harmless in _PAINT_EFFECTS.items():
         if any(value not in harmless for value in values(name)):

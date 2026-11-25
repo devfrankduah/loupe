@@ -27,8 +27,8 @@ class Signal(str, Enum):
     UNSETTLED_RULES = "style rules loupe couldn't settle"
     # Positioned, transformed or grid-placed elements, negative margins or z-index: what lets one element cover another.
     PLACED = "elements placed where they could cover text"
-    # Overflow clipping with a size, low opacity, tiny text, filters, blending, masks, clip shapes, content-visibility,
-    # or a hiding property set with var().
+    # Overflow clipping, low opacity, tiny text, filters, blending, masks, clip shapes, content-visibility, or a hiding
+    # property set with var().
     STYLES = "styles loupe can't judge without a browser"
     # Text whose colour or background is set in a way it can't read, or that may be coloured like the page itself.
     COLOURS = "colours loupe can't compare without a browser"
