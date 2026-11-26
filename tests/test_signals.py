@@ -108,6 +108,15 @@ def test_a_page_the_markup_can_judge_needs_no_browser(html: str) -> None:
         (_styled("body { background: #000 }"), Signal.COLOURS),
         (_styled("body { background-color: oklch(0.2 0 0) } p { color: #ddd }"), Signal.COLOURS),
         (_styled(":root { --ink: #fff } .x { --ink: #000 } p { color: var(--ink) }"), Signal.COLOURS),
+        # example.com's own style: a background that follows the reader's colour scheme.
+        (
+            _styled(
+                "html{color-scheme:light dark;background:light-dark(#eee,#222)}"
+                "body{font:16px/1.6 system-ui,sans-serif;max-width:26em;margin:auto;padding:25vh 2em 2em;text-align:center}"
+            ),
+            Signal.COLOURS,
+        ),
+        (_styled("body { background: color-mix(in srgb, #fff 90%, #000) }"), Signal.COLOURS),
         (f"<details><summary>Hours</summary>{TEXT}</details>", Signal.CLOSED),
         (f"{TEXT}<dialog>{TEXT}</dialog>", Signal.CLOSED),
         (f'{TEXT}<div popover="auto">{TEXT}</div>', Signal.CLOSED),

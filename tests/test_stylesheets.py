@@ -291,6 +291,34 @@ def test_declarations_expand_shorthands_and_keep_importance() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("value", "colour", "image"),
+    [
+        ("#fff", "#fff", "none"),
+        ("none", "transparent", "none"),
+        ("#fff url(a/b.png) center/cover no-repeat fixed padding-box", "#fff", "url(a/b.png)"),
+        ("0 0 / 10px calc(1rem + 2px) repeat-x #000", "#000", "none"),
+        ("url(x.png) 50% 50% / contain, #fff", "unjudged", "unjudged"),
+        # Colours the check can't read stay unread, rather than read as missing and so transparent.
+        ("light-dark(#eee, #222)", "light-dark(#eee, #222)", "none"),
+        ("color-mix(in srgb, #000 80%, #fff) no-repeat", "color-mix(in srgb, #000 80%, #fff)", "none"),
+        ("rebeccapurple", "rebeccapurple", "none"),
+        ("currentcolor top left", "currentcolor", "none"),
+        ("#fff #000", "unjudged", "none"),
+        ("inherit", "unjudged", "unjudged"),
+        ("initial", "transparent", "none"),
+        ("revert-layer", "transparent", "none"),
+        ("-webkit-linear-gradient(top, #fff, #000)", "transparent", "-webkit-linear-gradient(top, #fff, #000)"),
+        ("image-set(url(a.png) 1x) #fff", "#fff", "image-set(url(a.png) 1x)"),
+    ],
+)
+def test_the_background_shorthand_gives_its_colour_and_image(value: str, colour: str, image: str) -> None:
+    assert [(item.name, item.value) for item in parse_declarations(f"background: {value}")] == [
+        ("background-color", colour),
+        ("background-image", image),
+    ]
+
+
 # Linked stylesheets
 
 
@@ -544,6 +572,10 @@ def test_text_coloured_like_its_declared_background_is_found(html: str, kind: st
         '<style>body { background: #fff url(paper.png) } .a { color: #fff }</style><body><p class="a">{t}</p></body>',
         '<style>.b { background: linear-gradient(#fff, #000) } .a { color: #fff }</style><div class="b"><p class="a">{t}</p></div>',
         '<style>body { background: #fff, url(x.png) } .a { color: #fff }</style><body><p class="a">{t}</p></body>',
+        # A shorthand colour it can't read, over a page coloured like the text: the card may well be dark.
+        '<style>body { background: #fff } .b { background: light-dark(#000, #fff) } .a { color: #fff }</style><body><div class="b"><p class="a">{t}</p></div></body>',
+        '<style>body { background: #fff } .b { background: color-mix(in srgb, #000 80%, #fff) } .a { color: #fff }</style><body><div class="b"><p class="a">{t}</p></div></body>',
+        '<style>body { background: #fff } .b { background: rebeccapurple no-repeat } .a { color: #fff }</style><body><div class="b"><p class="a">{t}</p></div></body>',
         # A rule that might apply could change either colour.
         '<style>body { background: #fff; color: #fff } @media (prefers-color-scheme: dark) { body { background: #000 } }</style><body><p>{t}</p></body>',
         '<style>body { background: #fff } p { color: #fff } @supports (color: red) { p { color: #000 } }</style><body><p>{t}</p></body>',

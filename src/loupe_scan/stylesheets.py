@@ -113,6 +113,26 @@ _RGB_COLOUR: Final[re.Pattern[str]] = re.compile(
     r"rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)(?:\s*[,/]\s*([\d.]+%?))?\s*\)"
 )
 _GRADIENT: Final[re.Pattern[str]] = re.compile(r"(?:repeating-)?(?:linear|radial|conic)-gradient\((.*)\)")
+# Vendor-prefixed gradients, which the colour check reads as a picture it can't judge.
+_PREFIXED_GRADIENT: Final[re.Pattern[str]] = re.compile(r"-(?:webkit|moz|ms|o)-(?:(?:repeating-)?(?:linear|radial)-)?gradient\(")
+# What the background shorthand holds besides a colour and an image: the image's absence, its position and size and
+# the slash between them, how it repeats and scrolls, and the boxes it's drawn in and clipped to.
+_BACKGROUND_KEYWORDS: Final[frozenset[str]] = frozenset(
+    {
+        "none", "left", "right", "center", "top", "bottom", "auto", "cover", "contain",
+        "repeat", "repeat-x", "repeat-y", "no-repeat", "space", "round", "scroll", "fixed", "local",
+        "border-box", "padding-box", "content-box", "text", "border-area",
+    }
+)
+_IMAGE_FUNCTIONS: Final[tuple[str, ...]] = (
+    "url(", "image(", "image-set(", "-webkit-image-set(", "cross-fade(", "-webkit-cross-fade(", "element(",
+    "-moz-element(", "paint(", "src(",
+)
+# Values that set a background back to its initial value, transparent and with no image: background isn't inherited,
+# and browsers' own stylesheets give ordinary elements none.
+_RESETTING_KEYWORDS: Final[frozenset[str]] = frozenset({"initial", "unset", "revert", "revert-layer"})
+# Functions that give a length in a position or a size.
+_MATH_FUNCTIONS: Final[tuple[str, ...]] = ("calc(", "-webkit-calc(", "-moz-calc(", "min(", "max(", "clamp(", "env(")
 _FONT_SIZE_KEYWORDS: Final[frozenset[str]] = frozenset(
     {"xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large", "xxx-large", "larger", "smaller", "math"}
 )
@@ -337,16 +357,27 @@ def _font_size_of(font: str) -> str:
 
 
 def _background_longhands(value: str) -> list[tuple[str, str]]:
-    """The background shorthand's colour and image. Several layers, or an image, leave the image unjudged."""
-    if _split_values(value, ",")[1:]:
+    """The background shorthand's colour and image. Several layers, or an image, leave the image unjudged.
+
+    A part that isn't a position, size, repeat, attachment, box or image is the colour, even one parse_colour can't
+    read, such as light-dark() or color-mix(): read as missing, it would make the background transparent.
+    """
+    if _split_values(value, ",")[1:] or value == "inherit":
         return [("background-color", "unjudged"), ("background-image", "unjudged")]
+    if value in _RESETTING_KEYWORDS:
+        return [("background-color", "transparent"), ("background-image", "none")]
     colour = "transparent"
     image = "none"
+    colours_seen = 0
     for token in _split_values(value):
-        if token.startswith("url(") or _GRADIENT.fullmatch(token):
-            image = token
-        elif parse_colour(token) is not None or token.startswith(("var(", "rgb", "hsl", "#", "color(", "oklch(", "lab(")):
-            colour = token
+        for part in _split_values(token, "/"):
+            if part in _BACKGROUND_KEYWORDS or _LENGTH_PATTERN.match(part) or part.startswith(_MATH_FUNCTIONS):
+                continue
+            if part.startswith(_IMAGE_FUNCTIONS) or _GRADIENT.fullmatch(part) or _PREFIXED_GRADIENT.match(part):
+                image = part
+                continue
+            colours_seen += 1
+            colour = part if colours_seen == 1 else "unjudged"
     return [("background-color", colour), ("background-image", image)]
 
 
