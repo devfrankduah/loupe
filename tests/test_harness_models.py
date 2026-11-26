@@ -16,7 +16,7 @@ pytest.importorskip("mcp")
 
 from harness import __main__ as harness_cli  # noqa: E402
 from harness.agents import AGENTS, Usage  # noqa: E402
-from harness.cost import PRICES, Price, Spend  # noqa: E402
+from harness.cost import MEASURED_OUTPUT_TOKENS_PER_TRIAL, PRICES, Price, Speed, Spend  # noqa: E402
 from harness.models import (  # noqa: E402
     ANTHROPIC_URL,
     CUT_OFF_CALL,
@@ -506,16 +506,48 @@ def test_a_dry_run_prints_the_plan_and_calls_nothing(capsys: pytest.CaptureFixtu
     assert code == 0 and err == ""
     lines = out.splitlines()
     assert lines[0] == "Plan: 2 agents x 11 pages x 2 conditions x 20 trials = 880 trials, in an order shuffled by seed 0."
-    assert "| ollama:qwen3:4b | 440 | 484,000 | 132,000 | $0 (runs here) | about 1 h 34 min |" in lines
+    assert "| ollama:qwen3:4b | 440 | 484,000 | 132,000 | $0 (runs here) | about 55 min |" in lines
     assert "| anthropic:claude-haiku-5-5 | 440 | 484,000 | 132,000 | $0.11 | not estimated |" in lines
     assert "Estimated cost: $0.11, over --max-cost $0.00." in lines
     assert "ANTHROPIC_API_KEY: set." in lines and KEY not in out
     assert lines[-1] == "Dry run: nothing was fetched and no model was called."
 
 
+def test_a_local_trial_is_timed_from_the_measured_speeds_and_output_tokens() -> None:
+    speed = Speed()
+    assert (speed.prompt, speed.output) == (3_400.0, 25.0)
+    assert MEASURED_OUTPUT_TOKENS_PER_TRIAL == {Condition.RAW: 230, Condition.GUARDED: 126}
+    # 1,100 prompt tokens and the output tokens a trial took, at the measured speeds.
+    assert speed.trial_seconds(Condition.RAW, 400) == pytest.approx(1_100 / 3_400 + 230 / 25)
+    assert speed.trial_seconds(Condition.GUARDED, 400) == pytest.approx(1_100 / 3_400 + 126 / 25)
+    # Never more than two requests at the cap write.
+    assert speed.trial_seconds(Condition.RAW, 100) == pytest.approx(1_100 / 3_400 + 200 / 25)
+    assert Speed(3_400.0, 50.0).trial_seconds(Condition.GUARDED, 400) == pytest.approx(1_100 / 3_400 + 126 / 50)
+    with pytest.raises(ValueError):
+        speed.trial_seconds(Condition.RAW, 0)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "time"),
+    [
+        # The third run, both conditions at a 400-token cap, took 52 minutes; the fourth, guarded alone, 18.
+        (["--max-tokens", "400"], "about 55 min"),
+        (["--max-tokens", "400", "--condition", "guarded"], "about 20 min"),
+        (["--max-tokens", "400", "--output-speed", "50"], "about 28 min"),
+    ],
+)
+def test_a_dry_runs_local_time_is_close_to_the_measured_runs(
+    arguments: list[str], time: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, _ = _cli(["run", "--model", "ollama:llama3.1:8b", "--dry-run", *arguments], {}, _no_session, capsys)
+    (row,) = [line for line in out.splitlines() if line.startswith("| ollama:llama3.1:8b |")]
+    assert code == 0 and row.endswith(f"| $0 (runs here) | {time} |")
+    assert "output tokens a trial measured in docs/hijack-rates.md" in out
+
+
 def test_a_pilot_is_one_trial_per_page_and_condition(capsys: pytest.CaptureFixture[str]) -> None:
     code, out, _ = _cli(["run", "--model", "ollama:qwen3:4b", "--pilot", "--dry-run"], {}, _no_session, capsys)
-    assert code == 0 and "| ollama:qwen3:4b | 22 | 24,200 | 6,600 | $0 (runs here) | about 5 min |" in out.splitlines()
+    assert code == 0 and "| ollama:qwen3:4b | 22 | 24,200 | 6,600 | $0 (runs here) | about 3 min |" in out.splitlines()
     code, _, err = _cli(["run", "--pilot", "--trials", "3"], {}, _no_session, capsys)
     assert code == harness_cli.EXIT_REFUSED and "--pilot" in err
 

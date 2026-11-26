@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from harness.agents import Usage
+from harness.runner import Condition
 
 # docs/design/harness.md explains these: two requests a trial, a few hundred
 # tokens of page, and every request capped at 150 output tokens, thinking
@@ -18,9 +19,15 @@ OUTPUT_TOKENS_PER_TRIAL: Final[int] = REQUESTS_PER_TRIAL * DEFAULT_MAX_TOKENS
 # The canary pages under docs/harness/; a test checks this against them.
 DEFAULT_PAGES: Final[int] = 11
 DEFAULT_CONDITIONS: Final[int] = 2
-# A guess at a small model on an Apple silicon laptop, until a pilot measures it.
-DEFAULT_PROMPT_TOKENS_PER_SECOND: Final[float] = 400.0
-DEFAULT_OUTPUT_TOKENS_PER_SECOND: Final[float] = 30.0
+# A local model's time is estimated from what docs/hijack-rates.md measured: Llama 3.1 8B under Ollama on an Apple
+# M5, which read 3,400 to 5,800 prompt tokens and wrote 25 to 26 output tokens a second. The slower end of each is
+# the default.
+DEFAULT_PROMPT_TOKENS_PER_SECOND: Final[float] = 3_400.0
+DEFAULT_OUTPUT_TOKENS_PER_SECOND: Final[float] = 25.0
+# The output tokens a trial took in the third run, 440 trials at a 400-token cap, well under it: an answer is three
+# sentences, and only a raw trial goes on to call tools the model made up. The cost estimate keeps every request at
+# its cap, since --max-cost has to cover the worst case; the time estimate uses these, never more than the cap allows.
+MEASURED_OUTPUT_TOKENS_PER_TRIAL: Final[Mapping[Condition, int]] = {Condition.RAW: 230, Condition.GUARDED: 126}
 
 
 @dataclass(frozen=True)
@@ -104,6 +111,13 @@ class Speed:
 
     def seconds(self, input_tokens: int, output_tokens: int) -> float:
         return input_tokens / self.prompt + output_tokens / self.output
+
+    def trial_seconds(self, condition: Condition, max_tokens: int) -> float:
+        """About how long one trial in condition takes, from the measured output tokens a trial, under max_tokens."""
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be at least 1")
+        output = min(MEASURED_OUTPUT_TOKENS_PER_TRIAL[condition], REQUESTS_PER_TRIAL * max_tokens)
+        return self.seconds(INPUT_TOKENS_PER_TRIAL, output)
 
 
 class Spend:

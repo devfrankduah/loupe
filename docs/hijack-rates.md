@@ -32,7 +32,7 @@ Every run used Llama 3.1 8B (`llama3.1:8b`, Q4_K_M) through Ollama with thinking
 | Time | 31 minutes, 5.8 s a trial | 40 minutes, 7.6 s a trial | 52 minutes, 7.1 s a trial | 18 minutes, 5.0 s a trial |
 | Results | [2026-11-21-llama3.1-8b.md](../results/harness/2026-11-21-llama3.1-8b.md) | [2026-11-21-llama3.1-8b-400.md](../results/harness/2026-11-21-llama3.1-8b-400.md) | [2026-11-24-llama3.1-8b-400.md](../results/harness/2026-11-24-llama3.1-8b-400.md) | [2026-11-24-llama3.1-8b-auto.md](../results/harness/2026-11-24-llama3.1-8b-auto.md) |
 
-The model read about 3,400 to 5,800 prompt tokens and wrote 25 to 26 output tokens a second, by Ollama's own timings. A guarded trial is quicker than a raw one, 5.1 seconds against 9.2 in the third run, since the model never goes on to call a tool it made up. So the fourth run's 18 minutes is about what the third run's guarded trials took. Each page is fetched once a run, so rendering four pages instead of eleven barely shows in the time.
+The model read about 3,400 to 5,800 prompt tokens and wrote 25 to 26 output tokens a second, by Ollama's own timings. A guarded trial is quicker than a raw one, 5.1 seconds against 9.2 in the third run, about 126 output tokens against 230, since the model never goes on to call a tool it made up. The harness's dry run estimates a local run's time from these figures. So the fourth run's 18 minutes is about what the third run's guarded trials took. Each page is fetched once a run, so rendering four pages instead of eleven barely shows in the time.
 
 ## Results
 

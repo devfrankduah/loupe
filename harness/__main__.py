@@ -27,6 +27,7 @@ from harness.cost import (
     DEFAULT_OUTPUT_TOKENS_PER_SECOND,
     DEFAULT_PROMPT_TOKENS_PER_SECOND,
     INPUT_TOKENS_PER_TRIAL,
+    MEASURED_OUTPUT_TOKENS_PER_TRIAL,
     OUTPUT_TOKENS_PER_TRIAL,
     PRICES,
     REQUESTS_PER_TRIAL,
@@ -165,7 +166,13 @@ class _Planned:
     local: bool
     # None for a model with no known price; the fake agent is free.
     price: Price | None
-    trials: int
+    # Trials in each condition.
+    trials_per_condition: int
+    conditions: tuple[Condition, ...]
+
+    @property
+    def trials(self) -> int:
+        return self.trials_per_condition * len(self.conditions)
 
     @property
     def input_tokens(self) -> int:
@@ -173,6 +180,9 @@ class _Planned:
 
     def output_tokens(self, max_tokens: int) -> int:
         return self.trials * REQUESTS_PER_TRIAL * max_tokens
+
+    def local_seconds(self, speed: Speed, max_tokens: int) -> float:
+        return sum(self.trials_per_condition * speed.trial_seconds(condition, max_tokens) for condition in self.conditions)
 
 
 def _dollars(amount: float) -> str:
@@ -194,13 +204,14 @@ def _plan_lines(
     arguments: argparse.Namespace,
     trials: int,
     pages: int,
-    conditions: int,
+    conditions: Sequence[Condition],
     environment: Mapping[str, str],
 ) -> list[str]:
     total_trials = sum(item.trials for item in planned)
     speed = Speed(arguments.prompt_speed, arguments.output_speed)
+    count = len(conditions)
     lines = [
-        f"Plan: {len(planned)} agent{'' if len(planned) == 1 else 's'} x {pages} pages x {conditions} condition{'' if conditions == 1 else 's'} x {trials} "
+        f"Plan: {len(planned)} agent{'' if len(planned) == 1 else 's'} x {pages} pages x {count} condition{'' if count == 1 else 's'} x {trials} "
         f"trial{'' if trials == 1 else 's'} = {total_trials:,} trials, in an order shuffled by seed {arguments.seed}.",
         f"Pages from {arguments.base_url}; the guarded tool is loupe's fetch_page in strip mode, "
         f"{_GUARDED_SCANS[arguments.guarded_scan]}.",
@@ -215,7 +226,7 @@ def _plan_lines(
     for item in planned:
         output = item.output_tokens(arguments.max_tokens)
         if item.local:
-            cost, time = "$0 (runs here)", _duration(speed.seconds(item.input_tokens, output))
+            cost, time = "$0 (runs here)", _duration(item.local_seconds(speed, arguments.max_tokens))
         elif item.price is None:
             cost, time = "no price known", "not estimated"
         else:
@@ -226,9 +237,13 @@ def _plan_lines(
     verdict = "within" if total <= arguments.max_cost else "over"
     lines += ["", f"Estimated cost: {_dollars(total)}, {verdict} --max-cost {_dollars(arguments.max_cost)}."]
     if any(item.local for item in planned):
+        written = " and ".join(
+            f"{MEASURED_OUTPUT_TOKENS_PER_TRIAL[condition]} {condition.value}" for condition in conditions
+        )
         lines.append(
-            f"Local times assume {arguments.prompt_speed:g} prompt and {arguments.output_speed:g} output tokens a "
-            "second, and leave out loading the model and rendering each page once. A pilot measures them."
+            f"Local times assume {arguments.prompt_speed:,g} prompt and {arguments.output_speed:,g} output tokens a "
+            f"second and the output tokens a trial measured in docs/hijack-rates.md, {written}, never more than the "
+            "cap allows. They leave out loading the model and rendering each page once. A pilot measures them."
         )
     providers = sorted({spec.provider for spec in specs if not spec.local}, key=lambda provider: provider.value)
     for provider in providers:
@@ -248,11 +263,13 @@ def _run(arguments: argparse.Namespace, environment: Mapping[str, str], session_
     fakes = arguments.agent or ([] if specs else sorted(AGENTS))
     prices = {**PRICES, **dict(arguments.price or [])}
     conditions: list[Condition] = list(dict.fromkeys(arguments.condition or list(Condition)))
-    cells_per_agent = len(pages) * len(conditions) * trials
-    planned = [_Planned(name, False, FREE, cells_per_agent) for name in fakes] + [
-        _Planned(spec.name, spec.local, FREE if spec.local else prices.get(spec.name), cells_per_agent) for spec in specs
+    per_condition = len(pages) * trials
+    chosen = tuple(conditions)
+    planned = [_Planned(name, False, FREE, per_condition, chosen) for name in fakes] + [
+        _Planned(spec.name, spec.local, FREE if spec.local else prices.get(spec.name), per_condition, chosen)
+        for spec in specs
     ]
-    lines = _plan_lines(planned, specs, arguments, trials, len(pages), len(conditions), environment)
+    lines = _plan_lines(planned, specs, arguments, trials, len(pages), conditions, environment)
     if arguments.dry_run:
         print("\n".join(lines + ["Dry run: nothing was fetched and no model was called."]))
         return 0
@@ -264,7 +281,7 @@ def _run(arguments: argparse.Namespace, environment: Mapping[str, str], session_
         item.name: (INPUT_TOKENS_PER_TRIAL * (item.price or FREE).input + REQUESTS_PER_TRIAL * arguments.max_tokens * (item.price or FREE).output) / 1_000_000
         for item in planned
     }
-    if sum(dollars * cells_per_agent for dollars in planned_dollars.values()) > arguments.max_cost:
+    if sum(planned_dollars[item.name] * item.trials for item in planned) > arguments.max_cost:
         print("\n".join(lines), file=sys.stderr)
         print("error: the run would cost more than --max-cost; raise it to run", file=sys.stderr)
         return EXIT_REFUSED
