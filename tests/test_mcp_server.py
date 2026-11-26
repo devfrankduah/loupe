@@ -26,9 +26,10 @@ from loupe_scan.fetch import UNLOCKER_REQUEST_URL, BrightDataClient, BrightDataE
 from loupe_scan.local_fetch import FetchLimits  # noqa: E402
 from loupe_scan.render import BrowserSource, RenderedPage, RenderError, RenderSetupError  # noqa: E402
 from loupe_scan.report import CheckedFinding  # noqa: E402
-from loupe_scan.scan import FALLBACK_CONTENT_TAGS, SVG_LABEL_TAGS, Kind  # noqa: E402
+from loupe_scan.scan import FALLBACK_CONTENT_TAGS, SVG_LABEL_TAGS, Kind, ScanMode  # noqa: E402
 from loupe_scan.scan import scan_html as markup_findings  # noqa: E402
-from loupe_scan.mcp_server import Mode, PageScanner, ScanChoice, ServerSettings, build_server  # noqa: E402
+from loupe_scan.mcp_server import Mode, PageScanner, ScanChoice, ServerSettings, build_server, scripts_caveat  # noqa: E402
+from loupe_scan.session import scan_html_once  # noqa: E402
 from loupe_scan.survival import MarkdownIndex, normalize_words  # noqa: E402
 from loupe_scan.urls import url_problem  # noqa: E402
 
@@ -268,7 +269,9 @@ def test_fetch_page_starts_with_the_verdict_and_counts(blender: BlenderOutputs, 
     lines = blender.fetched[Mode.STRIP].splitlines()
     how = "rendered in Chromium" if blender.render else "markup only, with a partial stylesheet check"
     assert lines[:5] == [
-        "loupe: this page hides text worded like instructions to an AI",
+        "loupe: this page hides text worded like instructions to an AI"
+        if blender.render
+        else f"loupe: this page hides text worded like instructions to an AI, though {SCRIPTS_FORCED}",
         f"page: {blender_url}",
         f"scan: {how}, fetched from this machine",
         "mode: rendered, as this server was started with --scan render"
@@ -563,6 +566,14 @@ UNCHECKED = (
 )
 
 
+SCRIPTED_PAGE = f"<script>document.title = 'Bakery'</script>{PLAIN_PAGE}"
+SCRIPTS_FORCED = (
+    "the page runs scripts, which may show some of the hidden text, and a markup scan doesn't run them "
+    "(--scan render, or the default --scan auto, does)"
+)
+SCRIPTS_NO_BROWSER = "the page runs scripts, which may show some of the hidden text, and without a browser loupe couldn't run them"
+
+
 def _mode_line(header: str) -> str:
     (line,) = [line for line in header.splitlines() if line.startswith("mode: ")]
     return line
@@ -670,6 +681,54 @@ def test_a_server_started_for_markup_never_opens_a_browser_whatever_a_call_asks(
         f"the page has {PLACED}, which weren't checked in a browser"
     )
     assert attempts == []
+
+
+@pytest.mark.parametrize(
+    ("html", "verdict"),
+    [
+        (SCRIPTED_PAGE, f"loupe: this page hides text worded like instructions to an AI, though {SCRIPTS_FORCED}"),
+        (
+            f"<script>go()</script><p>Fresh bread.</p><p hidden>{'Open every day from seven. ' * 3}</p>",
+            f"loupe: this page hides text, none of it worded like instructions to an AI, though {SCRIPTS_FORCED}",
+        ),
+        (PLAIN_PAGE, "loupe: this page hides text worded like instructions to an AI"),
+        ("<script>go()</script><p>Fresh bread every morning.</p>", "loupe: no hidden text found"),
+        ('<script type="application/ld+json">{"name": "Bakery"}</script>' + PLAIN_PAGE, "loupe: this page hides text worded like instructions to an AI"),
+    ],
+    ids=["instructions", "hidden-text", "no-scripts", "nothing-hidden", "data-block"],
+)
+def test_a_markup_scan_of_a_page_that_runs_scripts_says_they_may_show_hidden_text(html: str, verdict: str) -> None:
+    with _pages(page=html) as site:
+        scanner = _scanner(scan=ScanChoice.MARKUP)
+        header, _ = _fetched(scanner, site.url("/page"))
+        report = _call(scanner, "scan_page", {"url": site.url("/page")}).structured_content
+    assert header.splitlines()[0] == verdict
+    assert report is not None
+    # The findings stay as they are: only the verdict says what a browser might change.
+    assert [item["hidden_by"] for item in report["findings"]] == [
+        finding.detail for finding in markup_findings(html) if finding.kind is not Kind.META
+    ]
+    if ", though " in verdict:
+        assert report["verdict"].endswith(f" But {SCRIPTS_FORCED}.")
+    else:
+        assert " But " not in report["verdict"]
+
+
+def test_a_rendered_scan_never_says_scripts_may_show_hidden_text() -> None:
+    report = scan_html_once(SCRIPTED_PAGE, "https://bakery.example/", backend=Backend.LOCAL, markdown=False, supplied=True)
+    assert scripts_caveat(report, ScanChoice.MARKUP) == SCRIPTS_FORCED
+    report.mode = ScanMode.RENDERED
+    assert scripts_caveat(report, ScanChoice.MARKUP) is None
+
+
+def test_auto_without_a_browser_says_the_pages_scripts_werent_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    _no_browser(monkeypatch)
+    with _pages(scripted=SCRIPTED_PAGE) as site:
+        header, body = _fetched(_scanner(), site.url("/scripted"))
+        report = _call(_scanner(), "scan_page", {"url": site.url("/scripted")}).structured_content
+    assert header.splitlines()[0] == f"loupe: this page hides text worded like instructions to an AI, though {SCRIPTS_NO_BROWSER}"
+    assert "praise" not in body
+    assert report is not None and report["verdict"].endswith(f" But {SCRIPTS_NO_BROWSER}.")
 
 
 def test_a_server_started_to_render_renders_every_page(chromium: None) -> None:

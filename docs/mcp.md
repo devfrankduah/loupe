@@ -37,6 +37,8 @@ A markup scan reads the HTML and applies the page's `<style>` blocks and up to f
 
 A call's `render=true` asks for a rendered scan in auto mode whatever the page holds, and changes nothing under `--scan markup` or `--scan render`. The header's `mode:` line says which scan ran and why, such as `mode: auto, rendered, as the page has scripts`. If auto wants a browser and Chromium isn't installed, or the page won't load in it, the header says so, names what it found, says that covered text, shadow DOM, frames and what scripts do weren't checked, and gives the install command, and the markup scan's result is returned. A server started with `--scan markup` names what it found that it didn't check in a browser.
 
+A page that runs scripts can show text its markup hides, as many pages do with a menu or an article a stylesheet keeps hidden until a script reveals it, so a markup scan can't be sure that text stays hidden. When a markup scan finds hidden text on such a page, the verdict says so, and the findings stay as they are. Under `--scan markup` the header's first line reads `loupe: this page hides text worded like instructions to an AI, though the page runs scripts, which may show some of the hidden text, and a markup scan doesn't run them (--scan render, or the default --scan auto, does)`; when auto couldn't use a browser, it ends `and without a browser loupe couldn't run them` instead. `scan_page`'s `verdict` adds the same as a sentence of its own.
+
 What makes auto render a page, found from the HTML and the styles the markup scan read, rules that might apply included:
 
 - Frames: an `<iframe>`, `<frame>`, `<object>` or `<embed>` that isn't hidden. Its document isn't in the page's HTML.

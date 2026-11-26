@@ -266,15 +266,23 @@ def describe_finding(item: CheckedFinding, *, quoted: str | None) -> FindingDesc
 
 
 def describe_page(
-    report: PageReport, *, quote_with: Callable[[str], str] | None = None, decision: ScanDecision | None = None
+    report: PageReport,
+    *,
+    quote_with: Callable[[str], str] | None = None,
+    decision: ScanDecision | None = None,
+    scan: ScanChoice = ScanChoice.AUTO,
 ) -> PageScan:
-    """The report scan_page returns. Hidden text is quoted only through quote_with, when it's given."""
+    """The report scan_page returns. Hidden text is quoted only through quote_with, when it's given.
+
+    scan is how the server was started, which says what to suggest when a markup scan couldn't run the page's scripts.
+    """
+    caveat = scripts_caveat(report, scan)
     return PageScan(
         url=report.url,
         scan_mode=report.mode.value,
         backend=report.backend.value,
         result=page_result(report),
-        verdict=verdict(report),
+        verdict=verdict(report) if caveat is None else f"{verdict(report)} But {caveat}.",
         hidden_count=len(report.findings),
         instruction_like_count=len(report.instruction_like),
         in_markdown_count=sum(item.in_markdown is True for item in report.findings),
@@ -305,12 +313,30 @@ def _found_line(report: PageReport) -> str:
     )
 
 
-def _verdict_line(report: PageReport) -> str:
+def scripts_caveat(report: PageReport, scan: ScanChoice) -> str | None:
+    """What the verdict on a markup scan of a page that runs scripts adds, since they may show text it calls hidden.
+
+    The findings stay as they are: a script may as well hide more, and only a browser can tell.
+    """
+    if report.mode is not ScanMode.STATIC or not report.findings or Signal.SCRIPTS not in report.needs_browser:
+        return None
+    if scan is ScanChoice.MARKUP:
+        return (
+            "the page runs scripts, which may show some of the hidden text, and a markup scan doesn't run them "
+            "(--scan render, or the default --scan auto, does)"
+        )
+    return "the page runs scripts, which may show some of the hidden text, and without a browser loupe couldn't run them"
+
+
+def _verdict_line(report: PageReport, scan: ScanChoice) -> str:
     if report.instruction_like:
-        return "loupe: this page hides text worded like instructions to an AI"
-    if report.findings:
-        return "loupe: this page hides text, none of it worded like instructions to an AI"
-    return "loupe: no hidden text found"
+        line = "loupe: this page hides text worded like instructions to an AI"
+    elif report.findings:
+        line = "loupe: this page hides text, none of it worded like instructions to an AI"
+    else:
+        return "loupe: no hidden text found"
+    caveat = scripts_caveat(report, scan)
+    return line if caveat is None else f"{line}, though {caveat}"
 
 
 def _to_strip(report: PageReport) -> list[str]:
@@ -344,7 +370,7 @@ def page_text(report: PageReport, settings: ServerSettings, decision: ScanDecisi
         raise ToolError(f"loupe scanned {report.url} but couldn't make markdown from its HTML")
     how = "rendered in Chromium" if report.mode is ScanMode.RENDERED else "markup only, with a partial stylesheet check"
     where = "from this machine" if report.backend is Backend.LOCAL else "through Bright Data"
-    lines = [_verdict_line(report), f"page: {report.url}", f"scan: {how}, fetched {where}"]
+    lines = [_verdict_line(report, settings.scan), f"page: {report.url}", f"scan: {how}, fetched {where}"]
     if decision is not None:
         lines.append(f"mode: {decision.why}")
     lines.append(_found_line(report))
@@ -522,7 +548,7 @@ def scan_page_report(
 ) -> PageScan:
     """What the scan_page tool returns for url. Raises ToolError, with loupe's own message, for a page it couldn't scan."""
     fetched = scanner.scan(url, render=render)
-    return describe_page(_scanned(fetched), quote_with=quote_with, decision=fetched.decision)
+    return describe_page(_scanned(fetched), quote_with=quote_with, decision=fetched.decision, scan=scanner.settings.scan)
 
 
 # The server
