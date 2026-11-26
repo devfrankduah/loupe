@@ -45,6 +45,7 @@ Two of these break existing scripts: `--json PATH` is now `--json-output PATH`, 
 - New test dependency: jsonschema, with types-jsonschema for the type check.
 - New optional dependency: the MCP Python SDK (`mcp`, MIT licence), 2.3 or newer, for `loupe mcp`.
 - `docs/social-preview.png` carries the repository's new description: loupe runs locally, with Bright Data as an option for sites that block bots.
+- `docs/demo.gif` is recorded again from 25 November's output on the local backend, in a 150 by 28 window so the verdict and the exit line both fit. The published report page is rebuilt from the 25 November local runs, and a test checks that the README's `loupe report` command builds it byte for byte. Its screenshots are `docs/screenshot-desktop-2026-11-25.png` and `docs/screenshot-phone-2026-11-25.png`, in place of the 19 November ones. `docs/social-preview.png` is unchanged: the github.com line it shows is still found hidden in both modes, though the report page now features a line from Wikipedia.
 
 ## 0.1.0
 

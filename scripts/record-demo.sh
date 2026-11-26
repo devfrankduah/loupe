@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Records docs/demo.gif: the README's quickstart scan of the blender test page,
 # rendered on the local backend with no account, so it uses no Bright Data
-# traffic. Quotes are cut to 80 characters so the output fits the 150 by 24
-# window.
+# traffic. Quotes are cut to 80 characters so the output, with the exit line
+# loupe prints on stderr, fits the 150 by 28 window.
 #
 # Needs asciinema and agg (brew install asciinema agg) and the virtual
 # environment from the README with the render extra. Run it from anywhere in
@@ -37,7 +37,7 @@ trap cleanup EXIT
 
 # loupe exits 1 when it finds hidden instructions, as it does on the test
 # page, so only 2, a failed scan, stops the script.
-asciinema rec --quiet --headless --return --window-size 150x24 --capture-env TERM \
+asciinema rec --quiet --headless --return --window-size 150x28 --capture-env TERM \
   --command 'printf "\$ loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/\n"; env -u BRIGHTDATA_API_TOKEN -u BRIGHTDATA_BROWSER_WSS loupe --render --quote-chars 80 https://devfrankduah.github.io/loupe/test-page/ || [ $? -eq 1 ]' \
   "$cast"
 

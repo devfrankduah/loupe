@@ -213,6 +213,17 @@ def test_report_command_writes_the_page(tmp_path: Path, capsys: pytest.CaptureFi
     assert "Measured on 2 November 2026 across one page" in output_path.read_text(encoding="utf-8")
 
 
+def test_the_published_report_page_is_what_the_readmes_command_builds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    (command,) = re.findall(r"^loupe report (results/\S+\.json) (results/\S+\.json) -o /tmp/loupe-report\.html$", readme, re.MULTILINE)
+    output_path = tmp_path / "loupe-report.html"
+    assert cli.main(["report", *(str(root / name) for name in command), "-o", str(output_path)]) == cli.EXIT_OK
+    assert output_path.read_bytes() == (root / "docs" / "index.html").read_bytes()
+
+
 def test_report_command_rejects_a_bad_results_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     results_path = tmp_path / "bad.json"
     results_path.write_text("{}", encoding="utf-8")

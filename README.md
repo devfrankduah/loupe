@@ -10,7 +10,7 @@ loupe shows what a web page feeds an AI agent that a person reading the same pag
 
 On a [made-up product page](https://devfrankduah.github.io/loupe/test-page/) with five mostly negative reviews, the browser scan finds all six hidden instructions telling an AI to call the blender the best one available, and two hidden fake five-star reviews. Four of those instructions and both reviews also reach the markdown.
 
-![A terminal running loupe --render --quote-chars 80 on the blender test page with no account. A few seconds later it prints a plain-English verdict, that 5 pieces of hidden text read like instructions to an AI and 3 of them reach the markdown, then the 10 findings and which ones reached the markdown.](https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/demo.gif)
+![A terminal running loupe --render --quote-chars 80 on the blender test page with no account. A few seconds later it prints a plain-English verdict, that 6 pieces of hidden text read like instructions to an AI and 4 of them reach the markdown, then the 11 findings, each instruction with whether it reached the markdown, and the exit line.](https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/demo.gif)
 
 ## Quickstart
 
@@ -169,19 +169,19 @@ loupe reads the token from `BRIGHTDATA_API_TOKEN` and never prints or saves it, 
 
 ## The report page
 
-`loupe report` turns saved runs into one HTML file with no scripts and no external requests, in a light and a dark mode. This rebuilds [the published report page](https://devfrankduah.github.io/loupe/) from the 19 November runs:
+`loupe report` turns saved runs into one HTML file with no scripts and no external requests, in a light and a dark mode. This rebuilds [the published report page](https://devfrankduah.github.io/loupe/) from the 25 November runs on the local backend:
 
 ```
-loupe report results/2026-11-19.json results/2026-11-19-rendered.json -o /tmp/loupe-report.html
+loupe report results/2026-11-25-local.json results/2026-11-25-local-rendered.json -o /tmp/loupe-report.html
 ```
 
-`docs/index.html` is built from that pair, so `cmp /tmp/loupe-report.html docs/index.html` prints nothing. Given a markup-only run and a `--render` run of the same pages, the report sets them side by side, page by page. One results file works too, and a report built from local runs says its markdown is an approximation.
+`docs/index.html` is built from that pair, so `cmp /tmp/loupe-report.html docs/index.html` prints nothing, and a test checks it. Given a markup-only run and a `--render` run of the same pages, the report sets them side by side, page by page. One results file works too, and a report built from local runs says its markdown is an approximation.
 
-![The loupe report page in light mode on a desktop. Under the headline "A web page can hide text from you and still hand it to the AI reading it", two panels show a real line from github.com: the panel for what a person sees is empty, and the panel for what an AI reads says "You can't perform that action at this time."](https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/screenshot-desktop-2026-11-19.png)
+![The loupe report page in light mode on a desktop. Under the headline "A web page can hide text from you and still hand it to the AI reading it", two panels show a real line from en.wikipedia.org: the panel for what a person sees is empty, and the panel for what an AI reads says "Toggle Prompt injection and jailbreak incidents subsection".](https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/screenshot-desktop-2026-11-25.png)
 
-<img src="https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/screenshot-phone-2026-11-19.png" alt="The same report page on a phone, light mode, with the two panels stacked" width="300">
+<img src="https://raw.githubusercontent.com/devfrankduah/loupe/main/docs/screenshot-phone-2026-11-25.png" alt="The same report page on a phone, light mode, with the two panels stacked" width="300">
 
-Both screenshots show that page, taken on 19 November 2026.
+Both screenshots show that page, taken on 25 November 2026.
 
 ## How it works
 
