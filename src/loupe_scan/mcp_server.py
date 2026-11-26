@@ -42,7 +42,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Annotated, Final, TypedDict
-from urllib.parse import urlsplit
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -60,6 +59,7 @@ from loupe_scan.scan import Kind, ScanMode
 from loupe_scan.session import bright_data_client, endpoint_redactor, fetch_with_address, scan_html_once
 from loupe_scan.signals import Signal, describe
 from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words, remove_hidden_text
+from loupe_scan.urls import url_problem
 
 # About 15,000 tokens of English, which a model can read in one tool result.
 DEFAULT_MAX_CHARACTERS: Final[int] = 60_000
@@ -428,12 +428,9 @@ class PageScanner:
         return self._redact(text)
 
     def scan(self, url: str, *, render: bool) -> FetchedPage:
-        try:
-            parts = urlsplit(url)
-        except ValueError:
-            raise ToolError("url must be an http:// or https:// URL") from None
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise ToolError("url must be an http:// or https:// URL")
+        problem = url_problem(url)
+        if problem is not None:
+            raise ToolError(problem)
         with self._lock:
             return self._scan(url, render)
 

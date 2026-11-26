@@ -85,7 +85,7 @@ with Scanner(render=True) as scanner:
 
 `scan(url, *, render=False, backend=None, markdown=True, respect_robots=True) -> ScanResult`, and `Scanner` with the same keyword arguments and a `scan(url)` method.
 
-`scan_html(html, url, *, render=False, markdown=True) -> ScanResult` takes the HTML as a `str` and the page's http(s) URL. Its result's `backend` is `Backend.LOCAL`, and `to_dict()` has `"supplied_html": true`. It raises `ValueError` for a URL that isn't http(s), `TypeError` for bytes, and `ScanError` with kind `RENDER` when the browser couldn't load the page.
+`scan_html(html, url, *, render=False, markdown=True) -> ScanResult` takes the HTML as a `str` and the page's http(s) URL. Its result's `backend` is `Backend.LOCAL`, and `to_dict()` has `"supplied_html": true`. It raises `ValueError` for a URL loupe can't fetch, one that isn't http(s) with a host or has a space in it, `TypeError` for bytes, and `ScanError` with kind `RENDER` when the browser couldn't load the page.
 
 - `render` loads the page in Chromium, which needs the `render` extra and `playwright install chromium`.
 - `backend` is `"local"`, `"brightdata"`, or None to use Bright Data when `BRIGHTDATA_API_TOKEN` or `BRIGHTDATA_BROWSER_WSS` is set and this machine otherwise. `Backend.LOCAL` and `Backend.BRIGHTDATA` work too.

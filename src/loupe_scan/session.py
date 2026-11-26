@@ -41,6 +41,7 @@ from loupe_scan.render import (
 from loupe_scan.report import FailureKind, PageReport, check_findings
 from loupe_scan.scan import Finding, Kind, ScanMode, scan_html, scan_markup
 from loupe_scan.stylesheets import StylesheetSource
+from loupe_scan.urls import url_problem
 
 # The README section on the Bright Data backend, for sites that turn loupe away.
 BRIGHT_DATA_SECTION: Final[str] = "sites-that-block-bots-and-scanning-at-scale"
@@ -344,7 +345,12 @@ class ScanSession:
         self._resources.close()
 
     def scan(self, url: str) -> PageReport:
-        """Scan url. A page that can't be scanned comes back with html_error and failure set."""
+        """Scan url. A page that can't be scanned comes back with html_error and failure set, as does a URL that
+        isn't one loupe can fetch, before any request."""
+        problem = url_problem(url)
+        if problem is not None:
+            mode = ScanMode.RENDERED if self.settings.render else ScanMode.STATIC
+            return PageReport(url=url, backend=self.backend, mode=mode, html_error=problem, failure=FailureKind.FETCH)
         if self.settings.render:
             if self._renderer is None:
                 raise RuntimeError("a rendering session scans pages only inside its with block")

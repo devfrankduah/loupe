@@ -17,7 +17,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Literal
-from urllib.parse import urlsplit
 
 from loupe_scan.backend import Backend
 from loupe_scan.report import (
@@ -34,6 +33,7 @@ from loupe_scan.render import open_renderer
 from loupe_scan.scan import Kind, ScanMode
 from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scan_supplied_html, scrub_strings
 from loupe_scan.stylesheets import StylesheetCheck
+from loupe_scan.urls import url_problem
 
 BackendName = Literal["local", "brightdata"]
 FailOnName = Literal["instructions", "hidden", "never"]
@@ -246,9 +246,6 @@ def scan_html(html: str, url: str, *, render: bool = False, markdown: bool = Tru
 
 
 def _require_web_url(url: str) -> None:
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        raise ValueError(f"not a valid URL: {url!r}") from None
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ValueError(f"url must be an http(s) URL with a host, not {url!r}")
+    problem = url_problem(url)
+    if problem is not None:
+        raise ValueError(problem)

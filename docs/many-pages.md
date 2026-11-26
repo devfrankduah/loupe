@@ -8,7 +8,7 @@ loupe --urls-file urls.txt
 some-crawler | loupe --urls-file -
 ```
 
-A URLs file has one URL per line. Blank lines and lines starting with `#` are skipped, and `-` reads the list from standard input. URLs given on the command line come first, then the file's. Each URL is scanned once, in the order given; repeats are left out, with a note on stderr saying how many.
+A URLs file has one URL per line, and a line holding two is refused as an invalid URL, since a URL can't have a space in it. Blank lines and lines starting with `#` are skipped, and `-` reads the list from standard input. URLs given on the command line come first, then the file's. Each URL is scanned once, in the order given; repeats are left out, with a note on stderr saying how many.
 
 After the last page, loupe prints a summary table:
 

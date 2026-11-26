@@ -30,6 +30,7 @@ from loupe_scan.scan import FALLBACK_CONTENT_TAGS, SVG_LABEL_TAGS, Kind  # noqa:
 from loupe_scan.scan import scan_html as markup_findings  # noqa: E402
 from loupe_scan.mcp_server import Mode, PageScanner, ScanChoice, ServerSettings, build_server  # noqa: E402
 from loupe_scan.survival import MarkdownIndex, normalize_words  # noqa: E402
+from loupe_scan.urls import url_problem  # noqa: E402
 
 from .conftest import FIXTURES  # noqa: E402
 from .fakes import FakeSession, make_response  # noqa: E402
@@ -356,9 +357,12 @@ def test_pages_on_private_addresses_are_refused_unless_the_server_allows_them(ro
     assert robots_site.requested() == []
 
 
-@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://example.com/", "bakery", "http://[::1"])
+@pytest.mark.parametrize(
+    "url", ["file:///etc/passwd", "ftp://example.com/", "bakery", "http://[::1", "https://bakery.example https://cafe.example/"]
+)
 def test_only_web_addresses_are_fetched(url: str) -> None:
-    assert _error(_call(_scanner(), "fetch_page", {"url": url})) == "url must be an http:// or https:// URL"
+    for tool in ("fetch_page", "scan_page"):
+        assert _error(_call(_scanner(), tool, {"url": url}), tool) == url_problem(url)
 
 
 def test_calls_that_arrive_together_are_answered_one_page_at_a_time() -> None:

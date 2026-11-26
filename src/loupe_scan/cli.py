@@ -9,7 +9,6 @@ import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from loupe_scan._version import __version__
 from loupe_scan.backend import Backend
@@ -30,6 +29,7 @@ from loupe_scan.report import (
 )
 from loupe_scan.session import ScanSession, ScanSettings, endpoint_redactor, scan_supplied_html, scrub_strings
 from loupe_scan.site import PageRecord, ReportFormatError, load_results, render_report_page, run_date_from_filename
+from loupe_scan.urls import url_problem
 
 
 # Every page was scanned in full and none had a finding --fail-on counts.
@@ -240,12 +240,9 @@ def _html_file_url(arguments: argparse.Namespace) -> list[str] | None:
         _note("--html-file scans one page: give the one URL its HTML came from, and no --urls-file")
         return None
     (url,) = arguments.urls
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        parts = urlsplit("")
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        _note(f"--html-file needs the http(s) URL its HTML came from, not {url!r}")
+    problem = url_problem(url)
+    if problem is not None:
+        _note(f"--html-file needs the http(s) URL its HTML came from, and {problem}")
         return None
     for given, option in ((arguments.backend is not None, "--backend"), (arguments.ignore_robots, "--ignore-robots")):
         if given:
