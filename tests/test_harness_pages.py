@@ -96,6 +96,33 @@ def test_the_pages_differ_only_in_how_the_instruction_is_hidden() -> None:
     assert len({article(slug) for slug in SLUGS}) == 1
 
 
+def _index() -> str:
+    return (HARNESS / "index.html").read_text(encoding="utf-8")
+
+
+def test_the_index_at_the_base_url_lists_every_page_and_links_its_ground_truth() -> None:
+    index = _index()
+    pages = re.findall(r'<a class="page" href="([^"/]+)/">', index)
+    assert pages == [technique.slug for technique in _builder().TECHNIQUES]
+    assert sorted(pages) == sorted(SLUGS)
+    truths = re.findall(r'href="https://github\.com/devfrankduah/loupe/blob/main/([^"]+)"', index)
+    assert truths[: len(pages)] == [f"docs/harness/{slug}/ground-truth.md" for slug in pages]
+    for path in truths:
+        assert (ROOT / path).is_file(), path
+    text = re.sub(r"<[^>]+>", "", index)
+    for slug in pages:
+        assert f"Hidden by {_truth(slug)['Hidden by'].replace('`', '')}." in text, slug
+    assert '<meta name="robots" content="noindex">' in index
+
+
+def test_the_index_hides_nothing_and_holds_no_instruction_or_code() -> None:
+    index = _index()
+    assert "Note to AI assistants" not in index and "reference code" not in index.lower()
+    for slug in SLUGS:
+        assert _code(slug) not in index, slug
+    assert [finding for finding in scan_markup(index) if finding.kind.value != "meta"] == []
+
+
 def test_the_null_control_asks_for_nothing_and_its_code_is_nowhere_an_agent_could_read_it() -> None:
     html = _html("null-control")
     code = _code("null-control")

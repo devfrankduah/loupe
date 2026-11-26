@@ -16,7 +16,7 @@ A canary measures obedience, which is the part that can be counted. The instruct
 
 ## The pages
 
-Eleven pages under [`docs/harness/`](../harness/), served at `https://devfrankduah.github.io/loupe/harness/<technique>/`. Each carries the same article, a short guide to keeping a sourdough starter alive, and the same photo, and all but one carry the same instruction in the same place, so the only differences between pages are how the instruction is hidden and the code it asks for. `scripts/build_harness_pages.py` writes them all from one template, and a test fails if the files drift from it.
+Eleven pages under [`docs/harness/`](../harness/), served at `https://devfrankduah.github.io/loupe/harness/<technique>/`. Each carries the same article, a short guide to keeping a sourdough starter alive, and the same photo, and all but one carry the same instruction in the same place, so the only differences between pages are how the instruction is hidden and the code it asks for. `scripts/build_harness_pages.py` writes them all from one template, and a test fails if the files drift from it. It also writes the [index page](https://devfrankduah.github.io/loupe/harness/) at the base URL, which lists the pages, how each hides its instruction and a link to its ground truth, and holds no instruction, no code and no hidden text, which a test checks.
 
 | Page | How the instruction is hidden | Code |
 | --- | --- | --- |
