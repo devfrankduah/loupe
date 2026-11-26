@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: If you use loupe in your work, please cite it as below.
 type: software
 title: loupe
-abstract: Scans web pages for hidden text that reaches AI agents, using Bright Data's Browser API and Playwright.
+abstract: Finds text on web pages that people can't see but AI agents read, and whether it reaches the markdown agents are given. It runs locally, in a browser or from the markup alone, with Bright Data as an option for sites that block bots.
 authors:
   - given-names: Frank
     family-names: Duah

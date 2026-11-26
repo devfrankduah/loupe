@@ -1,6 +1,6 @@
 # Releasing
 
-loupe is published to PyPI as `loupe-scan` by [`.github/workflows/release.yml`](../.github/workflows/release.yml), and only when a GitHub release is published. The workflow uses PyPI's [trusted publishing](https://docs.pypi.org/trusted-publishers/): PyPI trusts that one workflow, running in this repository's `pypi` environment, to upload the project, so no API token is ever created or stored. It builds the sdist and the wheel, checks them with `twine check --strict`, refuses a release whose tag isn't `v` followed by the package's version, and uploads them.
+loupe is published to PyPI as `loupe-scan` by [`.github/workflows/release.yml`](../.github/workflows/release.yml), and only when a GitHub release is published. The workflow uses PyPI's [trusted publishing](https://docs.pypi.org/trusted-publishers/): PyPI trusts that one workflow, running in this repository's `pypi` environment, to upload the project, so no API token is ever created or stored. It first refuses a release whose tag isn't `v` followed by the package's version, then builds the sdist and the wheel, checks them with `twine check --strict`, and, in a separate job that alone can ask for the upload token, uploads them.
 
 ## One-time setup
 
@@ -30,10 +30,10 @@ There's no token or secret to add anywhere.
 ## Each release
 
 1. Make sure `main` is green and that `src/loupe_scan/_version.py` holds the version to release.
-2. In `CHANGELOG.md`, replace "(unreleased)" after the version with the date, and check that `CITATION.cff` has the same version.
+2. In `CHANGELOG.md`, replace "(unreleased)" after the version with the date, and check that `CITATION.cff` has the same version and an abstract that still describes loupe. Commit and push, and wait for the tests to pass.
 3. On GitHub, draft a release with a new tag, `v` followed by the version, such as `v0.2.0`, on `main`, and publish it. A pre-release publishes too, so use one only for a version PyPI should treat as a pre-release, such as `0.3.0rc1`.
 4. The Release workflow runs. If the `pypi` environment has a required reviewer, approve the publish job when it asks.
 5. Check the project at [pypi.org/project/loupe-scan](https://pypi.org/project/loupe-scan/), and install it from PyPI in a fresh virtual environment to try it.
-6. Only then switch the install instructions to PyPI and remove the test that blocks them until the package is there.
+6. Only then switch the install instructions to PyPI: the README's quickstart and its note that loupe isn't on PyPI yet, `docs/mcp.md`, `docs/python.md`'s pointer to the README, and the hints loupe prints itself, `PLAYWRIGHT_INSTALL_HINT` in `src/loupe_scan/render.py` and `MCP_INSTALL_HINT` in `src/loupe_scan/cli.py`. Then remove `test_no_file_tells_people_to_install_loupe_scan_from_pypi_before_it_is_published` from `tests/test_install_instructions.py`, which fails on any instruction to install `loupe-scan` from PyPI until then. Keep the test beside it, which stops anyone being told to install `loupe` from PyPI, since that name belongs to an unrelated package. The GitHub Action installs from the ref a workflow names, so it needs no change.
 
 PyPA's guide to this kind of workflow is [Publishing package distribution releases using GitHub Actions](https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/), and [Using a Trusted Publisher](https://docs.pypi.org/trusted-publishers/using-a-publisher/) covers the workflow side.
