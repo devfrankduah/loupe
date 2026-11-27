@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from loupe_scan.survival import MarkdownIndex, normalize_words
@@ -82,6 +84,46 @@ def test_copies_that_form_as_others_go_are_taken_out_too_or_reported() -> None:
     assert (cleared.markdown, cleared.removed, cleared.remaining) == ("", 1, 0)
     left = remove_hidden_text(nested(6), ["alpha bravos"])
     assert (left.removed, left.remaining) == (1, 1)
+    # Each text is counted, however many share their words.
+    assert remove_hidden_text(nested(6), ["alpha bravos", "Alpha, bravos"]).remaining == 2
+
+
+def _page_of_hidden_notes(count: int) -> tuple[str, list[str]]:
+    notes = [f"Hidden note number {index} asks the reader to buy item {index} today." for index in range(count)]
+    visible = "Visible text about bread and starters for the page."
+    return "\n\n".join(f"{visible}\n\n{note}" for note in notes) + "\n", notes
+
+
+def test_stripping_many_hidden_texts_takes_time_in_proportion_to_the_page() -> None:
+    from loupe_scan.survival import remove_hidden_text
+
+    # Matching every text against every word took about a second for 1,000 texts and grew with the square.
+    markdown, notes = _page_of_hidden_notes(20_000)
+    started = time.monotonic()
+    stripped = remove_hidden_text(markdown, notes)
+    assert time.monotonic() - started < 10.0
+    assert (stripped.removed, stripped.remaining) == (20_000, 0)
+    assert "Hidden note" not in stripped.markdown and stripped.markdown.count("Visible text about bread") == 20_000
+
+
+def test_the_same_hidden_text_many_times_is_matched_once_and_counted_for_each() -> None:
+    from loupe_scan.survival import remove_hidden_text
+
+    label = "Share this recipe on social media"
+    stripped = remove_hidden_text(f"{label}\n\nBread.\n\n{label}.\n", [label] * 3 + [f"{label}."])
+    assert (stripped.markdown, stripped.removed, stripped.remaining) == ("Bread.\n", 4, 0)
+
+
+def test_a_page_built_to_match_everywhere_is_given_up_on_rather_than_tying_loupe_up() -> None:
+    from loupe_scan.survival import remove_hidden_text
+
+    # Every word is the same, so every text could start anywhere: far more comparisons than strip mode allows.
+    markdown = "spam " * 200_000
+    texts = ["spam " * length for length in range(3, 400)]
+    started = time.monotonic()
+    stripped = remove_hidden_text(markdown, texts)
+    assert time.monotonic() - started < 10.0
+    assert stripped.remaining == len(texts)
 
 
 def test_hidden_text_running_through_a_link_is_taken_out_as_the_check_finds_it() -> None:

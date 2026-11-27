@@ -52,6 +52,12 @@ class MarkdownIndex:
 # into a new copy, so the check runs again. Past this many rounds the
 # markdown is given up on.
 _MAX_REMOVAL_ROUNDS: Final[int] = 5
+# Each text is looked for only where its rarest word is, so an ordinary page
+# costs about one pass over its words. A page built so every text could start
+# anywhere, the same word over and over, would still cost texts times words;
+# past this many word comparisons in all, the markdown is given up on, as when
+# copies keep forming, rather than holding loupe mcp for hours.
+_MAX_WORD_COMPARISONS: Final[int] = 50_000_000
 _EXTRA_BLANK_LINES: Final[re.Pattern[str]] = re.compile(r"\n{3,}")
 _TRAILING_SPACE: Final[re.Pattern[str]] = re.compile(r"[ \t]+$", re.MULTILINE)
 # Left where text was taken out, so the markdown it emptied can be tidied
@@ -113,13 +119,55 @@ def _surrounding_punctuation(text: str) -> tuple[str, str]:
     return text[: words[0].start()].strip(), text[words[-1].end() :].strip()
 
 
-def _copies(words: list[tuple[str, int, int]], needle: list[str]) -> list[tuple[int, int]]:
-    """Where each copy of needle's word sequence starts and ends among words, as character offsets."""
-    copies: list[tuple[int, int]] = []
+class _TooMuchWork(Exception):
+    """Looking for the texts would take more than _MAX_WORD_COMPARISONS."""
+
+
+class _Budget:
+    def __init__(self, comparisons: int) -> None:
+        self.left = comparisons
+
+    def spend(self, comparisons: int) -> None:
+        self.left -= comparisons
+        if self.left < 0:
+            raise _TooMuchWork
+
+
+@dataclass(frozen=True)
+class _Words:
+    """The markdown's comparable words, their text alone, and where each word occurs, made once a round."""
+
+    spans: list[tuple[str, int, int]]
+    tokens: list[str]
+    places: dict[str, list[int]]
+
+    @classmethod
+    def of(cls, markdown: str) -> _Words:
+        spans = _comparable_words(markdown)
+        tokens = [word for word, _, _ in spans]
+        places: dict[str, list[int]] = {}
+        for index, word in enumerate(tokens):
+            places.setdefault(word, []).append(index)
+        return cls(spans, tokens, places)
+
+
+def _copies(words: _Words, needle: list[str], budget: _Budget) -> list[tuple[int, int]]:
+    """Where each copy of needle's word sequence starts and ends among words, as character offsets, in order.
+
+    Only the places its rarest word occurs are tried. Raises _TooMuchWork when budget runs out.
+    """
     size = len(needle)
-    for index in range(len(words) - size + 1):
-        if words[index][0] == needle[0] and [word for word, _, _ in words[index : index + size]] == needle:
-            copies.append((words[index][1], words[index + size - 1][2]))
+    budget.spend(size)
+    offset, places = min(
+        ((index, words.places.get(word, [])) for index, word in enumerate(needle)), key=lambda item: len(item[1])
+    )
+    budget.spend(len(places) * size)
+    copies: list[tuple[int, int]] = []
+    for place in places:
+        # A start before the first word slices fewer than size words, so it can't match.
+        start = place - offset
+        if words.tokens[start : start + size] == needle:
+            copies.append((words.spans[start][1], words.spans[start + size - 1][2]))
     return copies
 
 
@@ -131,20 +179,43 @@ def remove_hidden_text(markdown: str, texts: list[str]) -> Stripped:
     punctuation the text itself has around its words, where the markdown has
     it too. Every copy goes, including one the page also shows, since there's
     no telling them apart.
+
+    A page that would take more than _MAX_WORD_COMPARISONS to search comes
+    back with every text counted as remaining, so the markdown isn't used.
     """
     ends_with_newline = markdown.endswith("\n")
-    needles: list[tuple[list[str], tuple[str, str]]] = []
-    for text in texts:
-        sequence = normalize_words(text).split()
+    # Texts with the same words and punctuation are looked for once, and each is counted.
+    numbers_by_needle: dict[tuple[tuple[str, ...], tuple[str, str]], list[int]] = {}
+    for number, text in enumerate(texts):
+        sequence = tuple(normalize_words(text).split())
         if sequence:
-            needles.append((sequence, _surrounding_punctuation(text)))
+            numbers_by_needle.setdefault((sequence, _surrounding_punctuation(text)), []).append(number)
+    needles = [(list(sequence), punctuation, numbers) for (sequence, punctuation), numbers in numbers_by_needle.items()]
+    budget = _Budget(_MAX_WORD_COMPARISONS)
     removed: set[int] = set()
+    try:
+        markdown, remaining = _remove_copies(markdown, needles, removed, budget)
+    except _TooMuchWork:
+        return Stripped(markdown=markdown, removed=len(removed), remaining=sum(len(numbers) for _, _, numbers in needles))
+    tidied = _EXTRA_BLANK_LINES.sub("\n\n", _TRAILING_SPACE.sub("", _tidy_cuts(markdown))).strip("\n")
+    if tidied and ends_with_newline:
+        tidied += "\n"
+    return Stripped(markdown=tidied, removed=len(removed), remaining=remaining)
+
+
+def _remove_copies(
+    markdown: str, needles: list[tuple[list[str], tuple[str, str], list[int]]], removed: set[int], budget: _Budget
+) -> tuple[str, int]:
+    """markdown with the needles' copies cut out, round by round, and how many texts could still be found.
+
+    Adds the number of each text with a copy taken out to removed. Raises _TooMuchWork when budget runs out.
+    """
     for _ in range(_MAX_REMOVAL_ROUNDS):
-        words = _comparable_words(markdown)
+        words = _Words.of(markdown)
         spans: list[tuple[int, int]] = []
-        for number, (needle, (before, after)) in enumerate(needles):
-            for start, end in _copies(words, needle):
-                removed.add(number)
+        for needle, (before, after), numbers in needles:
+            for start, end in _copies(words, needle, budget):
+                removed.update(numbers)
                 if before and markdown[max(0, start - len(before)) : start] == before:
                     start -= len(before)
                 if after and markdown[end : end + len(after)] == after:
@@ -161,12 +232,8 @@ def remove_hidden_text(markdown: str, texts: list[str]) -> Stripped:
             position = max(position, end)
         pieces.append(markdown[position:])
         markdown = "".join(pieces)
-    words = _comparable_words(markdown)
-    remaining = sum(bool(_copies(words, needle)) for needle, _ in needles)
-    tidied = _EXTRA_BLANK_LINES.sub("\n\n", _TRAILING_SPACE.sub("", _tidy_cuts(markdown))).strip("\n")
-    if tidied and ends_with_newline:
-        tidied += "\n"
-    return Stripped(markdown=tidied, removed=len(removed), remaining=remaining)
+    words = _Words.of(markdown)
+    return markdown, sum(len(numbers) for needle, _, numbers in needles if _copies(words, needle, budget))
 
 
 def _tidy_line(line: str) -> str | None:
