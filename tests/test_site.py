@@ -224,6 +224,17 @@ def test_report_command_rejects_a_bad_results_file(tmp_path: Path, capsys: pytes
     assert not (tmp_path / "out.html").exists()
 
 
+def test_report_command_says_a_results_file_that_isnt_utf8_cant_be_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    results_path = tmp_path / "latin1.json"
+    # A raw é in Latin-1 is a byte UTF-8 can't decode.
+    results_path.write_bytes(_results(_page("https://cafe.example/", [])).replace("cafe", "caf\u00e9").encode("latin-1"))
+    assert cli.main(["report", str(results_path), "-o", str(tmp_path / "out.html")]) == cli.EXIT_USAGE
+    assert capsys.readouterr().err == f"loupe report: could not read {results_path}: it isn't UTF-8 text\n"
+    assert not (tmp_path / "out.html").exists()
+
+
 def _example_html(page_html: str) -> str:
     start = page_html.index('<section class="example"')
     return page_html[start : page_html.index("</section>", start)]

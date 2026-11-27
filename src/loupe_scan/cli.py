@@ -181,6 +181,9 @@ def report_main(argv: Sequence[str]) -> int:
         except OSError as error:
             print(f"loupe report: could not read {results_path}: {error.strerror}", file=sys.stderr)
             return EXIT_USAGE
+        except UnicodeDecodeError:
+            print(f"loupe report: could not read {results_path}: it isn't UTF-8 text", file=sys.stderr)
+            return EXIT_USAGE
         except ReportFormatError as error:
             print(f"loupe report: {results_path}: {error}", file=sys.stderr)
             return EXIT_USAGE
