@@ -273,7 +273,7 @@ pip install -e ".[test,render,mcp]"
 pytest
 ```
 
-The browser tests are skipped when Playwright or its Chromium isn't installed, and the MCP server's tests when the `mcp` extra isn't. CI also runs the GitHub Action against the test pages, served inside the job.
+The browser tests are skipped when Playwright or its Chromium isn't installed, and the MCP server's tests when the `mcp` extra isn't. CI runs every test on Python 3.10 and 3.13 and fails if one fails or is skipped, and it also runs the GitHub Action against the test pages, served inside the job.
 
 ## Contributing, security and license
 
