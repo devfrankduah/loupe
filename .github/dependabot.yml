@@ -7,6 +7,11 @@ updates:
     # pyproject.toml sets minimum versions only, so this opens a pull request
     # only when a new release falls outside them.
     versioning-strategy: increase-if-necessary
+  # The GitHub Action's locks, pinned with hashes. CONTRIBUTING.md has the commands that compile them again.
+  - package-ecosystem: pip
+    directory: /.github
+    schedule:
+      interval: monthly
   - package-ecosystem: github-actions
     directory: /
     schedule:

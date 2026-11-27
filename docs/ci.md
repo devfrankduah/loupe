@@ -86,7 +86,7 @@ loupe never prints or saves the token, and never prints any part of a Browser AP
 ## What the action does
 
 1. Checks the inputs, and stops with an error for a value it doesn't accept.
-2. Sets up Python 3.13 without changing the job's own Python or `PATH`, and installs loupe into its own virtual environment from the action's checkout, so it's the ref the workflow names. With `render: true` it also installs Chromium.
+2. Sets up Python 3.13 without changing the job's own Python or `PATH`, and installs loupe into its own virtual environment from the action's checkout, so it's the ref the workflow names. loupe's dependencies, and the setuptools that builds it, come only from the locks in the action's `.github/` folder, pinned to exact versions and checked by hash, so a new release of one of them reaches your workflow only when this repository updates its lock. With `render: true` it also installs Playwright, from its own lock, and Chromium.
 3. Runs `loupe --urls-file` on the URLs with `--json-output`, printing the usual report and summary table to the log. Text quoted from the pages can't act as a workflow command, because the runner stops reading commands while loupe runs. The job summary gets a table of each page's result and counts, and the exit code, with nothing quoted from the pages.
 4. Uploads the results file as the artifact, even when the scan failed the step.
 

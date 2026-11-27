@@ -72,7 +72,9 @@ runs:
         # Leaves the job's own Python and PATH as they were.
         update-environment: false
 
-    # From this action's own checkout, so it's the same ref the workflow asked for.
+    # From this action's own checkout, so it's the same ref the workflow asked for. Its dependencies, and the
+    # setuptools that builds it, come only from the locks beside it, pinned and checked by hash, so a new release
+    # of any of them reaches a workflow only when this repository updates a lock.
     - name: Install loupe
       shell: bash
       env:
@@ -82,9 +84,10 @@ runs:
         set -euo pipefail
         venv="$RUNNER_TEMP/loupe-venv"
         "$LOUPE_PYTHON" -m venv "$venv"
-        extras=""
-        if [ "$LOUPE_RENDER" = true ]; then extras="[render]"; fi
-        "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "$GITHUB_ACTION_PATH$extras"
+        lock="$GITHUB_ACTION_PATH/.github/action-requirements.txt"
+        if [ "$LOUPE_RENDER" = true ]; then lock="$GITHUB_ACTION_PATH/.github/action-render-requirements.txt"; fi
+        "$venv/bin/python" -m pip install --quiet --disable-pip-version-check --require-hashes --only-binary :all: -r "$lock"
+        "$venv/bin/python" -m pip install --quiet --disable-pip-version-check --no-deps --no-build-isolation "$GITHUB_ACTION_PATH"
         if [ "$LOUPE_RENDER" = true ]; then
           "$venv/bin/python" -m playwright install --with-deps chromium
         fi

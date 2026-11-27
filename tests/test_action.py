@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 ROOT = Path(__file__).parent.parent
 ACTION = ROOT / "action.yml"
@@ -112,3 +115,67 @@ def test_the_check_ci_runs_on_the_actions_results_passes_on_results_made_here(tm
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "The action's results match the test pages.\n"
+
+
+# What the action installs
+
+LOCKS = ROOT / ".github"
+CORE_LOCK = LOCKS / "action-requirements.txt"
+RENDER_LOCK = LOCKS / "action-render-requirements.txt"
+
+
+def _pins(lock: Path) -> dict[str, tuple[str, int]]:
+    """Each package a lock pins, by its normalized name: its version and how many hashes it carries."""
+    pins: dict[str, tuple[str, int]] = {}
+    name = ""
+    for line in lock.read_text(encoding="utf-8").splitlines():
+        if match := re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==(\S+)", line):
+            name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+            pins[name] = (match.group(2), 0)
+        elif line.strip().startswith("--hash=sha256:") and name:
+            version, hashes = pins[name]
+            pins[name] = (version, hashes + 1)
+    return pins
+
+
+def _requirements(names: list[str]) -> list[tuple[str, str]]:
+    """(normalized name, specifier) for each requirement string."""
+    from packaging.requirements import Requirement
+
+    parsed = [Requirement(text) for text in names]
+    return [(re.sub(r"[-_.]+", "-", requirement.name).lower(), str(requirement.specifier)) for requirement in parsed]
+
+
+def _pyproject() -> dict[str, Any]:
+    # tomllib arrived in Python 3.11; CI's 3.13 job checks the locks.
+    tomllib = pytest.importorskip("tomllib")
+    project: dict[str, Any] = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return project
+
+
+def test_the_action_installs_only_what_a_lock_pins_by_hash() -> None:
+    (install,) = [script for script in _run_scripts(ACTION.read_text(encoding="utf-8")) if "pip install" in script]
+    commands = [line.strip() for line in install.splitlines() if "pip install" in line]
+    assert commands == [
+        '"$venv/bin/python" -m pip install --quiet --disable-pip-version-check --require-hashes --only-binary :all: -r "$lock"',
+        '"$venv/bin/python" -m pip install --quiet --disable-pip-version-check --no-deps --no-build-isolation "$GITHUB_ACTION_PATH"',
+    ]
+    assert 'lock="$GITHUB_ACTION_PATH/.github/action-requirements.txt"' in install
+    assert 'lock="$GITHUB_ACTION_PATH/.github/action-render-requirements.txt"' in install
+
+
+def test_the_locks_pin_every_dependency_within_pyprojects_ranges_and_agree() -> None:
+    from packaging.specifiers import SpecifierSet
+
+    project = _pyproject()
+    core = _requirements(project["project"]["dependencies"]) + _requirements(project["build-system"]["requires"])
+    render = core + _requirements(project["project"]["optional-dependencies"]["render"])
+    for lock, wanted in ((CORE_LOCK, core), (RENDER_LOCK, render)):
+        pins = _pins(lock)
+        for name, specifier in wanted:
+            assert name in pins, (lock.name, name)
+            assert SpecifierSet(specifier).contains(pins[name][0]), (lock.name, name, pins[name][0], specifier)
+        assert all(hashes > 0 for _, hashes in pins.values()), lock.name
+    core_pins, render_pins = _pins(CORE_LOCK), _pins(RENDER_LOCK)
+    assert "playwright" not in core_pins
+    assert {name: core_pins[name] for name in core_pins} == {name: render_pins[name] for name in core_pins}

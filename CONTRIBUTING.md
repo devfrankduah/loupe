@@ -28,6 +28,15 @@ The tests run on the local backend against fixtures served from 127.0.0.1 and ne
 
 CI runs both commands on Python 3.10 and 3.13 for every push to `main` and every pull request. It installs Chromium, which adds about 15 seconds, so the rendered tests run there too, and it fails if any test is skipped. Another job runs the GitHub Action in `action.yml` against the test pages, served inside the job, in five ways: passing, failing with 1, failing with 2, with a URL built to run a shell command, and with an input it refuses. A last job checks the artifacts it uploaded. Changing `action.yml` means changing that job in `.github/workflows/tests.yml` too.
 
+The action installs loupe's dependencies only from two locks, pinned and checked by hash: `.github/action-requirements.txt`, and `.github/action-render-requirements.txt` with Playwright as well. After changing loupe's dependencies, or to take new releases of them, compile both again with [uv](https://docs.astral.sh/uv/), the second against the first so the two agree:
+
+```
+uv pip compile pyproject.toml .github/action-requirements.in --generate-hashes --universal --python-version 3.13 -o .github/action-requirements.txt
+uv pip compile pyproject.toml .github/action-requirements.in --extra render --constraint .github/action-requirements.txt --generate-hashes --universal --python-version 3.13 -o .github/action-render-requirements.txt
+```
+
+`tests/test_action.py` fails if either lock misses a dependency, pins one outside `pyproject.toml`'s range, has a package without a hash, or disagrees with the other.
+
 ## Add a fixture
 
 Fixtures are small HTML pages in `tests/fixtures/`. To add a case:

@@ -1,0 +1,4 @@
+# Besides pyproject.toml's dependencies, the GitHub Action installs the build backend from its locks, so loupe
+# itself is built from pinned, hash-checked packages too. CONTRIBUTING.md has the commands that compile
+# .github/action-requirements.txt and .github/action-render-requirements.txt from this file and pyproject.toml.
+setuptools>=77
