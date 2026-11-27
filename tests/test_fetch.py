@@ -36,7 +36,7 @@ def test_html_request_matches_scrape_as_html() -> None:
 def test_a_web_url_in_any_case_is_fetched_as_every_other_check_allows() -> None:
     session = FakeSession([make_response(200, "<p>x</p>")])
     assert _client(session).fetch_html("HTTPS://EXAMPLE.COM/") == "<p>x</p>"
-    assert session.calls[0].json["url"] == "HTTPS://EXAMPLE.COM/"
+    assert session.calls[0].json == {"url": "HTTPS://EXAMPLE.COM/", "zone": "mcp_unlocker", "format": "raw"}
 
 
 def test_html_request_uses_configured_zone() -> None:
