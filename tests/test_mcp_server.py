@@ -753,6 +753,14 @@ def test_a_redirected_page_is_rendered_where_it_ended_up_so_its_relative_stylesh
     assert "/site.css" not in requested
 
 
+def test_a_page_that_redirects_to_a_url_that_cant_be_read_is_refused_in_loupes_words() -> None:
+    with serve_routes({"/robots.txt": Route(status=404), "/broken": Route(status=302, headers={"location": "http://[x"})}) as site:
+        url = site.url("/broken")
+        assert _error(_call(_scanner(), "fetch_page", {"url": url})) == (
+            f"loupe couldn't scan {url}: the page couldn't be fetched (it redirects to an invalid URL)"
+        )
+
+
 def test_a_server_started_to_render_renders_every_page(chromium: None) -> None:
     with _pages(plain=PLAIN_PAGE) as site:
         header, body = _fetched(_scanner(scan=ScanChoice.RENDER), site.url("/plain"))

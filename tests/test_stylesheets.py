@@ -451,6 +451,13 @@ def test_a_stylesheet_that_isnt_css_failed_or_is_too_large_isnt_read(route: Rout
             fetcher.fetch_stylesheet(site.url("/a.css"))
 
 
+@pytest.mark.parametrize("href", ["//[x/site.css", "http://[x", "https://[::1/site.css"])
+def test_a_linked_stylesheet_whose_url_cant_be_read_is_counted_not_read(href: str) -> None:
+    details, check, asked = _linked(f'<link rel="stylesheet" href="{href}"><style>.note {{ display: none }}</style>', {})
+    assert (check.linked_not_read, check.linked_read, asked) == (1, 0, [])
+    assert details == ["display:none"]
+
+
 def test_a_stylesheet_redirect_must_stay_on_its_host() -> None:
     with serve_routes({"/robots.txt": Route(status=404)}) as site:
         elsewhere = site.url("/b.css").replace("127.0.0.1", "localhost")

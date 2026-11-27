@@ -248,6 +248,13 @@ class _ReadProblem(Exception):
     """Why a body couldn't be read in full, worded to follow "failed: "."""
 
 
+class _UnreadableRedirect(Exception):
+    """The site redirected to a Location that isn't a URL at all, such as one with an unclosed bracket."""
+
+
+_UNREADABLE_REDIRECT: Final[str] = "it redirects to an invalid URL"
+
+
 class GetSession(Protocol):
     """The part of requests.Session the fetcher uses, so tests can pass a fake."""
 
@@ -273,6 +280,15 @@ class _RobotsRules:
 def _origin(url: str) -> str:
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc}"
+
+
+def _redirect_target(url: str, current: str, location: str) -> str:
+    """Where a redirect from current to location leads. Raises FetchError, naming url, when it isn't a URL at all,
+    such as one with an unclosed bracket, which a site controls and urljoin can't read."""
+    try:
+        return urljoin(current, location)
+    except ValueError:
+        raise FetchError(f"Fetching {url} failed: {_UNREADABLE_REDIRECT}") from None
 
 
 def _require_http_url(url: str) -> None:
@@ -434,13 +450,15 @@ class LocalFetcher:
                 response = self._get(current, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
             except requests.RequestException as error:
                 raise FetchError(f"Fetching {url} failed: {self._network_problem(error)}") from None
+            except _UnreadableRedirect:
+                raise FetchError(f"Fetching {url} failed: {_UNREADABLE_REDIRECT}") from None
             try:
                 location = response.headers.get("location") if response.is_redirect else None
                 if location is None:
                     return FetchedHtml(self._read_page(url, response, deadline), current)
             finally:
                 response.close()
-            current = urljoin(current, location)
+            current = _redirect_target(url, current, location)
             if urlsplit(current).scheme not in ("http", "https"):
                 raise FetchError(f"Fetching {url} failed: it redirects to a non-web address")
         raise FetchError(f"Fetching {url} failed: more than {self._limits.max_redirects} redirects")
@@ -460,26 +478,36 @@ class LocalFetcher:
                 response = self._get(current, "text/css,*/*;q=0.1")
             except requests.RequestException as error:
                 raise FetchError(f"Fetching {url} failed: {self._network_problem(error)}") from None
+            except _UnreadableRedirect:
+                raise FetchError(f"Fetching {url} failed: {_UNREADABLE_REDIRECT}") from None
             try:
                 location = response.headers.get("location") if response.is_redirect else None
                 if location is None:
                     return self._read_stylesheet(url, response, deadline)
             finally:
                 response.close()
-            current = urljoin(current, location)
+            current = _redirect_target(url, current, location)
             parts = urlsplit(current)
             if parts.scheme not in ("http", "https") or parts.hostname != host:
                 raise FetchError(f"Fetching {url} failed: it redirects to another host")
         raise FetchError(f"Fetching {url} failed: more than {self._limits.max_redirects} redirects")
 
     def _get(self, url: str, accept: str) -> requests.Response:
-        return self._session.get(
-            url,
-            headers={"user-agent": USER_AGENT, "accept": accept},
-            timeout=self._timeout,
-            stream=True,
-            allow_redirects=False,
-        )
+        """The response for url, its redirects not followed. Raises requests' own errors, and _UnreadableRedirect."""
+        try:
+            return self._session.get(
+                url,
+                headers={"user-agent": USER_AGENT, "accept": accept},
+                timeout=self._timeout,
+                stream=True,
+                allow_redirects=False,
+            )
+        except requests.RequestException:
+            raise
+        except ValueError:
+            # requests reads a redirect's Location even when it isn't following it, and a Location it can't parse
+            # raises a plain ValueError, which a site chooses.
+            raise _UnreadableRedirect from None
 
     def _network_problem(self, error: requests.RequestException) -> str:
         if isinstance(error, requests.ConnectTimeout):
@@ -574,6 +602,9 @@ class LocalFetcher:
                 response = self._get(current, "text/plain,*/*;q=0.5")
             except requests.RequestException as error:
                 return _RobotsRules(unreadable_because=self._network_problem(error))
+            except _UnreadableRedirect:
+                # As RFC 9309 treats a robots.txt that redirects too often: unavailable, which allows everything.
+                return _RobotsRules()
             try:
                 status = response.status_code
                 location = response.headers.get("location") if response.is_redirect else None
@@ -588,7 +619,11 @@ class LocalFetcher:
                 return _RobotsRules(unreadable_because=str(problem))
             finally:
                 response.close()
-            current = urljoin(current, location)
+            try:
+                current = _redirect_target(current, current, location)
+            except FetchError:
+                # As RFC 9309 treats a robots.txt that redirects too often: unavailable, which allows everything.
+                return _RobotsRules()
             if urlsplit(current).scheme not in ("http", "https"):
                 return _RobotsRules()
             if self._public_only:

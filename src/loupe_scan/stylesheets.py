@@ -1595,6 +1595,15 @@ def _is_css_type(element: Tag) -> bool:
     return not kind or kind == "text/css"
 
 
+def _join(base: str, href: str) -> str | None:
+    """href resolved against base, or None when the page wrote a URL that can't be read, such as one with an unclosed
+    bracket, which a browser can't fetch either."""
+    try:
+        return urljoin(base, href)
+    except ValueError:
+        return None
+
+
 def _base_url(soup: BeautifulSoup, page_url: str) -> str:
     base = soup.find("base", href=True)
     if isinstance(base, Tag):
@@ -1703,7 +1712,7 @@ class _StyleReader:
                 continue
             if applies is False:
                 continue
-            url = urljoin(self._base, href) if self._base is not None else None
+            url = _join(self._base, href) if self._base is not None else None
             text = _fetch_once(
                 self._fetched, url, self._page_url, self._source, len(self._fetched) >= MAX_LINKED_STYLESHEETS
             )

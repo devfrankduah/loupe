@@ -16,6 +16,7 @@ from loupe_scan.local_fetch import (
     FetchLimits,
     LocalFetcher,
     RobotsDisallowedError,
+    _redirect_target,
     decode_html,
 )
 
@@ -153,6 +154,30 @@ def test_a_redirect_away_from_the_web_is_refused() -> None:
     with serve_routes({"/cake": _redirect("ftp://127.0.0.1/cake")}) as site:
         with pytest.raises(FetchError, match="non-web address"):
             LocalFetcher().fetch_html(site.url("/cake"))
+
+
+@pytest.mark.parametrize("location", ["http://[x", "//[x/cake", "https://[::1/cake"])
+def test_a_redirect_to_a_url_that_cant_be_read_is_a_fetch_error(location: str) -> None:
+    routes = {"/cake": _redirect(location), "/cake.css": _redirect(location)}
+    with serve_routes(routes) as site:
+        with pytest.raises(FetchError, match=r"failed: it redirects to an invalid URL$"):
+            LocalFetcher().fetch_html(site.url("/cake"))
+        with pytest.raises(FetchError, match=r"failed: it redirects to an invalid URL$"):
+            LocalFetcher().fetch_stylesheet(site.url("/cake.css"))
+
+
+def test_a_redirect_target_is_read_before_it_is_followed() -> None:
+    # requests rejects these first today; this keeps loupe safe if a release stops reading redirects it doesn't follow.
+    assert _redirect_target("https://a.example/b", "https://a.example/b/", "c") == "https://a.example/b/c"
+    for location in ("http://[x", "//[x/cake"):
+        with pytest.raises(FetchError, match=r"^Fetching https://a\.example/b failed: it redirects to an invalid URL$"):
+            _redirect_target("https://a.example/b", "https://a.example/b/", location)
+
+
+def test_a_robots_txt_that_redirects_to_a_url_that_cant_be_read_counts_as_missing() -> None:
+    # As RFC 9309 has a robots.txt that redirects too often treated as unavailable, which allows everything.
+    with serve_routes({"/robots.txt": _redirect("http://[x"), "/cake": html_route(PAGE)}) as site:
+        assert LocalFetcher().fetch_html(site.url("/cake")) == PAGE
 
 
 @pytest.mark.parametrize(

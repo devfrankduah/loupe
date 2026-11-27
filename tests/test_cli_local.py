@@ -49,6 +49,23 @@ def _github_anchor(heading: str) -> str:
     return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
 
 
+def test_a_malformed_url_in_a_page_fails_that_page_and_the_run_goes_on(tmp_path: Path) -> None:
+    routes = {
+        "/robots.txt": Route(status=404),
+        "/broken": Route(status=302, headers={"location": "http://[x"}),
+        "/linked": html_route('<link rel="stylesheet" href="//[x/site.css"><p>Cake</p>'),
+        "/cake": html_route("<p>Cake</p>"),
+    }
+    with serve_routes(routes) as site:
+        listed = tmp_path / "urls.txt"
+        listed.write_text("".join(f"{site.url(path)}\n" for path in ("/broken", "/linked", "/cake")), encoding="utf-8")
+        output = tmp_path / "out.json"
+        assert cli.main(["--urls-file", str(listed), "--skip-markdown", "--json-output", str(output)]) == cli.EXIT_ERROR
+    broken, linked, cake = json.loads(output.read_text(encoding="utf-8"))
+    assert broken["error"] == {"kind": "fetch", "message": f"Fetching {site.url('/broken')} failed: it redirects to an invalid URL"}
+    assert (linked["error"], linked["stylesheet_check"]["linked_not_read"], cake["error"]) == (None, 1, None)
+
+
 def test_the_bright_data_hint_links_to_a_real_readme_section() -> None:
     headings = re.findall(r"^#{1,6} (.+)$", (ROOT / "README.md").read_text(encoding="utf-8"), re.MULTILINE)
     assert session.BRIGHT_DATA_SECTION in {_github_anchor(heading) for heading in headings}

@@ -153,6 +153,7 @@ _SAFE_REASONS: Final[tuple[re.Pattern[str], ...]] = tuple(
         r"the TLS connection failed",
         r"more than \d+ redirects",
         r"it redirects to a non-web address",
+        r"it redirects to an invalid URL",
         r"the page is empty",
         r"the connection broke while reading it",
     )
