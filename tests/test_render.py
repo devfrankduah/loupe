@@ -230,9 +230,16 @@ def test_supplied_html_is_never_sent_to_a_remote_browser() -> None:
 def test_the_renderer_refuses_a_non_http_url_before_starting_a_browser() -> None:
     launcher = FakeLauncher()
     renderer = Renderer(launcher, None, RenderSettings(), RecordingRender())
-    with pytest.raises(RenderError, match="not an http"):
+    with pytest.raises(RenderError, match=r"isn't an http\(s\) URL with a host"):
         renderer.render("file:///etc/passwd")
     assert launcher.calls == []
+
+
+@pytest.mark.parametrize("url", ["HTTPS://BAKERY.EXAMPLE/", "Http://bakery.example/menu"])
+def test_the_renderer_takes_a_web_url_in_any_case_as_every_other_check_does(url: str) -> None:
+    launcher, render = FakeLauncher(), RecordingRender()
+    Renderer(launcher, None, RenderSettings(), render).render(url)
+    assert launcher.calls == [("launch", True)] and len(render.browsers) == 1
 
 
 def _scan_result(**changes: object) -> dict[str, object]:

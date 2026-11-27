@@ -22,6 +22,7 @@ import requests
 
 from loupe_scan._version import __version__
 from loupe_scan.errors import PageFetchError
+from loupe_scan.urls import url_problem
 
 TOKEN_ENVIRONMENT_VARIABLE: Final[str] = "BRIGHTDATA_API_TOKEN"
 API_BASE_URL: Final[str] = "https://api.brightdata.com"
@@ -71,8 +72,9 @@ def read_token_from_environment(environment: Mapping[str, str] = os.environ) -> 
 
 
 def _require_http_url(url: str) -> None:
-    if not url.startswith(("http://", "https://")):
-        raise BrightDataError(f"not an http(s) URL: {url!r}")
+    problem = url_problem(url)
+    if problem is not None:
+        raise BrightDataError(problem)
 
 
 def _decode_body(response: requests.Response) -> str:

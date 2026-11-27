@@ -33,6 +33,12 @@ def test_html_request_matches_scrape_as_html() -> None:
     assert call.headers["authorization"] == f"Bearer {TOKEN}"
 
 
+def test_a_web_url_in_any_case_is_fetched_as_every_other_check_allows() -> None:
+    session = FakeSession([make_response(200, "<p>x</p>")])
+    assert _client(session).fetch_html("HTTPS://EXAMPLE.COM/") == "<p>x</p>"
+    assert session.calls[0].json["url"] == "HTTPS://EXAMPLE.COM/"
+
+
 def test_html_request_uses_configured_zone() -> None:
     session = FakeSession([make_response(200, "<p>x</p>")])
     _client(session, unlocker_zone="my_zone").fetch_html("https://example.com/")
@@ -106,7 +112,7 @@ def test_client_repr_does_not_contain_the_token() -> None:
 
 def test_non_http_urls_are_rejected_before_any_request() -> None:
     session = FakeSession([])
-    with pytest.raises(BrightDataError, match="not an http"):
+    with pytest.raises(BrightDataError, match=r"isn't an http\(s\) URL with a host"):
         _client(session).fetch_html("file:///etc/passwd")
     assert session.calls == []
 

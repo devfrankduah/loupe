@@ -70,6 +70,7 @@ from loupe_scan.scan import (
     scan_html,
 )
 from loupe_scan.survival import MIN_COMPARABLE_CHARACTERS, normalize_words
+from loupe_scan.urls import url_problem
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, CDPSession, Page, Playwright, ProxySettings, Request, Route
@@ -882,8 +883,9 @@ def watch_notes(status: WatchStatus, candidates: int) -> list[str]:
 
 
 def _require_http_url(url: str) -> None:
-    if not url.startswith(("http://", "https://")):
-        raise RenderError(f"Rendering {url!r} failed: not an http(s) URL")
+    problem = url_problem(url)
+    if problem is not None:
+        raise RenderError(f"Can't render it: {problem}")
 
 
 def _seconds(milliseconds: float) -> str:
