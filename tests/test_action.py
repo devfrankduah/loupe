@@ -51,6 +51,56 @@ def test_a_workflow_step_with_a_pipe_fails_when_a_command_before_the_pipe_fails(
     assert piped > 0
 
 
+# Commands that let a script go on, or a step pass, after a command fails.
+_SWALLOWS_A_FAILURE = re.compile(r"\|\|\s*(?:true\b|:(?!\w)|exit 0\b)|\bset\s+\+e\b|;\s*true\b")
+
+
+def _workflows_and_action() -> list[tuple[str, str]]:
+    paths = [*sorted((ROOT / ".github" / "workflows").glob("*.yml")), ACTION]
+    return [(path.name, path.read_text(encoding="utf-8")) for path in paths]
+
+
+def _steps(text: str) -> list[str]:
+    """Each step of a workflow or action, in order, as its own text."""
+    return re.split(r"^\s+- (?=(?:name|uses|id|run|if|shell|env|with):)", text, flags=re.MULTILINE)[1:]
+
+
+def test_the_failure_checks_catch_what_they_are_meant_to() -> None:
+    for script in ("make || true", "set +e", "run || :", "run || exit 0", "run; true"):
+        assert _SWALLOWS_A_FAILURE.search(script), script
+    for script in ('[ -n "$x" ] || exit 1', "a || b", "code=0", "true_value=1", "git log --format=: || exit 1"):
+        assert not _SWALLOWS_A_FAILURE.search(script), script
+
+
+def test_no_script_carries_on_past_a_failure_it_doesnt_hand_on() -> None:
+    for name, text in _workflows_and_action():
+        for script in _run_scripts(text):
+            assert _SWALLOWS_A_FAILURE.search(script) is None, (name, script)
+            # An exit status kept to report has to end the script too.
+            for kept in re.findall(r"(\w+)=\$\?", script):
+                assert re.search(rf'exit "?\${kept}"?', script), (name, kept)
+
+
+def test_every_step_of_the_action_runs_in_bash_with_pipefail() -> None:
+    # A composite action's step with shell: bash runs as bash -eo pipefail.
+    steps = [step for step in _steps(ACTION.read_text(encoding="utf-8")) if re.search(r"^\s*run: ", step, re.MULTILINE)]
+    assert steps and all(re.search(r"^\s*shell: bash$", step, re.MULTILINE) for step in steps)
+
+
+def test_a_step_allowed_to_fail_has_its_outcome_checked_by_a_later_step() -> None:
+    allowed = 0
+    for name, text in _workflows_and_action():
+        steps = _steps(text)
+        for index, step in enumerate(steps):
+            if not re.search(r"^\s*continue-on-error: true$", step, re.MULTILINE):
+                continue
+            allowed += 1
+            step_id = re.search(r"^\s*id: (\S+)$", step, re.MULTILINE)
+            assert step_id is not None, (name, step)
+            assert f"steps.{step_id.group(1)}.outcome" in "".join(steps[index + 1 :]), (name, step_id.group(1))
+    assert allowed == 3
+
+
 def test_the_action_takes_the_inputs_the_docs_list() -> None:
     action = ACTION.read_text(encoding="utf-8")
     inputs = _section_keys(action, "inputs")
