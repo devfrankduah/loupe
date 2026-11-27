@@ -6,6 +6,7 @@ an agent reading the markdown gets it while a person sees none of it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -37,7 +38,11 @@ SHOWN = {"CASE-VISIBLE", "CASE-FRAME-DOCUMENT"}
 
 
 def _case(text: str) -> str:
-    return text.split()[0]
+    # Recent releases of Python's html.parser keep the tags inside an iframe as text, as browsers do, so a case's
+    # name can come after a tag.
+    match = re.search(r"CASE-[A-Z]+(?:-[A-Z]+)*", text)
+    assert match is not None, text
+    return match.group()
 
 
 def _by_case(report: PageReport) -> dict[str, tuple[Kind, str, bool | None]]:

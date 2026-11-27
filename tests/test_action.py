@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 ROOT = Path(__file__).parent.parent
 ACTION = ROOT / "action.yml"
@@ -146,11 +143,15 @@ def _requirements(names: list[str]) -> list[tuple[str, str]]:
     return [(re.sub(r"[-_.]+", "-", requirement.name).lower(), str(requirement.specifier)) for requirement in parsed]
 
 
-def _pyproject() -> dict[str, Any]:
-    # tomllib arrived in Python 3.11; CI's 3.13 job checks the locks.
-    tomllib = pytest.importorskip("tomllib")
-    project: dict[str, Any] = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    return project
+def _declared(array: str) -> list[str]:
+    """The quoted requirements in one of pyproject.toml's arrays, such as dependencies = [...].
+
+    shortcut: reads the arrays with a regular expression, not a TOML parser, since tomllib arrived in Python 3.11
+    and loupe supports 3.10; use tomllib once 3.10 is dropped.
+    """
+    match = re.search(rf"^{re.escape(array)} = \[(.*?)\]$", (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.MULTILINE | re.DOTALL)
+    assert match is not None, array
+    return re.findall(r'"([^"]+)"', re.sub(r"#.*", "", match.group(1)))
 
 
 def test_the_action_installs_only_what_a_lock_pins_by_hash() -> None:
@@ -167,9 +168,8 @@ def test_the_action_installs_only_what_a_lock_pins_by_hash() -> None:
 def test_the_locks_pin_every_dependency_within_pyprojects_ranges_and_agree() -> None:
     from packaging.specifiers import SpecifierSet
 
-    project = _pyproject()
-    core = _requirements(project["project"]["dependencies"]) + _requirements(project["build-system"]["requires"])
-    render = core + _requirements(project["project"]["optional-dependencies"]["render"])
+    core = _requirements(_declared("dependencies")) + _requirements(_declared("requires"))
+    render = core + _requirements(_declared("render"))
     for lock, wanted in ((CORE_LOCK, core), (RENDER_LOCK, render)):
         pins = _pins(lock)
         for name, specifier in wanted:

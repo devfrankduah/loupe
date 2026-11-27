@@ -41,7 +41,14 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated, Final, TypedDict
+from typing import Annotated, Final
+
+if sys.version_info >= (3, 12):
+    from typing import TypedDict
+else:
+    # The SDK builds scan_page's output schema with pydantic, which takes only typing_extensions' TypedDict before
+    # Python 3.12, and requires typing_extensions itself, so it's always installed with the SDK.
+    from typing_extensions import TypedDict
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
