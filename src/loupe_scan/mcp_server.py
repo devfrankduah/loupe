@@ -493,7 +493,7 @@ class PageScanner:
         if not signals:
             return FetchedPage(report, None, ScanDecision(False, "auto, markup only, as nothing on the page needs a browser"))
         try:
-            rendered = self._rendered(html, url, address)
+            rendered = self._rendered(html, url, address, made_markdown=report.markdown)
         except SetupError:
             return FetchedPage(report, None, _auto_without_browser(signals, "Chromium isn't available here"))
         if rendered.html_error is not None:
@@ -512,7 +512,7 @@ class PageScanner:
             address=address,
         )
 
-    def _rendered(self, html: str, url: str, address: str) -> PageReport:
+    def _rendered(self, html: str, url: str, address: str, *, made_markdown: str | None = None) -> PageReport:
         """The page rendered in Chromium at address, where its redirects ended, so its relative links resolve as they
         did for the fetch. Raises SetupError when Playwright or Chromium is missing."""
         # Chromium fetches the page's stylesheets, scripts and frames itself, so it's held to the same addresses.
@@ -526,6 +526,7 @@ class PageScanner:
                 supplied=False,
                 keep_markdown=True,
                 address=address,
+                made_markdown=made_markdown,
             )
 
 

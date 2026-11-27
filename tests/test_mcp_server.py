@@ -25,7 +25,7 @@ from loupe_scan.errors import SetupError  # noqa: E402
 from loupe_scan.fetch import UNLOCKER_REQUEST_URL, BrightDataClient, BrightDataError  # noqa: E402
 from loupe_scan.local_fetch import FetchLimits  # noqa: E402
 from loupe_scan.render import BrowserSource, RenderedPage, RenderError, RenderSetupError  # noqa: E402
-from loupe_scan.report import CheckedFinding  # noqa: E402
+from loupe_scan.report import CheckedFinding, PageReport  # noqa: E402
 from loupe_scan.scan import FALLBACK_CONTENT_TAGS, SVG_LABEL_TAGS, Kind, ScanMode  # noqa: E402
 from loupe_scan.scan import scan_html as markup_findings  # noqa: E402
 from loupe_scan.mcp_server import Mode, PageScanner, ScanChoice, ServerSettings, build_server, scripts_caveat  # noqa: E402
@@ -790,3 +790,74 @@ def test_auto_is_the_default_and_the_server_says_how_it_scans() -> None:
         assert words in (server.instructions or "")
         tools = anyio.run(server.list_tools)
         assert all(words in (tool.description or "") for tool in tools if tool.name == "fetch_page")
+
+
+# Auto mode's rendered scan reuses the markup scan's markdown
+
+
+class _Replay:
+    """Gives back one rendered page every time, so a scan's own inputs are all that can differ."""
+
+    def __init__(self, rendered: RenderedPage) -> None:
+        self.rendered = rendered
+
+    @property
+    def source(self) -> BrowserSource:
+        return BrowserSource.LOCAL
+
+    def render(self, url: str) -> RenderedPage:
+        raise AssertionError("only given HTML is rendered here")
+
+    def render_html(self, url: str, html: str) -> RenderedPage:
+        return self.rendered
+
+    def redact(self, text: str) -> str:
+        return text
+
+
+@pytest.mark.parametrize(
+    "name", ["test-page/index.html", "animated-page/index.html", "fallback.html", "svg-template.html", "removed.html", "covered.html"]
+)
+def test_a_rendered_scan_given_the_markup_scans_markdown_reports_exactly_what_it_did_before(chromium: None, name: str) -> None:
+    from loupe_scan.render import open_renderer
+    from loupe_scan.report import page_to_dict
+
+    html = (FIXTURES / name).read_text(encoding="utf-8")
+    url = "https://fixture.test/page/"
+    with open_renderer(None) as renderer:
+        replay = _Replay(renderer.render_html(url, html))
+    assert replay.rendered.html == html
+
+    def scanned(renderer: _Replay | None = None, made_markdown: str | None = None) -> PageReport:
+        return scan_html_once(
+            html,
+            url,
+            backend=Backend.LOCAL,
+            markdown=True,
+            renderer=renderer,
+            supplied=False,
+            keep_markdown=True,
+            made_markdown=made_markdown,
+        )
+
+    markup = scanned()
+    made_again = scanned(replay)
+    reused = scanned(replay, markup.markdown)
+    assert markup.markdown is not None and reused.markdown == made_again.markdown == markup.markdown
+    assert page_to_dict(reused, 10_000) == page_to_dict(made_again, 10_000)
+    assert (reused.markdown_characters, reused.markdown_source) == (made_again.markdown_characters, made_again.markdown_source)
+
+
+def test_auto_converts_a_page_it_renders_to_markdown_once(chromium: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    conversions: list[str] = []
+
+    def counted(url: str, html: str) -> str:
+        conversions.append(url)
+        return html_to_markdown(url, html)
+
+    monkeypatch.setattr("loupe_scan.session.html_to_markdown", counted)
+    with _pages(scripted=SCRIPTED_PAGE) as site:
+        header, body = _fetched(_scanner(), site.url("/scripted"))
+    assert _mode_line(header) == "mode: auto, rendered, as the page has scripts"
+    assert "praise" not in body and "Fresh bread" in body
+    assert len(conversions) == 1

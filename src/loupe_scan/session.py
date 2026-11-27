@@ -68,12 +68,13 @@ def local_markdown() -> MarkdownMaker:
 
 
 def _markdown_for(
-    maker: MarkdownMaker | None, url: str, html: str, page: PageReport, *, keep: bool = False
+    maker: MarkdownMaker | None, url: str, html: str, page: PageReport, *, keep: bool = False, made: str | None = None
 ) -> str | None:
+    """maker's markdown for html, recorded on page, or made, when maker already made it from this same html."""
     if maker is None:
         return None
     try:
-        markdown = maker.make(url, html)
+        markdown = maker.make(url, html) if made is None else made
     except PageFetchError as error:
         page.markdown_error = str(error)
         return None
@@ -136,11 +137,16 @@ def scan_page(
 
 
 def _check_rendered(
-    page: PageReport, rendered: RenderedPage, markdown: MarkdownMaker | None, *, keep_markdown: bool = False
+    page: PageReport,
+    rendered: RenderedPage,
+    markdown: MarkdownMaker | None,
+    *,
+    keep_markdown: bool = False,
+    made_markdown: str | None = None,
 ) -> PageReport:
     page.html_characters = len(rendered.html)
     page.rendered = rendered
-    markdown_text = _markdown_for(markdown, page.url, rendered.html, page, keep=keep_markdown)
+    markdown_text = _markdown_for(markdown, page.url, rendered.html, page, keep=keep_markdown, made=made_markdown)
     browser_findings = rendered_findings(rendered)
     # When a given page tried to navigate, the browser may not have read all
     # of its HTML, so the markup checks' guesses stay, except where the
@@ -208,6 +214,7 @@ def scan_html_once(
     keep_markdown: bool = False,
     stylesheets: StylesheetSource | None = None,
     address: str | None = None,
+    made_markdown: str | None = None,
 ) -> PageReport:
     """Scan html as the page at url without fetching url, whoever fetched the HTML.
 
@@ -221,6 +228,11 @@ def scan_html_once(
     them, from address's host. The report names url either way. backend
     records where the HTML came from, and supplied whether the caller gave
     it to loupe.
+
+    made_markdown is markdown already made from this html, as a markup scan
+    of it makes, which a rendered scan uses rather than convert the page
+    again: the browser is given html, and its result's html is that same
+    string.
     """
     maker = local_markdown() if markdown else None
     if renderer is None:
@@ -237,7 +249,7 @@ def scan_html_once(
     except RenderError as error:
         record_failure(page, error, otherwise=FailureKind.RENDER)
         return page
-    return _check_rendered(page, rendered, maker, keep_markdown=keep_markdown)
+    return _check_rendered(page, rendered, maker, keep_markdown=keep_markdown, made_markdown=made_markdown)
 
 
 def scan_supplied_html(
