@@ -58,7 +58,7 @@ https://devfrankduah.github.io/loupe/test-page/
 
 Line by line:
 
-- The first line is the verdict. It counts the pieces of hidden text that read like instructions to an AI and says how many of those reach the markdown. Then it gives the total amount of hidden text. When loupe couldn't scan a page, it says why instead.
+- The first line is the verdict. It counts the pieces of hidden text that read like instructions to an AI and says how many of those reach the markdown. Then it gives the total amount of hidden text. Without `--render`, on a page that runs scripts, it adds that the scripts may show some of the hidden text and that `--render` runs them. When loupe couldn't scan a page, it says why instead.
 - `backend` says where the page came from: `local` for your machine, `Bright Data` for Bright Data's APIs.
 - `html` and `markdown` are the sizes of the two versions loupe compared, and the brackets say where the markdown came from. Made on your machine, it's an approximation. Through Bright Data, it's what Bright Data's Fetch API returns.
 - The `rendered` line says how the browser check went. "Reached the bottom" means it scrolled the whole page, and "centred" counts elements it moved to the middle of the screen to give scroll animations a chance to show them.

@@ -384,13 +384,26 @@ def summary_markdown(pages: Sequence[PageReport], outcome: str) -> str:
     return "\n".join(lines)
 
 
+def scripts_caveat(page: PageReport, unrun: str) -> str | None:
+    """What a verdict on a markup scan that found hidden text on a page that runs scripts adds, since they may show
+    some of it, ending with unrun, which says why they didn't run and what would run them. None for any other scan.
+
+    The findings stay as they are: a script may as well hide more, and only a browser can tell.
+    """
+    if page.mode is not ScanMode.STATIC or not page.findings or Signal.SCRIPTS not in page.needs_browser:
+        return None
+    return f"the page runs scripts, which may show some of the hidden text, {unrun}"
+
+
 def render_text(page: PageReport, quote_limit: int = DEFAULT_QUOTE_CHARACTERS) -> str:
     """The plain-text summary of one page, safe to print to a terminal."""
     return "\n".join(printable(line) for line in _text_lines(page, quote_limit))
 
 
 def _text_lines(page: PageReport, quote_limit: int) -> list[str]:
-    lines = [verdict(page), page.url, f"  backend: {page.backend.description}"]
+    caveat = scripts_caveat(page, "and a markup scan doesn't run them (--render does)")
+    first = verdict(page) if caveat is None else f"{verdict(page)} But {caveat}."
+    lines = [first, page.url, f"  backend: {page.backend.description}"]
     if page.html_error is not None:
         lines.append(f"  error: {page.html_error}")
         return lines

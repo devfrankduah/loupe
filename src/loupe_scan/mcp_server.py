@@ -62,6 +62,7 @@ from loupe_scan.fetch import DEFAULT_UNLOCKER_ZONE, BrightDataClient
 from loupe_scan.local_fetch import FetchLimits, LocalFetcher, NonPublicAddressError, RobotsDisallowedError
 from loupe_scan.render import PLAYWRIGHT_INSTALL_HINT, open_renderer
 from loupe_scan.report import DEFAULT_QUOTE_CHARACTERS, CheckedFinding, PageReport, page_result, quote, verdict
+from loupe_scan.report import scripts_caveat as report_scripts_caveat
 from loupe_scan.scan import Kind, ScanMode
 from loupe_scan.session import bright_data_client, endpoint_redactor, fetch_with_address, scan_html_once
 from loupe_scan.signals import Signal, describe
@@ -322,18 +323,10 @@ def _found_line(report: PageReport) -> str:
 
 
 def scripts_caveat(report: PageReport, scan: ScanChoice) -> str | None:
-    """What the verdict on a markup scan of a page that runs scripts adds, since they may show text it calls hidden.
-
-    The findings stay as they are: a script may as well hide more, and only a browser can tell.
-    """
-    if report.mode is not ScanMode.STATIC or not report.findings or Signal.SCRIPTS not in report.needs_browser:
-        return None
+    """report.scripts_caveat for this server: what runs the scripts under --scan markup, or that auto couldn't."""
     if scan is ScanChoice.MARKUP:
-        return (
-            "the page runs scripts, which may show some of the hidden text, and a markup scan doesn't run them "
-            "(--scan render, or the default --scan auto, does)"
-        )
-    return "the page runs scripts, which may show some of the hidden text, and without a browser loupe couldn't run them"
+        return report_scripts_caveat(report, "and a markup scan doesn't run them (--scan render, or the default --scan auto, does)")
+    return report_scripts_caveat(report, "and without a browser loupe couldn't run them")
 
 
 def _verdict_line(report: PageReport, scan: ScanChoice) -> str:

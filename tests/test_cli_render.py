@@ -217,3 +217,15 @@ def test_hidden_text_after_a_script_that_navigates_at_once_is_still_found(
     result = scan_html(html, f"{fixture_site}/given.html", render=True)
     (after,) = [item for item in result.hidden_text if "CASE-AFTER" in item.text]
     assert (after.kind.value, after.mode, after.in_markdown) == ("hidden-attribute", ScanMode.STATIC, True)
+
+
+def test_a_rendered_scan_never_says_scripts_may_show_hidden_text(
+    chromium_installed: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from .test_html_file import SCRIPTED, UNREACHABLE
+
+    saved = tmp_path / "page.html"
+    saved.write_text(SCRIPTED, encoding="utf-8")
+    cli.main(["--html-file", str(saved), UNREACHABLE, "--skip-markdown", "--render"])
+    verdict = capsys.readouterr().out.splitlines()[0]
+    assert "hidden text" in verdict and "runs scripts" not in verdict
