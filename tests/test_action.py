@@ -40,6 +40,17 @@ def _run_scripts(text: str) -> list[str]:
     return scripts
 
 
+def test_a_workflow_step_with_a_pipe_fails_when_a_command_before_the_pipe_fails() -> None:
+    # A step with no shell runs as bash -e, which takes a pipeline's last exit code, so pytest | tee passed 49 failures.
+    piped = 0
+    for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        text = workflow.read_text(encoding="utf-8")
+        if any(re.search(r"(?<!\|)\|(?!\|)", script) for script in _run_scripts(text)):
+            piped += 1
+            assert "\ndefaults:\n  run:\n    shell: bash\n" in text, workflow.name
+    assert piped > 0
+
+
 def test_the_action_takes_the_inputs_the_docs_list() -> None:
     action = ACTION.read_text(encoding="utf-8")
     inputs = _section_keys(action, "inputs")
