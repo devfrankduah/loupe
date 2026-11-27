@@ -535,13 +535,9 @@ def _scanned(fetched: FetchedPage) -> PageReport:
     return fetched.report
 
 
-def fetch_page_text(scanner: PageScanner, url: str, *, render: bool) -> str:
-    """What the fetch_page tool returns for url. Raises ToolError, with loupe's own message, for a page it couldn't scan."""
-    return fetch_page_with_decision(scanner, url, render=render)[0]
-
-
 def fetch_page_with_decision(scanner: PageScanner, url: str, *, render: bool) -> tuple[str, ScanDecision | None]:
-    """fetch_page's text for url, and which scan ran and why. Raises ToolError as fetch_page_text does."""
+    """What the fetch_page tool returns for url, and which scan ran and why. Raises ToolError, with loupe's own
+    message, for a page it couldn't scan."""
     fetched = scanner.scan(url, render=render)
     return page_text(_scanned(fetched), scanner.settings, fetched.decision), fetched.decision
 
@@ -620,7 +616,7 @@ def build_server(scanner: PageScanner) -> MCPServer:
         structured_output=False,
     )
     def fetch_page(url: URL_ARGUMENT, render: RENDER_ARGUMENT = False) -> str:
-        return fetch_page_text(scanner, url, render=render)
+        return fetch_page_with_decision(scanner, url, render=render)[0]
 
     @server.tool(
         name="scan_page",

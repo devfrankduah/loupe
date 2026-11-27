@@ -6,11 +6,11 @@ from loupe_scan.scan import (
     PER_REQUEST_PLACEHOLDER,
     Finding,
     Kind,
-    inline_style_hiding_reasons,
     is_per_request_meta,
     parse_inline_style,
     scan_html,
 )
+from loupe_scan.stylesheets import style_attribute_hiding_reasons
 
 
 def _finding_with_marker(findings: list[Finding], marker: str) -> Finding:
@@ -158,8 +158,8 @@ def test_parse_inline_style_lowercases_and_later_declarations_win() -> None:
         ("", ()),
     ],
 )
-def test_inline_style_hiding_reasons(style: str, reasons: tuple[str, ...]) -> None:
-    assert inline_style_hiding_reasons(style) == reasons
+def test_style_attribute_hiding_reasons(style: str, reasons: tuple[str, ...]) -> None:
+    assert style_attribute_hiding_reasons(style) == reasons
 
 
 PER_REQUEST_PAGE = """

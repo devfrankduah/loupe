@@ -23,7 +23,6 @@ from loupe_scan.stylesheets import (
     StylesheetCheck,
     StylesheetSource,
     read_page_styles,
-    style_attribute_hiding_reasons,
 )
 
 _LABEL_ATTRIBUTES: Final[tuple[str, ...]] = ("alt", "title", "aria-label")
@@ -136,11 +135,6 @@ def parse_inline_style(style: str) -> dict[str, str]:
         if property_name and property_value:
             declarations[property_name] = property_value
     return declarations
-
-
-def inline_style_hiding_reasons(style: str) -> tuple[str, ...]:
-    """Return the declarations in style that make an element invisible to a reader, with no stylesheet applied."""
-    return style_attribute_hiding_reasons(style)
 
 
 def _element_hiding(element: Tag, styles: PageStyles) -> tuple[Kind, str] | None:
