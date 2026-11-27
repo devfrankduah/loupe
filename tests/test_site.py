@@ -124,14 +124,9 @@ def test_example_domains_are_marked_as_the_control() -> None:
     assert render_report_page(load_results(results)).count('<li class="card control">') == 1
 
 
-def test_retry_and_fetch_errors_are_explained_on_the_card() -> None:
-    results = _results(
-        _page("https://a.test/", [], markdown_retry={"first_error": "x", "retry_error": None,
-                                                     "not_compared_because_text_was_cut": 34}),
-        _page("https://b.test/", [], html_error="HTTP 500"),
-    )
+def test_fetch_errors_are_explained_on_the_card() -> None:
+    results = _results(_page("https://b.test/", [], html_error="HTTP 500"))
     page_html = render_report_page(load_results(results))
-    assert "worked on a single retry. 34 longer findings" in page_html
     assert "The HTML could not be fetched: HTTP 500" in page_html
 
 
@@ -187,9 +182,6 @@ def test_an_array_of_pages_is_rejected_unless_each_has_this_schema_version_and_a
         '{"pages": []}',
         '{"pages": [{"url": "https://a.test/"}]}',
         _results(_page("https://a.test/", [_finding("made-up", "x", "y", None)])),
-        _results(_page("https://a.test/", [_finding("comment", "x", "y", None)], markdown_retry="yes")),
-        _results(_page("https://a.test/", [], markdown_retry={"not_compared_because_text_was_cut": -1})),
-        _results(_page("https://a.test/", [], markdown_retry={"not_compared_because_text_was_cut": "3"})),
     ],
 )
 def test_malformed_results_are_rejected(document: str) -> None:

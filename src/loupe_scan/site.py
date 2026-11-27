@@ -84,9 +84,6 @@ class PageRecord:
     url: str
     html_error: str | None
     markdown_error: str | None
-    markdown_retry_error: str | None
-    markdown_retried: bool
-    retry_not_compared: int
     findings: tuple[FindingRecord, ...]
     mode: ScanMode = ScanMode.STATIC
     # Set for rendered pages that loaded.
@@ -280,18 +277,10 @@ def _load_page(value: object, where: str) -> PageRecord:
     if mode is ScanMode.RENDERED and html_error is None:
         rendering = _load_rendering(_field(record, "rendering", where), f"{where}.rendering")
     findings = _list(_field(record, "findings", where), f"{where}.findings")
-    retry_value = record.get("markdown_retry")
-    retry = _object(retry_value, f"{where}.markdown_retry") if retry_value is not None else {}
-    not_compared = retry.get("not_compared_because_text_was_cut", 0)
-    if not isinstance(not_compared, int) or isinstance(not_compared, bool) or not_compared < 0:
-        raise ReportFormatError(f"{where}.markdown_retry count should be a whole number")
     return PageRecord(
         url=_string(record, "url", where),
         html_error=html_error,
         markdown_error=_optional_string(record, "markdown_error", where),
-        markdown_retry_error=_optional_string(retry, "retry_error", f"{where}.markdown_retry"),
-        markdown_retried=retry_value is not None,
-        retry_not_compared=not_compared,
         findings=tuple(
             _load_finding(item, f"{where}.findings[{index}]", mode) for index, item in enumerate(findings)
         ),
@@ -662,11 +651,6 @@ def _page_card(page: PageRecord) -> str:
     )
     if page.markdown_error is not None:
         parts.append(f'<p class="card-note">The markdown could not be fetched: {_escape(page.markdown_error)}</p>')
-    elif page.markdown_retried:
-        note = "The markdown fetch failed once and worked on a single retry."
-        if page.retry_not_compared:
-            note += f" {page.retry_not_compared} longer findings couldn't be compared after it."
-        parts.append(f'<p class="card-note">{note}</p>')
     parts.append("</li>")
     return "".join(parts)
 
