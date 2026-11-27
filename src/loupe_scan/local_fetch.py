@@ -253,6 +253,8 @@ class _UnreadableRedirect(Exception):
 
 
 _UNREADABLE_REDIRECT: Final[str] = "it redirects to an invalid URL"
+# A request is given at least this long, so one started just before its deadline still gets an answer or a timeout.
+_SHORTEST_WAIT_SECONDS: Final[float] = 0.05
 
 
 class GetSession(Protocol):
@@ -443,13 +445,14 @@ class LocalFetcher:
     def fetch_page(self, url: str) -> FetchedHtml:
         """The page's HTML and where it came from after redirects. Raises as fetch_html does."""
         current = url
+        deadline: float | None = None
         for _ in range(self._limits.max_redirects + 1):
             self.admit(current)
-            deadline = self._clock() + self._limits.total_seconds
+            deadline = self._deadline(deadline, url)
             try:
-                response = self._get(current, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+                response = self._get(current, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8", deadline)
             except requests.RequestException as error:
-                raise FetchError(f"Fetching {url} failed: {self._network_problem(error)}") from None
+                raise FetchError(f"Fetching {url} failed: {self._network_problem(error, deadline)}") from None
             except _UnreadableRedirect:
                 raise FetchError(f"Fetching {url} failed: {_UNREADABLE_REDIRECT}") from None
             try:
@@ -471,13 +474,14 @@ class LocalFetcher:
         """
         host = urlsplit(url).hostname
         current = url
+        deadline: float | None = None
         for _ in range(self._limits.max_redirects + 1):
             self.admit(current)
-            deadline = self._clock() + self._limits.total_seconds
+            deadline = self._deadline(deadline, url)
             try:
-                response = self._get(current, "text/css,*/*;q=0.1")
+                response = self._get(current, "text/css,*/*;q=0.1", deadline)
             except requests.RequestException as error:
-                raise FetchError(f"Fetching {url} failed: {self._network_problem(error)}") from None
+                raise FetchError(f"Fetching {url} failed: {self._network_problem(error, deadline)}") from None
             except _UnreadableRedirect:
                 raise FetchError(f"Fetching {url} failed: {_UNREADABLE_REDIRECT}") from None
             try:
@@ -492,13 +496,32 @@ class LocalFetcher:
                 raise FetchError(f"Fetching {url} failed: it redirects to another host")
         raise FetchError(f"Fetching {url} failed: more than {self._limits.max_redirects} redirects")
 
-    def _get(self, url: str, accept: str) -> requests.Response:
-        """The response for url, its redirects not followed. Raises requests' own errors, and _UnreadableRedirect."""
+    def _too_long(self) -> str:
+        return f"it took more than {self._limits.total_seconds:g} s"
+
+    def _deadline(self, deadline: float | None, url: str) -> float:
+        """When fetching url has to be done by: total_seconds from its first request, shared by every redirect after
+        it, so a site that answers each hop slowly can't hold one page for longer. Raises FetchError once it's past.
+
+        It starts after the first request's robots.txt check and Crawl-delay, and covers every later one's.
+        """
+        now = self._clock()
+        if deadline is None:
+            return now + self._limits.total_seconds
+        if now >= deadline:
+            raise FetchError(f"Fetching {url} failed: {self._too_long()}")
+        return deadline
+
+    def _get(self, url: str, accept: str, deadline: float) -> requests.Response:
+        """The response for url, its redirects not followed, waiting no longer than deadline allows. Raises requests'
+        own errors, and _UnreadableRedirect."""
+        left = max(deadline - self._clock(), _SHORTEST_WAIT_SECONDS)
+        connect, read = self._timeout
         try:
             return self._session.get(
                 url,
                 headers={"user-agent": USER_AGENT, "accept": accept},
-                timeout=self._timeout,
+                timeout=(min(connect, left), min(read, left)),
                 stream=True,
                 allow_redirects=False,
             )
@@ -509,7 +532,9 @@ class LocalFetcher:
             # raises a plain ValueError, which a site chooses.
             raise _UnreadableRedirect from None
 
-    def _network_problem(self, error: requests.RequestException) -> str:
+    def _network_problem(self, error: requests.RequestException, deadline: float) -> str:
+        if isinstance(error, requests.Timeout) and self._clock() >= deadline - _SHORTEST_WAIT_SECONDS:
+            return self._too_long()
         if isinstance(error, requests.ConnectTimeout):
             return f"couldn't connect within {self._limits.connect_timeout_seconds:g} s"
         if isinstance(error, requests.ReadTimeout):
@@ -595,13 +620,15 @@ class LocalFetcher:
 
     def _load_robots(self, origin: str) -> _RobotsRules:
         current = f"{origin}/robots.txt"
+        # One deadline for robots.txt and its redirects: each request gets only the time left, and one started past
+        # it times out as soon as the site is slow.
+        deadline = self._clock() + self._limits.total_seconds
         # RFC 9309: follow at least five redirects, then treat robots.txt as unavailable.
         for _ in range(max(self._limits.max_redirects, 5) + 1):
-            deadline = self._clock() + self._limits.total_seconds
             try:
-                response = self._get(current, "text/plain,*/*;q=0.5")
+                response = self._get(current, "text/plain,*/*;q=0.5", deadline)
             except requests.RequestException as error:
-                return _RobotsRules(unreadable_because=self._network_problem(error))
+                return _RobotsRules(unreadable_because=self._network_problem(error, deadline))
             except _UnreadableRedirect:
                 # As RFC 9309 treats a robots.txt that redirects too often: unavailable, which allows everything.
                 return _RobotsRules()

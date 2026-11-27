@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import re
 import socket
+import time
 
 import pytest
 import requests
@@ -164,6 +165,51 @@ def test_a_redirect_to_a_url_that_cant_be_read_is_a_fetch_error(location: str) -
             LocalFetcher().fetch_html(site.url("/cake"))
         with pytest.raises(FetchError, match=r"failed: it redirects to an invalid URL$"):
             LocalFetcher().fetch_stylesheet(site.url("/cake.css"))
+
+
+def _slow_hops(final: Route) -> dict[str, Route]:
+    """Three redirects that each answer after 0.4 s, then final: well within 1 s a hop, not in all."""
+    routes = {f"/hop{n}": Route(status=302, headers={"location": f"/hop{n + 1}"}, delay_seconds=0.4) for n in range(3)}
+    routes["/hop3"] = final
+    return routes
+
+
+def test_the_time_limit_covers_a_page_and_all_its_redirects() -> None:
+    limits = FetchLimits(total_seconds=1.0)
+    with serve_routes({"/robots.txt": Route(status=404), **_slow_hops(html_route(PAGE))}) as site:
+        with pytest.raises(FetchError, match=r"failed: it took more than 1 s$"):
+            LocalFetcher(limits=limits).fetch_html(site.url("/hop0"))
+        assert LocalFetcher(limits=FetchLimits(total_seconds=5.0)).fetch_html(site.url("/hop0")) == PAGE
+
+
+def test_a_request_gets_only_the_time_left() -> None:
+    # The page itself takes 3 s to answer, well inside the 30 s read timeout, but only 0.2 s of the page's 1 s is left.
+    routes = _slow_hops(Route(body=PAGE.encode("utf-8"), delay_seconds=3.0))
+    del routes["/hop2"]
+    routes["/hop1"] = Route(status=302, headers={"location": "/hop3"}, delay_seconds=0.4)
+    with serve_routes({"/robots.txt": Route(status=404), **routes}) as site:
+        started = time.monotonic()
+        with pytest.raises(FetchError, match=r"failed: it took more than 1 s$"):
+            LocalFetcher(limits=FetchLimits(total_seconds=1.0)).fetch_html(site.url("/hop0"))
+        assert time.monotonic() - started < 2.0
+
+
+def test_the_time_limit_covers_a_stylesheet_and_all_its_redirects() -> None:
+    sheet = Route(body=b".x { color: red }", headers={"content-type": "text/css"})
+    with serve_routes({"/robots.txt": Route(status=404), **_slow_hops(sheet)}) as site:
+        with pytest.raises(FetchError, match=r"failed: it took more than 1 s$"):
+            LocalFetcher(limits=FetchLimits(total_seconds=1.0)).fetch_stylesheet(site.url("/hop0"))
+
+
+def test_the_time_limit_covers_a_robots_txt_and_all_its_redirects() -> None:
+    routes = {
+        "/robots.txt": Route(status=302, headers={"location": "/hop0"}, delay_seconds=0.4),
+        **_slow_hops(_robots("User-agent: *\nAllow: /\n")),
+        "/cake": html_route(PAGE),
+    }
+    with serve_routes(routes) as site:
+        with pytest.raises(RobotsDisallowedError, match=r"couldn't be read \(it took more than 1 s\)"):
+            LocalFetcher(limits=FetchLimits(total_seconds=1.0)).fetch_html(site.url("/cake"))
 
 
 def test_a_redirect_target_is_read_before_it_is_followed() -> None:

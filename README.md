@@ -147,7 +147,7 @@ loupe --render https://devfrankduah.github.io/loupe/test-page/
 - `--quote-chars N` cuts quoted hidden text to N characters (default 160, 0 for no limit).
 - `--zone NAME` picks the Web Unlocker zone on the Bright Data backend (default `mcp_unlocker`).
 
-On the local backend loupe asks politely. Its user agent names loupe and this repository, and it obeys robots.txt and any Crawl-delay. It gives up on a page after about 60 seconds or more than 5 redirects. It also stops reading at 10 MB.
+On the local backend loupe asks politely. Its user agent names loupe and this repository, and it obeys robots.txt and any Crawl-delay. It gives up on a page after about 60 seconds in all, its redirects included, or more than 5 redirects. It also stops reading at 10 MB.
 
 ### Exit codes
 
