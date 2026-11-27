@@ -212,13 +212,15 @@ def scan_html_once(
     """Scan html as the page at url without fetching url, whoever fetched the HTML.
 
     The markdown is always made here from that same HTML, so what's compared
-    is what was scanned, and keep_markdown keeps it on the report. With a
-    renderer, the browser is given the HTML as the page at url and loads its
+    is what was scanned, and keep_markdown keeps it on the report. address is
+    where the HTML came from after any redirects, url when not given, and
+    the page's relative links resolve against it. With a renderer, the
+    browser is given the HTML as the page at address and loads its
     stylesheets and scripts from the network. Without one, the stylesheet
     check reads linked stylesheets only when stylesheets is given to fetch
-    them, from the host of address, where the HTML came from (url when not
-    given). backend records where the HTML came from, and supplied whether
-    the caller gave it to loupe.
+    them, from address's host. The report names url either way. backend
+    records where the HTML came from, and supplied whether the caller gave
+    it to loupe.
     """
     maker = local_markdown() if markdown else None
     if renderer is None:
@@ -231,7 +233,7 @@ def scan_html_once(
         return page
     page = PageReport(url=url, backend=backend, mode=ScanMode.RENDERED, browser=renderer.source, supplied_html=supplied)
     try:
-        rendered = renderer.render_html(url, html)
+        rendered = renderer.render_html(url if address is None else address, html)
     except RenderError as error:
         record_failure(page, error, otherwise=FailureKind.RENDER)
         return page

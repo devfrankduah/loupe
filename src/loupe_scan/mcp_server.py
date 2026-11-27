@@ -476,7 +476,7 @@ class PageScanner:
             )
         if render_first:
             try:
-                report = self._rendered(html, url)
+                report = self._rendered(html, url, address)
             except SetupError as error:
                 # loupe's own message, about Playwright or Chromium.
                 raise ToolError(f"loupe can't render pages here: {error}") from None
@@ -492,7 +492,7 @@ class PageScanner:
         if not signals:
             return FetchedPage(report, None, ScanDecision(False, "auto, markup only, as nothing on the page needs a browser"))
         try:
-            rendered = self._rendered(html, url)
+            rendered = self._rendered(html, url, address)
         except SetupError:
             return FetchedPage(report, None, _auto_without_browser(signals, "Chromium isn't available here"))
         if rendered.html_error is not None:
@@ -511,8 +511,9 @@ class PageScanner:
             address=address,
         )
 
-    def _rendered(self, html: str, url: str) -> PageReport:
-        """The page rendered in Chromium. Raises SetupError when Playwright or Chromium is missing."""
+    def _rendered(self, html: str, url: str, address: str) -> PageReport:
+        """The page rendered in Chromium at address, where its redirects ended, so its relative links resolve as they
+        did for the fetch. Raises SetupError when Playwright or Chromium is missing."""
         # Chromium fetches the page's stylesheets, scripts and frames itself, so it's held to the same addresses.
         with open_renderer(None, public_only=not self.settings.allow_private_addresses) as renderer:
             return scan_html_once(
@@ -523,6 +524,7 @@ class PageScanner:
                 renderer=renderer,
                 supplied=False,
                 keep_markdown=True,
+                address=address,
             )
 
 
