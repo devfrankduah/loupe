@@ -7,7 +7,7 @@ localhost, which is another origin and another site.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 import pytest
 
@@ -79,7 +79,13 @@ def _render(site: FixtureSite, settings: RenderSettings = LOCAL_SETTINGS, *, iso
         class Launcher:
             """Local Chromium, optionally running each site's frames in a process of their own as a remote browser may."""
 
-            def launch(self, *, headless: bool | None = None, proxy: ProxySettings | None = None) -> Browser:
+            def launch(
+                self,
+                *,
+                headless: bool | None = None,
+                proxy: ProxySettings | None = None,
+                args: Sequence[str] | None = None,
+            ) -> Browser:
                 return playwright.chromium.launch(headless=True, args=["--site-per-process"] if isolate_sites else [])
 
             def connect_over_cdp(self, endpoint_url: str, *, timeout: float | None = None) -> Browser:

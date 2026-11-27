@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -58,10 +58,14 @@ class FakeLauncher:
     failure: Exception | None = None
     calls: list[tuple[str, object]] = field(default_factory=list)
 
-    def launch(self, *, headless: bool | None = None, proxy: ProxySettings | None = None) -> FakeBrowser:
+    def launch(
+        self, *, headless: bool | None = None, proxy: ProxySettings | None = None, args: Sequence[str] | None = None
+    ) -> FakeBrowser:
         self.calls.append(("launch", headless))
         if proxy is not None:
             self.calls.append(("proxy", proxy))
+        if args is not None:
+            self.calls.append(("args", tuple(args)))
         if self.failure is not None:
             raise self.failure
         return FakeBrowser("launched")

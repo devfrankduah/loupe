@@ -184,6 +184,38 @@ try {{ new WebSocket("ws://{local}/socket"); }} catch (error) {{}}
     assert len(notes) == 1 and "non-public address" in notes[0]
 
 
+def _stun_packets(public_only: bool) -> int:
+    """How many UDP packets a page's WebRTC connection sends to a STUN listener on this machine."""
+    from loupe_scan.render import open_renderer
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.settimeout(0.2)
+        port = listener.getsockname()[1]
+        html = f"""<p>Visible text for the scan to read.</p><script>
+const connection = new RTCPeerConnection({{iceServers: [{{urls: "stun:127.0.0.1:{port}"}}]}});
+connection.createDataChannel("probe");
+connection.createOffer().then(function (offer) {{ return connection.setLocalDescription(offer); }});
+</script>"""
+        renderer = open_renderer(None, public_only=True, admit=_admit) if public_only else open_renderer(None)
+        with renderer as opened:
+            opened.render_html(f"http://{ALLOWED}/page", html)
+        packets = 0
+        for _ in range(10):
+            try:
+                listener.recvfrom(2048)
+                packets += 1
+            except socket.timeout:
+                pass
+        return packets
+
+
+def test_a_guarded_page_cant_send_webrtc_packets_around_the_proxy(chromium: None) -> None:
+    # WebRTC sends UDP itself, which an HTTP proxy never sees, so a page could probe this machine's network with STUN.
+    assert _stun_packets(public_only=False) > 0
+    assert _stun_packets(public_only=True) == 0
+
+
 def test_an_unguarded_render_is_unchanged(chromium: None, site: RouteSite) -> None:
     from loupe_scan.render import open_renderer
 

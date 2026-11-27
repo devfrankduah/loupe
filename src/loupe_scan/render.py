@@ -84,6 +84,10 @@ SUPERSEDED_BY_RENDERING: Final[frozenset[Kind]] = frozenset({Kind.HIDDEN_ATTRIBU
 # loupe installs from its repository until it's published, and "loupe" on PyPI is a different package.
 PLAYWRIGHT_INSTALL_HINT: Final[str] = "from the loupe folder, run pip install -e '.[render]' && playwright install chromium"
 CHROMIUM_INSTALL_HINT: Final[str] = "playwright install chromium"
+# Chromium behind the public-only proxy is started with these. WebRTC sends UDP itself, which an HTTP proxy never
+# sees, so a page could otherwise send STUN to an address on this machine's network and learn from the answer what's
+# there. With this policy WebRTC uses UDP only through a proxy, which this one can't carry, so it sends none.
+PROXIED_ONLY_ARGUMENTS: Final[tuple[str, ...]] = ("--force-webrtc-ip-handling-policy=disable_non_proxied_udp",)
 ENDPOINT_PLACEHOLDER: Final[str] = "[endpoint]"
 # Bright Data's browser usernames read brd-customer-<id>-zone-<zone>, and the
 # customer id or zone name can turn up on its own in an error.
@@ -324,7 +328,9 @@ BrowserT = TypeVar("BrowserT", bound=Closeable)
 class BrowserLauncher(Protocol[BrowserT_co]):
     """The part of Playwright's BrowserType used here, so tests can pass a fake."""
 
-    def launch(self, *, headless: bool | None = None, proxy: ProxySettings | None = None) -> BrowserT_co: ...
+    def launch(
+        self, *, headless: bool | None = None, proxy: ProxySettings | None = None, args: Sequence[str] | None = None
+    ) -> BrowserT_co: ...
 
     def connect_over_cdp(self, endpoint_url: str, *, timeout: float | None = None) -> BrowserT_co: ...
 
@@ -409,7 +415,9 @@ def acquire_browser(
 ) -> BrowserT:
     if endpoint is None:
         try:
-            return launcher.launch(headless=True) if proxy is None else launcher.launch(headless=True, proxy=proxy)
+            if proxy is None:
+                return launcher.launch(headless=True)
+            return launcher.launch(headless=True, proxy=proxy, args=PROXIED_ONLY_ARGUMENTS)
         except Exception as error:
             message = _first_line(error)
             if "Executable doesn't exist" in message:
