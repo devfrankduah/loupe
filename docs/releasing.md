@@ -4,7 +4,7 @@ loupe is published to PyPI as `loupe-scan` by [`.github/workflows/release.yml`](
 
 ## One-time setup
 
-Only the project's owner can do these, on pypi.org and on GitHub, and nothing is published until the first release.
+Only the project's owner can do these, and nothing is published until the first release. The first, on pypi.org, is the one required step. The second, on GitHub, is optional.
 
 1. On PyPI, add a pending publisher, which lets the first release create the project. Sign in, open your account's Publishing settings, and add a GitHub publisher with:
    - PyPI project name: `loupe-scan`
@@ -14,7 +14,7 @@ Only the project's owner can do these, on pypi.org and on GitHub, and nothing is
    - Environment name: `pypi`
 
    PyPI's guide is [Creating a PyPI project with a Trusted Publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/). A pending publisher doesn't reserve the name: if someone else registers `loupe-scan` before the first release, the pending publisher stops working. Once the project exists, its publishers are managed from the project's own settings, as in [Adding a Trusted Publisher to an existing PyPI project](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
-2. On GitHub, in the repository's Settings, under Environments, create an environment named `pypi`, as GitHub's [Managing environments for deployment](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment) describes. Adding yourself as a required reviewer makes every publish wait for your approval, and limiting its deployments to tags matching `v*` keeps anything else from using it. PyPI calls the environment optional but strongly recommends it. With the GitHub CLI signed in as the repository's owner, these two commands create it with you as its required reviewer, `56163058` being your GitHub user id, and deployments limited to tags matching `v*`:
+2. Optionally, on GitHub, set up the `pypi` environment with an approval gate. Without this step, GitHub creates the environment itself on the release workflow's first run, as [Managing environments for deployment](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment) says, with no protection rules, so the publish job runs with no approval gate. Adding yourself as a required reviewer, then or later, adds the gate: every publish after that waits for your approval. Limiting its deployments to tags matching `v*` keeps anything else from using it. Both are in the repository's Settings, under Environments, and PyPI strongly recommends restricting the environment like this. With the GitHub CLI signed in as the repository's owner, these two commands create the environment, or update the one GitHub made, with you as its required reviewer, `56163058` being your GitHub user id, and deployments limited to tags matching `v*`:
 
    ```
    gh api --method PUT repos/devfrankduah/loupe/environments/pypi --input - <<'EOF'
