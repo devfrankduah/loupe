@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (27 November 2026)
 
-The first release on PyPI, as `loupe-scan`. On release day "(unreleased)" becomes the date; [docs/releasing.md](docs/releasing.md) has the steps.
+The first release on PyPI, as `loupe-scan`.
 
 Two of these break existing scripts: `--json PATH` is now `--json-output PATH`, and exit code 1 now means a finding `--fail-on` counts, where it used to mean a failed fetch.
 
@@ -59,7 +59,7 @@ Two of these break existing scripts: `--json PATH` is now `--json-output PATH`, 
 
 ## 0.1.0
 
-The version in `pyproject.toml` has been 0.1.0 since the first commit, and nothing is tagged yet. Each heading below is the day the work landed on `main`.
+The version in `pyproject.toml` was 0.1.0 from the first commit, and it was never tagged. Each heading below is the day the work landed on `main`.
 
 ### 20 November 2026
 
